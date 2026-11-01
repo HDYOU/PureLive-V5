@@ -1,0 +1,89 @@
+name: Sync Upstream with Merge
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  push:
+    paths:
+      - ".github/workflows/my_sync_upstream.yml"
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+  watch:
+    types: [started]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repo code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "${{ github.repository_owner }}"
+          git config --global user.email "${{ github.repository_owner }}@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/LuomingXu/PureLive.git
+          git fetch upstream master
+
+      - name: Check for updates
+        id: check_update
+        run: |
+          CURRENT_BRANCH=master
+          git checkout ${CURRENT_BRANCH}
+
+          LOCAL_HEAD=$(git rev-parse HEAD)
+          UPSTREAM_HEAD=$(git rev-parse upstream/${CURRENT_BRANCH})
+
+          if [ "$LOCAL_HEAD" = "$UPSTREAM_HEAD" ]; then
+            echo "has_update=false" >> $GITHUB_OUTPUT
+            echo "当前分支已与上游一致"
+            exit 0
+          fi
+
+          echo "has_update=true" >> $GITHUB_OUTPUT
+          echo "有新提交"
+
+      - name: Merge upstream changes
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        run: |
+          git checkout master
+          git merge upstream/master --no-edit --allow-unrelated-histories || true
+          # Resolve any conflicts by keeping upstream for most files
+          git add -A
+          git commit --no-edit --allow-empty 2>/dev/null || true
+
+      - name: Push merged code to origin
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        run: |
+          git push origin master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger my-test-build
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: my-test-build
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
