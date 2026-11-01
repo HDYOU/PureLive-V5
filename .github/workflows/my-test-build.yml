@@ -47,6 +47,109 @@ jobs:
           echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> apps/pure_live/android/key.properties
           echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> apps/pure_live/android/key.properties
 
+      # ====================== 自动修改 ：AndroidManifest 添加 extractNativeLibs="true" ======================
+      - name: Add extractNativeLibs="true" to AndroidManifest.xml
+        run: |
+          MANIFEST="apps/pure_live/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'android:extractNativeLibs' "$MANIFEST"; then
+            echo "⚠️ extractNativeLibs 已存在，跳过"
+            else
+              # 使用临时文件方式，避免 sed i/a 的兼容性问题
+              awk '
+                /android:name="\.MainActivity"/ { in_activity=1 }
+                in_activity && /android:windowSoftInputMode="adjustResize"/ && !done {
+                  print "      android:extractNativeLibs=\"true\""
+                done=1
+                 }
+                { print }
+                in_activity && /\/>/ { in_activity=0 }
+               ' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 android:extractNativeLibs=\"true\""
+              fi
+              grep -A5 -B5 "extractNativeLibs" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改 压缩 apk 包 ======================
+      - name: 压缩 apk 包
+        run: |
+          MANIFEST="apps/pure_live/android/app/build.gradle.kts"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'useLegacyPackaging' "$MANIFEST"; then
+            echo "⚠️ extractNativeLibs 已存在，跳过"
+            else
+              # 使用临时文件方式，避免 sed i/a 的兼容性问题
+              awk '
+              /^[[:space:]]*signingConfigs[[:space:]]*\{/ && !done {
+                  match($0, /^[[:space:]]*/)
+                  indent = substr($0, 1, RLENGTH)
+                  print indent "packaging {"
+                  print indent "    jniLibs {"
+                  print indent "        useLegacyPackaging = true"
+                  print indent "    }"
+                  print indent "}"
+                  print ""
+                  done = 1
+              }
+              { print }
+               ' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 useLegacyPackaging=\"true\""
+              fi
+              grep -A5 -B5 "useLegacyPackaging" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  斗鱼直播支持 hevc ======================
+      - name: 斗鱼直播支持 hevc
+        run: |
+          MANIFEST="packages/live_core/lib/src/sites/douyu/douyu_api.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "'hevc': '1'" "$MANIFEST"; then
+            echo "⚠️ 斗鱼直播支持 hevc 已存在，跳过"
+            else
+               sed "s/'hevc': '0'/'hevc': '1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加  'hevc': '1',斗鱼直播支持 hevc"
+              fi
+              grep -A5 -B5 "'hevc':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  bilibili 直播支持 hevc ======================
+      - name: bilibili 直播支持 hevc
+        run: |
+          MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_site.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "'codec': '2,1'" "$MANIFEST"; then
+            echo "⚠️ bilibili直播支持 hevc 已存在，跳过"
+            else
+               sed "s/'codec': '0'/'codec': '2,1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 , 直播支持 hevc"
+              fi
+              grep -A5 -B5 "'codec':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  修改 android 包名 ======================
+      - name: 修改 android 包名
+        run: |
+          MANIFEST="apps/pure_live/android/app/build.gradle.kts"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "com.mystyle.purelive.you.v5" "$MANIFEST"; then
+            echo "⚠️ com.mystyle.purelive.you.v5 包名 已存在，跳过"
+            else
+               sed 's|applicationId = "com.mystyle.purelive"|applicationId = "com.mystyle.purelive.you.v5"|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "com.mystyle.purelive" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
         with:
@@ -59,7 +162,6 @@ jobs:
         run: |
           set -euo pipefail
           grep -E '^FLUTTER_VERSION=' toolchain.env >> "$GITHUB_ENV"
-          bash tools/toolchain/apple.sh
           version=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1/p' apps/pure_live/pubspec.yaml)
           build=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\2/p' apps/pure_live/pubspec.yaml)
           echo "name=PureLive-$version-$build" >> "$GITHUB_OUTPUT"
@@ -82,7 +184,19 @@ jobs:
 
       - name: 打包 APK
         working-directory: apps/pure_live
-        run: flutter build apk --release --split-per-abi
+        env:
+          # CI runners are ephemeral, so the configuration cache would be
+          # stored but never reused. With android/gradle.properties keeping
+          # problems=fail, storing is also a hard gate: unpinned latest-stable
+          # Flutter requests its own NDK and AGP bootstraps it via sdkmanager
+          # during configuration, which fails the store after the whole build.
+          # Local builds keep the cache enabled and actually reuse it.
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --dart-define=PURELIVE_BUILD_SOURCE=github-manual
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
@@ -258,7 +372,7 @@ jobs:
         run: |
           cat << 'EOF' > release_body.txt
 
-          # 纯粹直播 (You) ${{ steps.tag.outputs.tag }}
+          # 纯粹直播 ${{ steps.tag.outputs.tag }}
 
           ### 📝 本次更新
 
