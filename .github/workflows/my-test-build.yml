@@ -47,6 +47,22 @@ jobs:
           echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> apps/pure_live/android/key.properties
           echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> apps/pure_live/android/key.properties
 
+      # ====================== 自动修改 ：AndroidManifest 添加 extractNativeLibs="true" ======================
+      - name: Add extractNativeLibs="true" to AndroidManifest.xml
+        run: |
+          MANIFEST="apps/pure_live/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            # 给 MainActivity 添加 extractNativeLibs="true"
+            sed -i '/android:name=".MainActivity"/,/android:windowSoftInputMode/ {
+              /android:windowSoftInputMode="adjustResize"/i \
+                android:extractNativeLibs="true"
+            }' "$MANIFEST"
+            echo "✅ 已添加 android:extractNativeLibs=\"true\""
+            grep -A5 -B5 "extractNativeLibs" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
         with:
