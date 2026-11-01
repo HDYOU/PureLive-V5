@@ -93,10 +93,10 @@ jobs:
         run: |
           MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_site.dart"
           if [ -f "$MANIFEST" ]; then
-            if grep -q "'codec': '2,1,0'" "$MANIFEST"; then
+            if grep -q "'codec': '2,1'" "$MANIFEST"; then
             echo "⚠️ bilibili直播支持 hevc 已存在，跳过"
             else
-               sed "s/'codec': '0'/'codec': '2,1,0'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s/'codec': '0'/'codec': '2,1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                echo "✅ 已添加 , 直播支持 hevc"
               fi
               grep -A5 -B5 "'codec':" "$MANIFEST"
