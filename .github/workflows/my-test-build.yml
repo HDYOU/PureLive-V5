@@ -80,7 +80,7 @@ jobs:
             if grep -q "'hevc': '1'" "$MANIFEST"; then
             echo "⚠️ 斗鱼直播支持 hevc 已存在，跳过"
             else
-               sed -i "s/'hevc': '0'/'hevc': '1'/g" "$MANIFEST"
+               sed "s/'hevc': '0'/'hevc': '1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                echo "✅ 已添加  'hevc': '1',斗鱼直播支持 hevc"
               fi
               grep -A5 -B5 "'hevc':" "$MANIFEST"
