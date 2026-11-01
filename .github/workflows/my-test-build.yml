@@ -52,13 +52,22 @@ jobs:
         run: |
           MANIFEST="apps/pure_live/android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
-            # 给 MainActivity 添加 extractNativeLibs="true"
-            sed -i '/android:name=".MainActivity"/,/android:windowSoftInputMode/ {
-              /android:windowSoftInputMode="adjustResize"/i \
-                android:extractNativeLibs="true"
-            }' "$MANIFEST"
-            echo "✅ 已添加 android:extractNativeLibs=\"true\""
-            grep -A5 -B5 "extractNativeLibs" "$MANIFEST"
+            if grep -q 'android:extractNativeLibs' "$MANIFEST"; then
+            echo "⚠️ extractNativeLibs 已存在，跳过"
+            else
+              # 使用临时文件方式，避免 sed i/a 的兼容性问题
+              awk '
+                /android:name="\.MainActivity"/ { in_activity=1 }
+                in_activity && /android:windowSoftInputMode="adjustResize"/ && !done {
+                  print "      android:extractNativeLibs=\"true\""
+                done=1
+                 }
+                { print }
+                in_activity && /\/>/ { in_activity=0 }
+               ' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 android:extractNativeLibs=\"true\""
+              fi
+              grep -A5 -B5 "extractNativeLibs" "$MANIFEST"
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
