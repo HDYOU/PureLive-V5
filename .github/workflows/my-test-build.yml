@@ -342,7 +342,7 @@ jobs:
         run: |
           cat << 'EOF' > release_body.txt
 
-          # 纯粹直播 (You) ${{ steps.tag.outputs.tag }}
+          # 纯粹直播 ${{ steps.tag.outputs.tag }}
 
           ### 📝 本次更新
 
