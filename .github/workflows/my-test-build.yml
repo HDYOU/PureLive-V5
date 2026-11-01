@@ -88,6 +88,22 @@ jobs:
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
 
+      # ====================== 自动修改  bilibili 直播支持 hevc ======================
+      - name: bilibili 直播支持 hevc
+        run: |
+          MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_site.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "'codec': '0,1,2'" "$MANIFEST"; then
+            echo "⚠️ bilibili直播支持 hevc 已存在，跳过"
+            else
+               sed "s/'codec': '0'/'codec': '0,1,2'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 , 直播支持 hevc"
+              fi
+              grep -A5 -B5 "'codec':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
         with:
