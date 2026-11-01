@@ -112,7 +112,7 @@ jobs:
             if grep -q "com.mystyle.purelive.you.v5" "$MANIFEST"; then
             echo "⚠️ com.mystyle.purelive.you.v5 包名 已存在，跳过"
             else
-               sed "s/com.mystyle.purelive/com.mystyle.purelive.you.v5/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed 's|applicationId = "com.mystyle.purelive"|applicationId = "com.mystyle.purelive.you.v5"|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
               fi
               grep -A5 -B5 "com.mystyle.purelive" "$MANIFEST"
