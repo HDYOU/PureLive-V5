@@ -104,6 +104,22 @@ jobs:
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
 
+      # ====================== 自动修改  修改 android 包名 ======================
+      - name: 修改 android 包名
+        run: |
+          MANIFEST="apps/pure_live/android/app/build.gradle.kts"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "com.mystyle.purelive.you.v5" "$MANIFEST"; then
+            echo "⚠️ com.mystyle.purelive.you.v5 包名 已存在，跳过"
+            else
+               sed "s/com.mystyle.purelive/com.mystyle.purelive.you.v5/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "com.mystyle.purelive" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
         with:
