@@ -81,7 +81,19 @@ jobs:
 
       - name: 打包 APK
         working-directory: apps/pure_live
-        run: flutter build apk --release --split-per-abi
+        env:
+          # CI runners are ephemeral, so the configuration cache would be
+          # stored but never reused. With android/gradle.properties keeping
+          # problems=fail, storing is also a hard gate: unpinned latest-stable
+          # Flutter requests its own NDK and AGP bootstraps it via sdkmanager
+          # during configuration, which fails the store after the whole build.
+          # Local builds keep the cache enabled and actually reuse it.
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --dart-define=PURELIVE_BUILD_SOURCE=github-manual
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
