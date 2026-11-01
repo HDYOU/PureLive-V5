@@ -36,7 +36,7 @@ jobs:
       - name: Add upstream remote
         run: |
           git remote remove upstream 2>/dev/null || true
-          git remote add upstream https://github.com/LuomingXu/PureLive.git
+          git remote add upstream https://github.com/wzgrx/PureLive.git
           git fetch upstream master
 
       - name: Check for updates
@@ -57,19 +57,16 @@ jobs:
           echo "has_update=true" >> $GITHUB_OUTPUT
           echo "有新提交"
 
-      - name: Merge upstream changes
+      - name: rebase upstream changes
         if: ${{ steps.check_update.outputs.has_update == 'true' }}
         run: |
           git checkout master
-          git merge upstream/master --no-edit --allow-unrelated-histories || true
-          # Resolve any conflicts by keeping upstream for most files
-          git add -A
-          git commit --no-edit --allow-empty 2>/dev/null || true
+          # 以上游对应分支 rebase
+          git rebase upstream/master
 
-      - name: Push merged code to origin
-        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+      - name: Push rebased code to origin
         run: |
-          git push origin master
+          git push origin HEAD:master --force-with-lease
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
