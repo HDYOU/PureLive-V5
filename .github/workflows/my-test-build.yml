@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-android:
@@ -358,37 +358,69 @@ jobs:
         with:
           path: assets/version.json
 
+      # ====================== 计算 Release Tag（去掉可能的 v/V 前缀） ======================
       - name: 计算 Release Tag
         id: tag
         run: |
+          set -euo pipefail
           if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+            t="${{ github.event.inputs.tag_name }}"
+            t="${t#v}"; t="${t#V}"
+            echo "tag=$t" >> "$GITHUB_OUTPUT"
+            echo "使用输入 tag: $t"
           else
-            echo "tag=${{ fromJson(steps.version.outputs.content).version }}" >> $GITHUB_OUTPUT
+            base=$(python3 -c "import json;print(json.load(open('assets/version.json'))['version'])")
+            echo "tag=$base" >> "$GITHUB_OUTPUT"
+            echo "使用 version.json tag: $base"
           fi
 
+      # ====================== 判断是否为预发布 ======================
+      # 规则：tag 带 .pre.N 后缀 → 预发布；否则沿用 version.json 的 prerelease 字段
+      - name: 判断是否为预发布
+        id: prerelease
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION_JSON: ${{ steps.version.outputs.content }}
+        run: |
+          set -euo pipefail
+          if echo "$TAG" | grep -qE '\.pre\.[0-9]+$'; then
+            is_pre="true"
+            reason="tag 带 .pre.N 后缀"
+          else
+            is_pre=$(echo "$VERSION_JSON" | python3 -c "import sys,json;print(str(json.load(sys.stdin).get('prerelease', False)).lower())")
+            reason="沿用 assets/version.json 的 prerelease 字段"
+          fi
+          echo "prerelease=$is_pre" >> "$GITHUB_OUTPUT"
+          echo "判定 prerelease=$is_pre（$reason）"
+
+      # ====================== 构建 Release Body ======================
       - name: 构建 Release Body
         id: release_body
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION_JSON: ${{ steps.version.outputs.content }}
         run: |
-          cat << 'EOF' > release_body.txt
+          set -euo pipefail
+          version_desc=$(echo "$VERSION_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('version_desc',''))")
+          cat << EOF > release_body.txt
 
-          # 纯粹直播 ${{ steps.tag.outputs.tag }}
+          # 纯粹直播 ${TAG}
 
           ### 📝 本次更新
 
-          ${{ fromJson(steps.version.outputs.content).version_desc }}
+          ${version_desc}
 
           EOF
+          echo "body_path=$(pwd)/release_body.txt" >> "$GITHUB_OUTPUT"
 
-          echo "body_path=$(pwd)/release_body.txt" >> $GITHUB_OUTPUT
-
+      # ====================== 上传至 Release ======================
       - name: 上传至 Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.tag.outputs.tag }}
           name: v${{ steps.tag.outputs.tag }}
           body_path: ${{ steps.release_body.outputs.body_path }}
-          prerelease: ${{ fromJson(steps.version.outputs.content).prerelease }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
           generate_release_notes: false
           append_body: false
           make_latest: true
