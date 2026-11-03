@@ -9,7 +9,7 @@ on:
     paths:
       - ".github/workflows/my_sync_upstream.yml"
   schedule:
-    - cron: "0 */1 * * *"
+    - cron: "20 */1 * * *"
   workflow_dispatch:
   watch:
     types: [started]
@@ -39,33 +39,38 @@ jobs:
           git remote add upstream https://github.com/wzgrx/PureLive.git
           git fetch upstream master
 
+      # ====================== 修正后的更新检测 ======================
       - name: Check for updates
         id: check_update
         run: |
-          CURRENT_BRANCH=master
-          git checkout ${CURRENT_BRANCH}
+          set -euo pipefail
+          # 本地 master 严格对齐 origin/master 最新，作为 rebase/push 的干净基线
+          git fetch origin master
+          git checkout -B master origin/master
 
-          LOCAL_HEAD=$(git rev-parse HEAD)
-          UPSTREAM_HEAD=$(git rev-parse upstream/${CURRENT_BRANCH})
+          # 判据：上游是否有本地 master 没有的提交
+          BEHIND=$(git rev-list --count HEAD..upstream/master)
+          echo "behind_commits=$BEHIND"
 
-          if [ "$LOCAL_HEAD" = "$UPSTREAM_HEAD" ]; then
-            echo "has_update=false" >> $GITHUB_OUTPUT
-            echo "当前分支已与上游一致"
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+            echo "当前分支已包含上游最新提交，无更新"
             exit 0
           fi
 
-          echo "has_update=true" >> $GITHUB_OUTPUT
-          echo "有新提交"
+          echo "has_update=true" >> "$GITHUB_OUTPUT"
+          echo "上游有 $BEHIND 个新提交待同步"
 
-      - name: rebase upstream changes
+      - name: Rebase upstream changes
         if: ${{ steps.check_update.outputs.has_update == 'true' }}
         run: |
-          git checkout master
+          set -euo pipefail
           git rebase upstream/master
 
       - name: Push rebased code to origin
         if: ${{ steps.check_update.outputs.has_update == 'true' }}
         run: |
+          set -euo pipefail
           git push origin HEAD:master --force-with-lease
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,7 +93,6 @@ jobs:
           echo "$release_tags"
 
           # 统计 v{base_tag} 和 v{base_tag}.pre.{n} 的出现次数
-          # 只统计符合 "v{base}.pre.{数字}" 或完全等于 "v{base}" 的
           count=$(echo "$release_tags" \
             | grep -E "^v${base_tag//./\\.}(\.pre\.[0-9]+)?$" \
             | wc -l | tr -d ' ')
@@ -118,8 +122,9 @@ jobs:
             --method POST \
             -H "Accept: application/vnd.github+json" \
             "/repos/${REPO}/actions/workflows/my-test-build.yml/dispatches" \
-            -f ref=master \
-            -f "inputs[tag_name]=${TAG_NAME}"
+            --input - <<EOF
+          {"ref":"master","inputs":{"tag_name":"${TAG_NAME}"}}
+          EOF
 
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
