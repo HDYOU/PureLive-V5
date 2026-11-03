@@ -9,7 +9,7 @@ on:
     paths:
       - ".github/workflows/my_sync_upstream.yml"
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 */1 * * *"
   workflow_dispatch:
   watch:
     types: [started]
@@ -61,21 +61,65 @@ jobs:
         if: ${{ steps.check_update.outputs.has_update == 'true' }}
         run: |
           git checkout master
-          # 以上游对应分支 rebase
           git rebase upstream/master
 
       - name: Push rebased code to origin
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
         run: |
           git push origin HEAD:master --force-with-lease
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger my-test-build
+      # ====================== 计算 Release Tag ======================
+      - name: Compute release tag
+        id: compute_tag
         if: ${{ steps.check_update.outputs.has_update == 'true' }}
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: my-test-build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base_tag=$(python3 -c "import json;print(json.load(open('assets/version.json'))['version'])")
+          echo "base_tag=$base_tag"
+
+          # 拉取所有 release 的 tag_name（分页拉全量）
+          release_tags=$(gh api --paginate "repos/${REPO}/releases" --jq '.[].tag_name')
+          echo "--- existing release tags ---"
+          echo "$release_tags"
+
+          # 统计 v{base_tag} 和 v{base_tag}.pre.{n} 的出现次数
+          # 只统计符合 "v{base}.pre.{数字}" 或完全等于 "v{base}" 的
+          count=$(echo "$release_tags" \
+            | grep -E "^v${base_tag//./\\.}(\.pre\.[0-9]+)?$" \
+            | wc -l | tr -d ' ')
+
+          echo "count=$count"
+
+          if [ "$count" -eq 0 ]; then
+            final_tag="$base_tag"
+          else
+            final_tag="$base_tag.pre.$count"
+          fi
+
+          echo "final_tag=$final_tag"
+          echo "tag=$final_tag" >> "$GITHUB_OUTPUT"
+
+      # ====================== 通过 workflow_dispatch 触发 my-test-build ======================
+      - name: Trigger my-test-build with tag_name
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_NAME: ${{ steps.compute_tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "dispatch workflow my-test-build.yml with tag_name=$TAG_NAME"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/actions/workflows/my-test-build.yml/dispatches" \
+            -f ref=master \
+            -f "inputs[tag_name]=${TAG_NAME}"
 
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
