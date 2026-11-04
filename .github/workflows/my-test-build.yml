@@ -17,7 +17,7 @@ on:
     branches:
       - master
       - main
-      - *
+      - '*'
     paths-ignore:
       - "**.md"
       - ".github/**"
