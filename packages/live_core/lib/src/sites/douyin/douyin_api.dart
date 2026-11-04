@@ -618,7 +618,7 @@ abstract final class DouyinApi {
     required DateTime issuedAt,
     String? cookie,
   }) {
-    final variant = _variantFor(_variants(streamUrl), quality.id);
+    final variant = _variantForCodec(_variants(streamUrl), quality.id);
     final lines = variant?.lines ?? [for (final url in _urls(quality.data)) (url: url, format: _formatOf(url))];
     final headers = mediaHeaders(webRid, cookie: cookie);
     final used = <StreamFormat, int>{};
@@ -646,10 +646,23 @@ abstract final class DouyinApi {
   static LivePlayQuality? qualityFor(Map<String, dynamic>? streamUrl, Object? id) =>
       _variantFor(_variants(streamUrl), id)?.quality;
 
+  /// Codec preference for sorting: hevc is preferred over avc (lower rank wins).
+  static int _codecPreference(String? codec) => codec == 'hevc' ? 0 : 1;
+
   static _Variant? _variantFor(_Variants variants, Object? id) {
     final key = id?.toString().trim().toLowerCase() ?? '';
     final target = variants.aliases[key] ?? key;
     return variants.list.where((variant) => variant.quality.id == target).firstOrNull;
+  }
+
+  /// The first variant matching [id], preferring hevc over avc when both exist.
+  static _Variant? _variantForCodec(_Variants variants, Object? id) {
+    final key = id?.toString().trim().toLowerCase() ?? '';
+    final target = variants.aliases[key] ?? key;
+    final candidates = variants.list.where((variant) => variant.quality.id == target).toList();
+    if (candidates.isEmpty) return null;
+    final hevc = candidates.where((v) => v.codec == 'hevc').toList();
+    return hevc.isNotEmpty ? hevc.first : candidates.first;
   }
 
   /// The media request headers 3.x's player sent for Douyin: UA, Origin,
@@ -778,7 +791,10 @@ abstract final class DouyinApi {
     }
     ranked.sort((a, b) {
       final bySort = b.quality.sort.compareTo(a.quality.sort);
-      return bySort != 0 ? bySort : '${a.quality.id}'.compareTo('${b.quality.id}');
+      if (bySort != 0) return bySort;
+      final byCodec = _codecPreference(a.codec).compareTo(_codecPreference(b.codec));
+      if (byCodec != 0) return byCodec;
+      return '${a.quality.id}'.compareTo('${b.quality.id}');
     });
 
     final kept = <_Variant>[];
