@@ -17,6 +17,7 @@ on:
     branches:
       - master
       - main
+      - *
     paths-ignore:
       - "**.md"
       - ".github/**"
@@ -146,6 +147,23 @@ jobs:
                echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
               fi
               grep -A5 -B5 "com.mystyle.purelive" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
+       # ====================== 自动修改  解析播放链接 hevc 编码 ======================
+      - name: 解析播放链接 hevc 编码增强解析
+        run: |
+          MANIFEST="apps/pure_live/lib/shared/rooms/playback_lines.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "hevc|codec=265|" "$MANIFEST"; then
+            echo "⚠️ codec=265 已存在，跳过"
+            else
+               sed "s/hevc|/hevc|codec=265|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s/avc|/avc|codec=264|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "hevc|codec=265|" "$MANIFEST"
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
