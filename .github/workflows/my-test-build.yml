@@ -17,7 +17,7 @@ on:
     branches:
       - master
       - main
-      - '*'
+      - *
     paths-ignore:
       - "**.md"
       - ".github/**"
@@ -242,25 +242,6 @@ jobs:
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
-
-      # ====================== 自动修改 去除 ssl验证 ======================
-      - name: 去除 ssl验证
-        run: |
-          MANIFEST="packages/live_net/lib/src/io_http.dart"
-          if [ -f "$MANIFEST" ]; then
-            if grep -q 'badCertificateCallback' "$MANIFEST"; then
-            echo "⚠️ 去除 ssl 已存在，跳过"
-            else
-               sed  's/() => HttpClient()/() { final client = HttpClient()/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
-               sed  's/route\.directive,/route.directive;\n     client.badCertificateCallback = (_, _, _) => true;\n      return client;\n }/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
-               echo "✅ 已添加 badCertificateCallback"
-              fi
-              echo "flie: $MANIFEST"
-              grep -A30 -B30 "badCertificateCallback" "$MANIFEST"
-          else
-            echo "⚠️ $MANIFEST 不存在，跳过"
-          fi
-          
 
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
