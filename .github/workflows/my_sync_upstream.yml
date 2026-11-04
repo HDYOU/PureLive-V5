@@ -102,7 +102,7 @@ jobs:
           if [ "$count" -eq 0 ]; then
             final_tag="$base_tag"
           else
-            final_tag="$base_tag.pre.$count"
+            final_tag="$base_tag.$count.pre.$count"
           fi
 
           echo "final_tag=$final_tag"
