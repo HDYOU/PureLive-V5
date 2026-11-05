@@ -149,20 +149,20 @@ void main() {
     });
 
     test('roomPageUrl builds correct URL', () {
-      expect(StripchatApi.roomPageUrl('prettygirl'), 'https://stripchat.com/prettygirl');
+      expect(StripchatApi.roomPageUrl('prettygirl'), 'https://zh.virtualtaboo.live/prettygirl');
     });
 
     test('masterUri builds correct HLS URL', () {
       expect(
-        StripchatApi.masterUri('prettygirl-webcam').toString(),
-        'https://streaming-prettygirl-webcam.stripchat.com/hls/prettygirl-webcam/index.m3u8',
+        StripchatApi.masterUri('prettygirl-webcam', 'streaming-prettygirl.stripchat.com').toString(),
+        'https://streaming-prettygirl.stripchat.com/hls/prettygirl-webcam/index.m3u8',
       );
     });
 
     test('thumbnailUrl builds correct URL', () {
       expect(
-        StripchatApi.thumbnailUrl(1730800000, 'prettygirl'),
-        'https://img.stripchat.com/thumbs/1730800000/prettygirl_webp',
+        StripchatApi.thumbnailUrl(1730800000, '12345678'),
+        'https://img.doppiocdn.live/thumbs/1730800000/12345678_webp',
       );
     });
 

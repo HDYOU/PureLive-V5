@@ -1,16 +1,41 @@
 import 'dart:convert';
 
-
 import 'package:live_core/src/json.dart';
 import 'package:live_core/src/live_area.dart';
-
-
-
+import 'package:live_core/src/live_room.dart';
+import 'package:live_core/src/live_site.dart';
+import 'package:live_core/src/play_line.dart';
 import 'package:live_core/src/site_error.dart';
 import 'package:meta/meta.dart';
 
 const _site = 'stripchat';
-const _web = 'https://stripchat.com';
+const _web = 'https://zh.virtualtaboo.live';
+
+/// What a danmaku connection needs to join one model's public chat.
+@immutable
+final class StripchatDanmakuArgs {
+  /// Creates the arguments.
+  const new({required this.websocketUrl, required this.token, required this.modelId});
+
+  /// The WebSocket endpoint URL.
+  final String websocketUrl;
+
+  /// Authentication token.
+  final String token;
+
+  /// The model's numeric id.
+  final int modelId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StripchatDanmakuArgs && other.websocketUrl == websocketUrl && other.token == token && other.modelId == modelId;
+
+  @override
+  int get hashCode => Object.hash(websocketUrl, token, modelId);
+
+  @override
+  String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId)';
+}
 
 /// A model's live stream data from the cam endpoint.
 @immutable
@@ -148,6 +173,26 @@ final class StripchatCam {
   final String goalDescription;
 }
 
+/// Config from `/api/front/v3/config/initial`: CDN hosts and WebSocket info.
+@immutable
+final class StripchatConfig {
+  /// Creates the config.
+  const new({
+    required this.hlsStreamHosts,
+    required this.websocketUrl,
+    required this.websocketToken,
+  });
+
+  /// CDN hosts keyed by letter (A, B, C, …).
+  final Map<String, String> hlsStreamHosts;
+
+  /// WebSocket URL for danmaku.
+  final String websocketUrl;
+
+  /// WebSocket authentication token.
+  final String websocketToken;
+}
+
 /// Pure parsing of Stripchat responses.
 abstract final class StripchatApi {
   /// Desktop Chrome UA.
@@ -159,7 +204,7 @@ abstract final class StripchatApi {
   static const String origin = _web;
 
   /// Host of the API.
-  static const String apiHost = 'stripchat.com';
+  static const String apiHost = 'zh.virtualtaboo.live';
 
   /// Headers of every API request.
   static const Map<String, String> headers = {
@@ -226,6 +271,29 @@ abstract final class StripchatApi {
     return text.length <= 80 ? text : '${text.substring(0, 80)}…';
   }
 
+  // Config --------------------------------------------------------------------
+
+  /// `/api/front/v3/config/initial`: CDN hosts and WebSocket configuration.
+  static StripchatConfig config(String body, {int status = 200}) {
+    final root = _root(body, what: 'config', status: status);
+    final initial = _object(root['initial']) ?? {};
+    final common = _object(initial['common']) ?? {};
+    final client = _object(initial['client']) ?? {};
+    final hostsRaw = _object(common['hlsStreamHosts']) ?? {};
+    final hlsStreamHosts = <String, String>{};
+    for (final MapEntry(:key, :value) in hostsRaw.entries) {
+      if (value is String && value.isNotEmpty) hlsStreamHosts[key] = value;
+    }
+    final wsClient = _object(client['websocket']) ?? {};
+    final websocketUrl = jsonString(wsClient['url']) ?? '';
+    final websocketToken = jsonString(wsClient['token']) ?? '';
+    return StripchatConfig(
+      hlsStreamHosts: hlsStreamHosts,
+      websocketUrl: websocketUrl,
+      websocketToken: websocketToken,
+    );
+  }
+
   // Catalog -------------------------------------------------------------------
 
   /// The single category "Stripchat" with its areas (sort orders).
@@ -267,7 +335,7 @@ abstract final class StripchatApi {
       final id = jsonInt(m['id']);
       if (id == null || id <= 0) continue;
       final isLive = m['isLive'] == true;
-      final status = jsonString(m['status']) ?? 'public';
+      final statusStr = jsonString(m['status']) ?? 'public';
       final viewers = jsonInt(m['viewersCount']) ?? 0;
       final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
       final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
@@ -277,7 +345,7 @@ abstract final class StripchatApi {
         username: username,
         modelId: id,
         isLive: isLive,
-        status: status,
+        status: statusStr,
         viewersCount: viewers,
         avatarUrl: avatar,
         popularSnapshotTimestamp: snapshotTs,
@@ -464,13 +532,27 @@ abstract final class StripchatApi {
     ];
   }
 
-  /// Build the HLS master URI from a stream name.
-  static Uri masterUri(String streamName) =>
-      Uri.parse('https://streaming-${streamName}.stripchat.com/hls/$streamName/index.m3u8');
+  /// Build the primary HLS master URI from a stream name and CDN host.
+  static Uri masterUri(String streamName, String cdnHost) =>
+      Uri.parse('https://$cdnHost/hls/$streamName/index.m3u8');
+
+  /// Build all CDN HLS master URIs from stream name and config hosts,
+  /// ordered by host key (A, B, C, …).
+  static List<Uri> masterUris(String streamName, Map<String, String> hlsStreamHosts) {
+    final ordered = <String>[];
+    for (final key in hlsStreamHosts.keys.toList()..sort()) {
+      ordered.add(key);
+    }
+    return [
+      for (final key in ordered)
+        if (hlsStreamHosts[key] case final host? when host.isNotEmpty)
+          masterUri(streamName, host),
+    ];
+  }
 
   /// Thumbnail URL for a model.
-  static String thumbnailUrl(int snapshotTimestamp, String username) =>
-      'https://img.stripchat.com/thumbs/$snapshotTimestamp/${username}_webp';
+  static String thumbnailUrl(int snapshotTimestamp, String modelId) =>
+      'https://img.doppiocdn.live/thumbs/$snapshotTimestamp/${modelId}_webp';
 
   /// Avatar URL for a model.
   static String avatarUrl(String raw) => normalizeImageUrl(raw);
