@@ -104,6 +104,9 @@ abstract final class SiteIds {
   /// 17LIVE.
   static const String seventeenLive = '17live';
 
+  /// Stripchat.
+  static const String stripchat = 'stripchat';
+
   /// Custom IPTV sources.
   static const String iptv = 'iptv';
 
@@ -146,6 +149,7 @@ abstract final class SiteIds {
     sixRoom,
     lookLive,
     seventeenLive,
+    stripchat,
     iptv,
   ];
 

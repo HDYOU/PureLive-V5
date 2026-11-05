@@ -1,0 +1,40 @@
+{
+  "code": 0,
+  "status": "success",
+  "models": [
+    {
+      "id": 12345678,
+      "username": "prettygirl",
+      "isLive": true,
+      "status": "public",
+      "viewersCount": 1523,
+      "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
+      "popularSnapshotTimestamp": 1730800000,
+      "startTime": 1730799000,
+      "description": "Welcome to my stream!"
+    },
+    {
+      "id": 87654321,
+      "username": "cutegirl99",
+      "isLive": false,
+      "status": "public",
+      "viewersCount": 0,
+      "avatarUrl": "",
+      "popularSnapshotTimestamp": 1730700000,
+      "startTime": 0,
+      "description": ""
+    },
+    {
+      "id": 11111111,
+      "username": "privatemodel",
+      "isLive": true,
+      "status": "private",
+      "viewersCount": 0,
+      "avatarUrl": "https://img.stripchat.com/avatar/private.jpg",
+      "popularSnapshotTimestamp": 1730800000,
+      "startTime": 1730798000,
+      "description": "Private show"
+    }
+  ],
+  "hasMore": false
+}

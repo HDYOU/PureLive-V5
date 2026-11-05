@@ -218,6 +218,7 @@ SiteRegistry buildSiteRegistry(PlatformDeps deps) {
     SiteIds.sixRoom: () => SixRoomSite(http),
     SiteIds.lookLive: () => LookLiveSite(http),
     SiteIds.seventeenLive: () => SeventeenLiveSite(http, preferH264: preferH264),
+    SiteIds.stripchat: () => StripchatSite(http),
     if (deps.iptv case final iptv?) SiteIds.iptv: () => iptv,
   });
 }
