@@ -2,12 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
-import 'package:live_core/src/json.dart';
-import 'package:live_core/src/links.dart';
-import 'package:live_core/src/live_area.dart';
-import 'package:live_core/src/live_room.dart';
-import 'package:live_core/src/live_site.dart';
-
 import 'package:live_core/src/sites/stripchat/stripchat_api.dart';
 import 'package:live_net/live_net.dart';
 
@@ -20,7 +14,8 @@ const _site = 'stripchat';
 /// them). The catalog has one category with sort-area children. Lists come
 /// from `/api/front/v2/models` (recommendations) or filtered by sort tag.
 /// Search reads suggestion matches. Room entry asks the user ID, then the
-/// cam detail, then downloads the HLS master playlist.
+/// cam detail and config (for CDN hosts and WebSocket), then downloads the
+/// HLS master playlist.
 final class StripchatSite extends LiveSite
     with LiveSiteLinks
     implements
@@ -40,7 +35,7 @@ final class StripchatSite extends LiveSite
   String get id => _site;
 
   @override
-  String get name => 'Stripchat';
+  String get name => 'Strip直播';
 
   // Requests ------------------------------------------------------------------
 
@@ -113,7 +108,6 @@ final class StripchatSite extends LiveSite
   /// Live models by viewers (recommendations).
   @override
   Future<List<LiveRoom>> getRecommendRooms({int page = 1, int pageSize = 30}) async {
-
     final response = await _get(
       Uri.https(StripchatApi.apiHost, '/api/front/v2/models', {
         'limit': '${(pageSize.clamp(1, StripchatApi.pageSize))}',
@@ -195,6 +189,12 @@ final class StripchatSite extends LiveSite
     return StripchatApi.camDetail(response.text, modelId: modelId, status: response.status);
   }
 
+  /// Get the config (CDN hosts and WebSocket info).
+  Future<StripchatConfig> _getConfig() async {
+    final response = await _get(Uri.https(StripchatApi.apiHost, '/api/front/v3/config/initial'));
+    return StripchatApi.config(response.text, status: response.status);
+  }
+
   /// The room with its stream (when live).
   @override
   Future<LiveRoom> getRoomDetail({required String roomId}) async {
@@ -203,11 +203,15 @@ final class StripchatSite extends LiveSite
     final modelId = await _resolveModelId(username);
     final card = await _getModelCard(modelId);
     final cam = await _getCam(modelId);
+    final config = await _getConfig();
     final isLive = cam.isLive && cam.status == 'public';
     LiveRoom room = _card(card, isLive: isLive);
     if (!isLive) return room;
-    final master = cam.hlsLines.isNotEmpty ? StripchatApi.masterUri(cam.streamName) : null;
-    if (master == null) return room.copyWith(restriction: LiveRestriction.unplayable);
+    // Build HLS master URIs from CDN hosts (multi-CDN support).
+    final masters = StripchatApi.masterUris(cam.streamName, config.hlsStreamHosts);
+    if (masters.isEmpty || cam.streamName.isEmpty) return room.copyWith(restriction: LiveRestriction.unplayable);
+    // Use the first CDN host's master for quality parsing.
+    final master = masters.first;
     final response = await _get(master);
     final qualities = StripchatApi.qualities(response.text, master: master, status: response.status);
     return room.copyWith(
@@ -218,6 +222,11 @@ final class StripchatSite extends LiveSite
         master: master,
         isLive: true,
         qualities: qualities,
+      ),
+      danmakuData: StripchatDanmakuArgs(
+        websocketUrl: config.websocketUrl,
+        token: config.websocketToken,
+        modelId: cam.modelId,
       ),
     );
   }
@@ -297,7 +306,7 @@ final class StripchatSite extends LiveSite
         nick: m.username,
         avatar: m.avatarUrl,
         cover: m.popularSnapshotTimestamp > 0
-            ? StripchatApi.thumbnailUrl(m.popularSnapshotTimestamp, m.username)
+            ? StripchatApi.thumbnailUrl(m.popularSnapshotTimestamp, '${m.modelId}')
             : '',
         area: '',
         watching: m.viewersCount > 0 ? '${m.viewersCount}' : '',
@@ -308,10 +317,10 @@ final class StripchatSite extends LiveSite
         startedAt: isLive && m.startTime > 0
             ? DateTime.fromMillisecondsSinceEpoch(m.startTime * 1000, isUtc: true)
             : null,
-         introduction: m.description.isEmpty ? null : m.description,
-         restriction: m.status == 'private' ? LiveRestriction.private : LiveRestriction.none,
-         link: StripchatApi.roomPageUrl(m.username),
-       );
+        introduction: m.description.isEmpty ? null : m.description,
+        restriction: m.status == 'private' ? LiveRestriction.private : LiveRestriction.none,
+        link: StripchatApi.roomPageUrl(m.username),
+      );
 
   /// Resolves a URL to a room id.
   @override
@@ -319,7 +328,7 @@ final class StripchatSite extends LiveSite
     final uri = Uri.tryParse(url.trim());
     if (uri == null) return null;
     final host = uri.host.toLowerCase();
-    if (host != 'stripchat.com' && !host.endsWith('.stripchat.com')) return null;
+    if (host != StripchatApi.apiHost && !host.endsWith('.${StripchatApi.apiHost}')) return null;
     final segments = uri.path.split('/');
     if (segments.length < 2 || segments[1].isEmpty) return null;
     final id = segments[1];

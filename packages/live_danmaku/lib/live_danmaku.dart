@@ -46,6 +46,7 @@ export 'src/sites/showroom.dart';
 export 'src/sites/sixroom.dart';
 export 'src/sites/soop.dart';
 export 'src/sites/steambroadcast.dart';
+export 'src/sites/stripchat.dart';
 export 'src/sites/twitcasting.dart';
 export 'src/sites/twitch.dart';
 export 'src/sites/xiaohongshu.dart';

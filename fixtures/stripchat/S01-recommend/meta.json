@@ -6,12 +6,12 @@
   "route": "direct",
   "request": {
     "method": "GET",
-    "url": "https://stripchat.com/api/front/v2/models?limit=60",
+    "url": "https://zh.virtualtaboo.live/api/front/v2/models?limit=60",
     "headers": {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
       "Accept": "application/json, text/plain, */*",
-      "Origin": "https://stripchat.com",
-      "Referer": "https://stripchat.com/"
+      "Origin": "https://zh.virtualtaboo.live",
+      "Referer": "https://zh.virtualtaboo.live/"
     }
   },
   "response": {
