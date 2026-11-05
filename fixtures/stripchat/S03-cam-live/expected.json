@@ -1,0 +1,21 @@
+{
+  "generator": "StripchatApi.camDetail",
+  "value": {
+    "modelId": 12345678,
+    "username": "prettygirl",
+    "streamName": "prettygirl-webcam",
+    "hlsLines": [
+      "https://streaming-prettygirl1.stripchat.com/hls/prettygirl-webcam/index.m3u8",
+      "https://streaming-prettygirl2.stripchat.com/hls/prettygirl-webcam/index.m3u8"
+    ],
+    "pixelatedResolutions": ["360p", "480p"],
+    "isLive": true,
+    "status": "public",
+    "viewersCount": 1523,
+    "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
+    "popularSnapshotTimestamp": 1730800000,
+    "startTime": 1730799000,
+    "description": "Welcome to my stream!",
+    "goalDescription": "Reach 2000 viewers!"
+  }
+}

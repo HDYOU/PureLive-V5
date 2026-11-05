@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "platform": "stripchat",
+  "sample": "S01-recommend",
+  "capturedAt": "2026-11-05T10:00:00.000000Z",
+  "route": "direct",
+  "request": {
+    "method": "GET",
+    "url": "https://stripchat.com/api/front/v2/models?limit=60",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Origin": "https://stripchat.com",
+      "Referer": "https://stripchat.com/"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    }
+  },
+  "body": "body.json",
+  "tool": "stripchat fixture (manual)"
+}

@@ -1,0 +1,14 @@
+{
+  "generator": "StripchatApi.modelCard",
+  "value": {
+    "username": "prettygirl",
+    "modelId": 12345678,
+    "isLive": true,
+    "status": "public",
+    "viewersCount": 1523,
+    "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
+    "popularSnapshotTimestamp": 1730800000,
+    "startTime": 1730799000,
+    "description": "Welcome to my stream!"
+  }
+}

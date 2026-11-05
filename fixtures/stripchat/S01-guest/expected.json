@@ -1,0 +1,27 @@
+{
+  "generator": "StripchatApi.modelsList",
+  "value": [
+    {
+      "username": "prettygirl",
+      "modelId": 12345678,
+      "isLive": true,
+      "status": "public",
+      "viewersCount": 1523,
+      "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
+      "popularSnapshotTimestamp": 1730800000,
+      "startTime": 1730799000,
+      "description": "Welcome to my stream!"
+    },
+    {
+      "username": "私生活",
+      "modelId": 11111111,
+      "isLive": true,
+      "status": "private",
+      "viewersCount": 0,
+      "avatarUrl": "https://img.stripchat.com/avatar/private.jpg",
+      "popularSnapshotTimestamp": 1730800000,
+      "startTime": 1730798000,
+      "description": "Private show"
+    }
+  ]
+}
