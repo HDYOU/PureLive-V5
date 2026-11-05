@@ -70,6 +70,7 @@ void main() {
         'S02-detail-live',
         'S03-cam-live',
         'S04-master',
+        'S08-config',
       ]);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
@@ -88,6 +89,7 @@ void main() {
         'S05-userid',
         'S02-detail-live',
         'S03-cam-offline',
+        'S08-config',
       ]);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
@@ -138,7 +140,7 @@ void main() {
       body['model']['isLive'] = false;
       body['model']['status'] = 'offline';
       final offlineSetup = _setup(['S05-userid'], extra: [
-        _synthetic('https://stripchat.com/api/front/v2/models/12345678', body),
+        _synthetic('https://zh.virtualtaboo.live/api/front/v2/models/12345678', body),
       ]);
       expect(await offlineSetup.site.getLiveStatus(roomId: 'prettygirl'), isFalse);
     });
@@ -163,16 +165,16 @@ void main() {
   group('links', () {
     test('room page URLs are correct', () {
       final site = _setup([]).site;
-      expect(site.roomIdFromUrl('https://stripchat.com/prettygirl'), 'prettygirl');
-      expect(site.roomIdFromUrl('https://stripchat.com/offlineuser'), 'offlineuser');
-      expect(site.roomIdFromUrl('https://stripchat.com/webcam'), isNull);
+      expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/prettygirl'), 'prettygirl');
+      expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/offlineuser'), 'offlineuser');
+      expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/webcam'), isNull);
       expect(site.roomIdFromUrl('https://example.com/prettygirl'), isNull);
     });
   });
 
   group('streams', () {
     test('getPlayQualities returns qualities from room data', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master']);
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities, hasLength(3));
@@ -180,7 +182,7 @@ void main() {
     });
 
     test('getPlayUrls returns master playlist URL', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master']);
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final urls = await setup.site.getPlayUrls(detail: room, quality: const LivePlayQuality(quality: '1080p', id: 0, data: 0));
       expect(urls, hasLength(1));
@@ -188,7 +190,7 @@ void main() {
     });
 
     test('room without stream throws StreamUnavailable', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-offline']);
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-offline', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(
         () => setup.site.getPlayQualities(detail: room),
@@ -200,7 +202,7 @@ void main() {
   group('errors', () {
     test('bad JSON in model card is ApiChanged', () async {
       final setup = _setup(['S05-userid'], extra: [
-        _synthetic('https://stripchat.com/api/front/v2/models/12345678', '<html>'),
+        _synthetic('https://zh.virtualtaboo.live/api/front/v2/models/12345678', '<html>'),
       ]);
       await expectLater(
         setup.site.getRoomDetailForRefresh(roomId: 'prettygirl'),

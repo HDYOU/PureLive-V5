@@ -1,0 +1,12 @@
+{
+  "generator": "StripchatApi.config",
+  "value": {
+    "hlsStreamHosts": {
+      "A": "streaming-a.zh.virtualtaboo.live",
+      "B": "streaming-b.zh.virtualtaboo.live",
+      "C": "streaming-c.zh.virtualtaboo.live"
+    },
+    "websocketUrl": "wss://chat.zh.virtualtaboo.live/ws",
+    "websocketToken": "test-token-12345"
+  }
+}
