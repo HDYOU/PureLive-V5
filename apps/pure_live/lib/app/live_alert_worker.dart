@@ -28,7 +28,7 @@ Future<void> liveAlertWorkerMain() async {
   try {
     store = await LiveStore.memory(cipher: NativeChannelCipher());
     final proxy = SettingsProxyPolicy(store.settings);
-    final http = IoLiveHttp(proxy: proxy);
+    final http = IoLiveHttp(proxy: proxy, skipSslVerification: true);
     final sites = buildSiteRegistry(
       PlatformDeps(http: http, proxy: proxy, cookies: StoreCookieVault(store.secrets), store: store),
     );

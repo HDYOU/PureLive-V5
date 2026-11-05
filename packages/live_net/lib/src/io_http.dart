@@ -17,7 +17,7 @@ import 'package:live_net/src/transport_failure.dart';
 /// the [proxy] policy decides the route per platform and request.
 final class IoLiveHttp implements LiveHttp {
   /// Creates the transport.
-  new({this.proxy = const FixedProxyPolicy(), this.connectTimeout = defaultRequestTimeout});
+  new({this.proxy = const FixedProxyPolicy(), this.connectTimeout = defaultRequestTimeout, this.skipSslVerification = false});
 
   /// Route per platform.
   final ProxyPolicy proxy;
@@ -25,18 +25,25 @@ final class IoLiveHttp implements LiveHttp {
   /// Limit for opening a connection.
   final Duration connectTimeout;
 
+  /// Whether to skip SSL certificate verification for all connections.
+  final bool skipSslVerification;
+
   final Map<ProxyRoute, HttpClient> _clients = {};
 
   HttpClient _client(ProxyRoute route) => _clients.putIfAbsent(
     route,
-    () => HttpClient()
-      ..connectionTimeout = connectTimeout
-      ..idleTimeout = const Duration(seconds: 30)
-      ..autoUncompress = true
-      // dart:io's own User-Agent stays for requests that set none, as under
-      // 3.x's Dio; a request's User-Agent replaces it (headers are `set`).
-      // Without any, Huya's search answers 403 (M4.D).
-      ..findProxy = (_) => route.directive,
+    () {
+      final client = HttpClient()
+        ..connectionTimeout = connectTimeout
+        ..idleTimeout = const Duration(seconds: 30)
+        ..autoUncompress = true
+        // dart:io's own User-Agent stays for requests that set none, as under
+        // 3.x's Dio; a request's User-Agent replaces it (headers are `set`).
+        // Without any, Huya's search answers 403 (M4.D).
+        ..findProxy = (_) => route.directive;
+      if (skipSslVerification) client.badCertificateCallback = (_, _, _) => true;
+      return client;
+    },
   );
 
   @override

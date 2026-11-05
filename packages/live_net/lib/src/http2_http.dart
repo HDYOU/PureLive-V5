@@ -21,7 +21,7 @@ import 'package:live_net/src/transport_failure.dart';
 /// whole; redirects are followed up to five times. Only `https` URLs.
 final class Http2LiveHttp implements LiveHttp {
   /// Creates the transport.
-  new({this.proxy = const FixedProxyPolicy(), this.connectTimeout = defaultRequestTimeout, this.context});
+  new({this.proxy = const FixedProxyPolicy(), this.connectTimeout = defaultRequestTimeout, this.context, this.skipSslVerification = false});
 
   /// Route per platform.
   final ProxyPolicy proxy;
@@ -30,7 +30,16 @@ final class Http2LiveHttp implements LiveHttp {
   final Duration connectTimeout;
 
   /// Trusted certificates; the system's when null (tests trust their own).
+  /// When [skipSslVerification] is true, an insecure context is used.
   final SecurityContext? context;
+
+  /// Whether to skip SSL certificate verification for all connections.
+  final bool skipSslVerification;
+
+  SecurityContext? _effectiveContext() {
+    if (skipSslVerification) return SecurityContext();
+    return context;
+  }
 
   /// The longest proxy answer to a `CONNECT` read before giving up.
   static const int maxTunnelReply = 16 * 1024;
@@ -97,7 +106,7 @@ final class Http2LiveHttp implements LiveHttp {
       final direct = await SecureSocket.connect(
         url.host,
         port,
-        context: context,
+        context: _effectiveContext(),
         supportedProtocols: const ['h2'],
         timeout: connectTimeout,
       );
@@ -170,7 +179,7 @@ final class Http2LiveHttp implements LiveHttp {
       raw,
       subscription: events,
       host: host,
-      context: context,
+      context: _effectiveContext(),
       supportedProtocols: const ['h2'],
     );
   }
