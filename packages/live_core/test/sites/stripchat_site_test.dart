@@ -1,0 +1,211 @@
+// StripchatSite over the recorded responses (ReplayHttp): catalog, directory,
+// room entry, streams, search and links.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:live_core/live_core.dart';
+import 'package:live_net/live_net.dart';
+import 'package:live_net/testing.dart';
+import 'package:test/test.dart';
+
+import 'fixture.dart';
+
+const _root = '../../fixtures/stripchat';
+const _apiHost = 'stripchat.com';
+
+ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySample(
+      method: 'GET',
+      url: Uri.parse(url),
+      status: status,
+      bytes: utf8.encode(body is String ? body : jsonEncode(body)),
+    );
+
+typedef _Setup = ({StripchatSite site, ReplayHttp http});
+
+_Setup _setup(List<String> samples, {List<ReplaySample> extra = const []}) {
+  final http = ReplayHttp([...extra, for (final name in samples) ReplaySample.load('$_root/$name')]);
+  return (site: StripchatSite(http), http: http);
+}
+
+void main() {
+  group('catalog', () {
+    test('returns one category with sort areas', () async {
+      final setup = _setup([]);
+      final categories = await setup.site.getCategories(1, 30);
+      expect(categories, hasLength(1));
+      expect(categories[0].id, 'stripchat');
+      expect(categories[0].name, 'Stripchat');
+      expect(categories[0].children, hasLength(15));
+    });
+
+    test('page > 1 returns empty', () async {
+      final setup = _setup([]);
+      expect(await setup.site.getCategories(2, 30), isEmpty);
+    });
+  });
+
+  group('directory', () {
+    test('lists live public models, filters private and offline', () async {
+      final setup = _setup(['S01-guest']);
+      final rooms = await setup.site.getRecommendRooms();
+      // Only public + live models
+      expect(rooms, hasLength(1));
+      expect(rooms[0].roomId, 'prettygirl');
+      expect(rooms[0].isLiveNow, isTrue);
+      expect(rooms[0].watching, '1523');
+    });
+
+    test('directory page respects category sort', () async {
+      final setup = _setup(['S01-directory']);
+      final page = await setup.site.getDirectoryPage();
+      expect(page.rooms, hasLength(1));
+      expect(page.hasMore, isFalse);
+    });
+  });
+
+  group('room entry', () {
+    test('live room: detail with stream data', () async {
+      final setup = _setup([
+        'S05-userid',
+        'S02-detail-live',
+        'S03-cam-live',
+        'S04-master',
+      ]);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      expect(room.roomId, 'prettygirl');
+      expect(room.isLiveNow, isTrue);
+      expect(room.watching, '1523');
+      expect(room.data, isNotNull);
+      final data = room.data as StripchatRoomData;
+      expect(data.modelId, 12345678);
+      expect(data.streamName, 'prettygirl-webcam');
+      expect(data.isLive, isTrue);
+      expect(data.qualities, hasLength(3));
+    });
+
+    test('offline room: no stream data', () async {
+      final setup = _setup([
+        'S05-userid',
+        'S02-detail-live',
+        'S03-cam-offline',
+      ]);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      expect(room.roomId, 'prettygirl');
+      expect(room.isLiveNow, isFalse);
+      expect(room.data, isNull);
+    });
+
+    test('missing model is NotFound', () async {
+      final setup = _setup(['S06-notfound']);
+      await expectLater(
+        setup.site.getRoomDetail(roomId: 'nonexistent123'),
+        throwsA(isA<NotFound>()),
+      );
+    });
+
+    test('invalid username is NotFound without a request', () async {
+      final setup = _setup([]);
+      await expectLater(
+        setup.site.getRoomDetail(roomId: 'webcam'),
+        throwsA(isA<NotFound>()),
+      );
+      expect(setup.http.requests, isEmpty);
+    });
+  });
+
+  group('refresh', () {
+    test('getRoomDetailForRefresh reads card only', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live']);
+      final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl');
+      expect(room.roomId, 'prettygirl');
+      expect(room.isLiveNow, isTrue);
+      expect(room.data, isNull);
+      // Only two requests: user-ids and model card (no cam, no master)
+      expect(setup.http.requests, hasLength(2));
+    });
+  });
+
+  group('live status', () {
+    test('returns true for live room', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live']);
+      expect(await setup.site.getLiveStatus(roomId: 'prettygirl'), isTrue);
+    });
+
+    test('returns false for offline room', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live']);
+      // Edit the card to be offline
+      final body = jsonDecode(File('${_root}/S02-detail-live/body.json').readAsStringSync()) as Map;
+      body['model']['isLive'] = false;
+      body['model']['status'] = 'offline';
+      final offlineSetup = _setup(['S05-userid'], extra: [
+        _synthetic('https://stripchat.com/api/front/v2/models/12345678', body),
+      ]);
+      expect(await offlineSetup.site.getLiveStatus(roomId: 'prettygirl'), isFalse);
+    });
+  });
+
+  group('search', () {
+    test('search returns matching live models', () async {
+      final setup = _setup(['S07-search']);
+      final rooms = await setup.site.searchRooms('search');
+      expect(rooms, hasLength(1));
+      expect(rooms[0].roomId, 'searchgirl');
+      expect(rooms[0].isLiveNow, isTrue);
+    });
+
+    test('blank keyword returns empty without request', () async {
+      final setup = _setup([]);
+      expect(await setup.site.searchRooms('   '), isEmpty);
+      expect(setup.http.requests, isEmpty);
+    });
+  });
+
+  group('links', () {
+    test('room page URLs are correct', () {
+      final site = _setup([]).site;
+      expect(site.roomIdFromUrl('https://stripchat.com/prettygirl'), 'prettygirl');
+      expect(site.roomIdFromUrl('https://stripchat.com/offlineuser'), 'offlineuser');
+      expect(site.roomIdFromUrl('https://stripchat.com/webcam'), isNull);
+      expect(site.roomIdFromUrl('https://example.com/prettygirl'), isNull);
+    });
+  });
+
+  group('streams', () {
+    test('getPlayQualities returns qualities from room data', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master']);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final qualities = await setup.site.getPlayQualities(detail: room);
+      expect(qualities, hasLength(3));
+      expect(qualities[0].quality, '1080p 2Mbps');
+    });
+
+    test('getPlayUrls returns master playlist URL', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master']);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final urls = await setup.site.getPlayUrls(detail: room, quality: const LivePlayQuality(quality: '1080p', id: 0, data: 0));
+      expect(urls, hasLength(1));
+      expect(urls[0], contains('prettygirl-webcam'));
+    });
+
+    test('room without stream throws StreamUnavailable', () async {
+      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-offline']);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      expect(
+        () => setup.site.getPlayQualities(detail: room),
+        throwsA(isA<StreamUnavailable>()),
+      );
+    });
+  });
+
+  group('errors', () {
+    test('bad JSON in model card is ApiChanged', () async {
+      final setup = _setup(['S05-userid'], extra: [
+        _synthetic('https://stripchat.com/api/front/v2/models/12345678', '<html>'),
+      ]);
+      await expectLater(
+        setup.site.getRoomDetailForRefresh(roomId: 'prettygirl'),
+        throwsA(isA<ApiChanged>()),
+      );
+    });
+  });
+}

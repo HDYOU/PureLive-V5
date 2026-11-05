@@ -1,0 +1,19 @@
+{
+  "user": {
+    "id": 12345678,
+    "username": "prettygirl",
+    "status": "offline",
+    "isLive": false,
+    "viewersCount": 0,
+    "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
+    "popularSnapshotTimestamp": 1730700000,
+    "statusChangedAt": 0,
+    "description": "",
+    "goalDescription": ""
+  },
+  "cam": {
+    "streamName": "",
+    "hlsLines": [],
+    "pixelatedResolutions": []
+  }
+}

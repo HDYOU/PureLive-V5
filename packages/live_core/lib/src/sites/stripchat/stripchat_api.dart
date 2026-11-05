@@ -1,0 +1,477 @@
+import 'dart:convert';
+
+
+import 'package:live_core/src/json.dart';
+import 'package:live_core/src/live_area.dart';
+
+
+
+import 'package:live_core/src/site_error.dart';
+import 'package:meta/meta.dart';
+
+const _site = 'stripchat';
+const _web = 'https://stripchat.com';
+
+/// A model's live stream data from the cam endpoint.
+@immutable
+final class StripchatRoomData {
+  /// Creates the data.
+  new({
+    required this.modelId,
+    required this.username,
+    required this.streamName,
+    required this.master,
+    required this.isLive,
+    required List<LivePlayQuality> qualities,
+  }) : qualities = List.unmodifiable(qualities);
+
+  /// The model's numeric id.
+  final int modelId;
+
+  /// The model's username (as the platform spells it).
+  final String username;
+
+  /// The stream name used in the HLS path.
+  final String streamName;
+
+  /// The HLS master playlist URI.
+  final Uri master;
+
+  /// Whether the model is currently live.
+  final bool isLive;
+
+  /// Qualities of [master], best first.
+  final List<LivePlayQuality> qualities;
+}
+
+/// A model card from the models list endpoint.
+@immutable
+final class StripchatModel {
+  /// Creates the card.
+  const new({
+    required this.username,
+    required this.modelId,
+    required this.isLive,
+    required this.status,
+    required this.viewersCount,
+    required this.avatarUrl,
+    required this.popularSnapshotTimestamp,
+    required this.startTime,
+    required this.description,
+  });
+
+  /// The model's username, the room id.
+  final String username;
+
+  /// The model's numeric id.
+  final int modelId;
+
+  /// Whether the model is currently live.
+  final bool isLive;
+
+  /// The model's status: 'public' or 'private'.
+  final String status;
+
+  /// Number of concurrent viewers.
+  final int viewersCount;
+
+  /// Avatar URL.
+  final String avatarUrl;
+
+  /// Timestamp for the popular snapshot thumbnail.
+  final int popularSnapshotTimestamp;
+
+  /// Broadcast start time (Unix seconds), 0 when offline.
+  final int startTime;
+
+  /// User description.
+  final String description;
+}
+
+/// A model cam detail from the cam endpoint.
+@immutable
+final class StripchatCam {
+  /// Creates the cam data.
+  const new({
+    required this.modelId,
+    required this.username,
+    required this.streamName,
+    required this.hlsLines,
+    required this.pixelatedResolutions,
+    required this.isLive,
+    required this.status,
+    required this.viewersCount,
+    required this.avatarUrl,
+    required this.popularSnapshotTimestamp,
+    required this.startTime,
+    required this.description,
+    required this.goalDescription,
+  });
+
+  /// The model's numeric id.
+  final int modelId;
+
+  /// The model's username.
+  final String username;
+
+  /// The stream name for HLS playback.
+  final String streamName;
+
+  /// HLS line URLs, best first.
+  final List<String> hlsLines;
+
+  /// Pixelated (low-quality) resolution tags.
+  final List<String> pixelatedResolutions;
+
+  /// Whether the model is currently live.
+  final bool isLive;
+
+  /// The model's status: 'public' or 'private'.
+  final String status;
+
+  /// Number of concurrent viewers.
+  final int viewersCount;
+
+  /// Avatar URL.
+  final String avatarUrl;
+
+  /// Timestamp for the popular snapshot thumbnail.
+  final int popularSnapshotTimestamp;
+
+  /// Broadcast start time (Unix seconds), 0 when offline.
+  final int startTime;
+
+  /// User description.
+  final String description;
+
+  /// Goal description.
+  final String goalDescription;
+}
+
+/// Pure parsing of Stripchat responses.
+abstract final class StripchatApi {
+  /// Desktop Chrome UA.
+  static const String userAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      'Chrome/138.0.0.0 Safari/537.36';
+
+  /// Web origin.
+  static const String origin = _web;
+
+  /// Host of the API.
+  static const String apiHost = 'stripchat.com';
+
+  /// Headers of every API request.
+  static const Map<String, String> headers = {
+    'user-agent': userAgent,
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'origin': _web,
+    'referer': '$_web/',
+  };
+
+  /// Page size for model listings.
+  static const int pageSize = 60;
+
+  /// Longest search keyword.
+  static const int maxKeywordLength = 50;
+
+  /// Largest answer accepted (2 MiB).
+  static const int responseLimit = 2 * 1024 * 1024;
+
+  /// Model username pattern: letters, digits, underscore, 1-30 chars.
+  static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_]{1,30}$');
+
+  /// Site paths that are never models.
+  static const Set<String> reservedNames = {
+    'webcam',
+    'girls',
+    'couples',
+    'trans',
+    'search',
+    'login',
+    'signup',
+    'premium',
+    'token',
+    'tips',
+    'shop',
+  };
+
+  /// Whether [name] is a valid model username.
+  static bool isUsername(String name) => _usernamePattern.hasMatch(name) && !reservedNames.contains(name.toLowerCase());
+
+  /// The model page URL.
+  static String roomPageUrl(String username) => '$_web/$username';
+
+  // Helpers -------------------------------------------------------------------
+
+  static Map<String, dynamic> _root(String body, {required String what, int status = 200}) {
+    if (status < 200 || status >= 300) throw const ApiChanged(_site, '');
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      decoded = null;
+    }
+    if (decoded is! Map<String, dynamic>) throw ApiChanged(_site, '$what: not a JSON object');
+    return decoded;
+  }
+
+  static Map<String, dynamic>? _object(Object? value) => value is Map<String, dynamic> ? value : null;
+
+  static List<Object?> _list(Object? value) => value is List ? value.cast<Object?>() : const [];
+
+  static String _snippet(String body) {
+    final text = body.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return text.length <= 80 ? text : '${text.substring(0, 80)}…';
+  }
+
+  // Catalog -------------------------------------------------------------------
+
+  /// The single category "Stripchat" with its areas (sort orders).
+  static LiveCategory catalog() => LiveCategory(
+        id: _site,
+        name: 'Stripchat',
+        children: [
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'all', areaName: '全部直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'recommended', areaName: '直播推荐'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'mobile', areaName: '竖屏直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'chinese', areaName: '中文直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'japanese', areaName: '日本直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'korean', areaName: '韩国直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'russian', areaName: '俄罗斯直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'asmr', areaName: 'ASMR直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'cosplay', areaName: 'COS直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'couples', areaName: '情侣直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'trans', areaName: '变性直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'teen', areaName: '青少年直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'outdoor', areaName: '户外直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'new', areaName: '新人直播'),
+          LiveArea(platform: _site, areaType: 'sort', typeName: '全部直播', areaId: 'interactive', areaName: '互动玩具'),
+        ],
+      );
+
+  // Directory -----------------------------------------------------------------
+
+  /// `/api/front/v2/models`: live model cards by viewers, one per page.
+  static List<StripchatModel> modelsList(String body, {int status = 200}) {
+    final root = _root(body, what: 'models', status: status);
+    final rows = _list(root['models']);
+    if (rows.isEmpty) return const [];
+    final models = <String, StripchatModel>{};
+    for (final raw in rows) {
+      final m = _object(raw);
+      if (m == null) continue;
+      final username = jsonString(m['username'])?.trim();
+      if (username == null || username.isEmpty || !isUsername(username)) continue;
+      final id = jsonInt(m['id']);
+      if (id == null || id <= 0) continue;
+      final isLive = m['isLive'] == true;
+      final status = jsonString(m['status']) ?? 'public';
+      final viewers = jsonInt(m['viewersCount']) ?? 0;
+      final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
+      final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
+      final startTime = jsonInt(m['startTime']) ?? 0;
+      final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
+      models[username.toLowerCase()] = StripchatModel(
+        username: username,
+        modelId: id,
+        isLive: isLive,
+        status: status,
+        viewersCount: viewers,
+        avatarUrl: avatar,
+        popularSnapshotTimestamp: snapshotTs,
+        startTime: startTime,
+        description: description,
+      );
+    }
+    return List.unmodifiable(models.values);
+  }
+
+  /// A single model card from the models endpoint.
+  static StripchatModel modelCard(String body, {int status = 200}) {
+    final root = _root(body, what: 'model-card', status: status);
+    final row = _object(root['model']);
+    if (row == null) throw ApiChanged(_site, 'model-card: no model (${_snippet(body)})');
+    final username = jsonString(row['username'])?.trim();
+    if (username == null || username.isEmpty || !isUsername(username)) {
+      throw ApiChanged(_site, 'model-card: invalid username (${_snippet(body)})');
+    }
+    final id = jsonInt(row['id']);
+    if (id == null || id <= 0) throw ApiChanged(_site, 'model-card: no id (${_snippet(body)})');
+    final isLive = row['isLive'] == true;
+    final statusStr = jsonString(row['status']) ?? 'public';
+    final viewers = jsonInt(row['viewersCount']) ?? 0;
+    final avatar = normalizeImageUrl(row['avatarUrl'] ?? '');
+    final snapshotTs = jsonInt(row['popularSnapshotTimestamp']) ?? 0;
+    final startTime = jsonInt(row['startTime']) ?? 0;
+    final description = decodeHtmlEntities(jsonString(row['description']) ?? '');
+    return StripchatModel(
+      username: username,
+      modelId: id,
+      isLive: isLive,
+      status: statusStr,
+      viewersCount: viewers,
+      avatarUrl: avatar,
+      popularSnapshotTimestamp: snapshotTs,
+      startTime: startTime,
+      description: description,
+    );
+  }
+
+  // Cam detail ----------------------------------------------------------------
+
+  /// `/api/front/v2/models/{uid}/cam`: the model's stream data.
+  static StripchatCam camDetail(String body, {required int modelId, int status = 200}) {
+    final root = _root(body, what: 'cam', status: status);
+    final user = _object(root['user']) ?? {};
+    final cam = _object(root['cam']) ?? {};
+    final uid = jsonInt(user['id']);
+    if (uid != modelId) throw ApiChanged(_site, 'cam: model id mismatch (${_snippet(body)})');
+    final username = jsonString(user['username'])?.trim() ?? '';
+    if (username.isEmpty) throw ApiChanged(_site, 'cam: no username (${_snippet(body)})');
+    final isLive = user['status'] == 'public' || (root['user']?['isLive'] == true);
+    final statusStr = jsonString(user['status']) ?? 'offline';
+    final viewers = jsonInt(user['viewersCount']) ?? 0;
+    final avatar = normalizeImageUrl(user['avatarUrl'] ?? '');
+    final snapshotTs = jsonInt(user['popularSnapshotTimestamp']) ?? 0;
+    final startTimeRaw = user['statusChangedAt'];
+    final startTime = switch (startTimeRaw) {
+      final int s when s > 0 => s,
+      final String s => int.tryParse(s) ?? 0,
+      _ => 0,
+    };
+    final streamName = jsonString(cam['streamName']) ?? '';
+    final hlsLines = [
+      for (final raw in _list(cam['hlsLines']))
+        if (_object(raw)?['url'] case final url?)
+          if (jsonString(url) case final u? when u.isNotEmpty) u,
+    ];
+    final pixelated = [
+      for (final raw in _list(cam['pixelatedResolutions']))
+        if (raw is String && raw.isNotEmpty) raw,
+    ];
+    final description = decodeHtmlEntities(jsonString(user['description']) ?? '');
+    final goalDesc = decodeHtmlEntities(jsonString(_object(cam['goal'])?['description']) ?? '');
+    return StripchatCam(
+      modelId: uid!,
+      username: username,
+      streamName: streamName,
+      hlsLines: hlsLines,
+      pixelatedResolutions: pixelated,
+      isLive: isLive,
+      status: statusStr,
+      viewersCount: viewers,
+      avatarUrl: avatar,
+      popularSnapshotTimestamp: snapshotTs,
+      startTime: startTime,
+      description: description,
+      goalDescription: goalDesc,
+    );
+  }
+
+  // Search --------------------------------------------------------------------
+
+  /// `/api/front/v4/models/search/suggestion`: matching models.
+  /// The response is a JSON array of models (not wrapped in an object).
+  static List<StripchatModel> searchModels(String body, {int status = 200}) {
+    if (status < 200 || status >= 300) throw ApiChanged(_site, 'search: HTTP $status');
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      decoded = null;
+    }
+    final rows = decoded is List ? decoded : (decoded is Map ? _list(decoded) : const []);
+    if (rows.isEmpty) return const [];
+    final models = <String, StripchatModel>{};
+    for (final raw in rows) {
+      final m = _object(raw);
+      if (m == null) continue;
+      final username = jsonString(m['username'])?.trim();
+      if (username == null || username.isEmpty || !isUsername(username)) continue;
+      final id = jsonInt(m['id']);
+      if (id == null || id <= 0) continue;
+      final isLive = m['isLive'] == true;
+      final statusStr = jsonString(m['status']) ?? 'public';
+      final viewers = jsonInt(m['viewersCount']) ?? 0;
+      final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
+      final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
+      final startTime = jsonInt(m['startTime']) ?? 0;
+      final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
+      models[username.toLowerCase()] = StripchatModel(
+        username: username,
+        modelId: id,
+        isLive: isLive,
+        status: statusStr,
+        viewersCount: viewers,
+        avatarUrl: avatar,
+        popularSnapshotTimestamp: snapshotTs,
+        startTime: startTime,
+        description: description,
+      );
+    }
+    return List.unmodifiable(models.values);
+  }
+
+  // Streams -------------------------------------------------------------------
+
+  /// Parse an HLS master playlist into qualities.
+  static List<LivePlayQuality> qualities(String body, {required Uri master, int status = 200}) {
+    if (status == 404) throw const StreamUnavailable(_site, 'master playlist: HTTP 404');
+    if (status < 200 || status >= 300) throw ApiChanged(_site, 'master: HTTP $status');
+    if (body.trimLeft().split('\n').first.trim() != '#EXTM3U') {
+      throw ApiChanged(_site, 'master: not a playlist (${_snippet(body)})');
+    }
+    final grouped = <String, ({String label, int height, int bandwidth, Set<String> urls})>{};
+    Map<String, String>? pending;
+    for (final raw in body.split('\n')) {
+      final line = raw.trim();
+      if (line.startsWith('#EXT-X-STREAM-INF:')) {
+        if (pending != null) throw const ApiChanged(_site, 'master: variant without attributes');
+        pending = {
+          for (final match in RegExp(r'([A-Z0-9-]+)=("[^"]*"|[^,]*)').allMatches(line.substring(18)))
+            match.group(1)!: match.group(2)!.replaceAll('"', ''),
+        };
+        continue;
+      }
+      if (line.isEmpty || line.startsWith('#')) continue;
+      if (pending == null) continue;
+      final attrs = pending;
+      pending = null;
+      final bandwidth = jsonInt(attrs['BANDWIDTH']) ?? 0;
+      final resolution = attrs['RESOLUTION'] ?? '';
+      final heightMatch = RegExp(r'x(\d+)').firstMatch(resolution);
+      final height = heightMatch == null ? 0 : int.parse(heightMatch.group(1)!);
+      if (bandwidth <= 0 || height <= 0) continue;
+      final label = '${height}p${bandwidth >= 5000000 ? ' 5Mbps' : bandwidth >= 2000000 ? ' 2Mbps' : ''}';
+      grouped['$height-$bandwidth'] = (
+        label: label,
+        height: height,
+        bandwidth: bandwidth,
+        urls: {master.resolve(line).toString()},
+      );
+    }
+    if (grouped.isEmpty) throw const ApiChanged(_site, 'master: no valid variant');
+    return [
+      for (final entry in grouped.entries.toList()..sort((a, b) => b.value.height.compareTo(a.value.height)))
+        LivePlayQuality(
+          quality: entry.value.label.trim(),
+          id: '${entry.value.height}p${entry.value.bandwidth ~/ 1000}',
+          data: entry.key,
+          sort: entry.value.height * 10000 + entry.value.bandwidth,
+        ),
+    ];
+  }
+
+  /// Build the HLS master URI from a stream name.
+  static Uri masterUri(String streamName) =>
+      Uri.parse('https://streaming-${streamName}.stripchat.com/hls/$streamName/index.m3u8');
+
+  /// Thumbnail URL for a model.
+  static String thumbnailUrl(int snapshotTimestamp, String username) =>
+      'https://img.stripchat.com/thumbs/$snapshotTimestamp/${username}_webp';
+
+  /// Avatar URL for a model.
+  static String avatarUrl(String raw) => normalizeImageUrl(raw);
+}
