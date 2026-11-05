@@ -954,12 +954,12 @@ abstract final class BilibiliApi {
   static int _compareCandidates(_Candidate a, _Candidate b, int? requestedQn) {
     final byRequest = (a.qn == requestedQn ? 0 : 1).compareTo(b.qn == requestedQn ? 0 : 1);
     if (byRequest != 0) return byRequest;
-    final byProtocol = (a.protocol == 'http_stream' ? 0 : 1).compareTo(b.protocol == 'http_stream' ? 0 : 1);
-    if (byProtocol != 0) return byProtocol;
-    final byFormat = _formatRank(a.format).compareTo(_formatRank(b.format));
-    if (byFormat != 0) return byFormat;
+    // final byProtocol = (a.protocol == 'http_stream' ? 0 : 1).compareTo(b.protocol == 'http_stream' ? 0 : 1);
+    // if (byProtocol != 0) return byProtocol;
     final byCodec = _codecPriority(a.codec).compareTo(_codecPriority(b.codec));
     if (byCodec != 0) return byCodec;
+    final byFormat = _formatRank(a.format).compareTo(_formatRank(b.format));
+    if (byFormat != 0) return byFormat;
     final byEdge = (a.url.toString().contains('mcdn') ? 1 : 0).compareTo(b.url.toString().contains('mcdn') ? 1 : 0);
     if (byEdge != 0) return byEdge;
     return a.url.toString().compareTo(b.url.toString());
