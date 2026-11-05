@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "platform": "stripchat",
+  "sample": "S07-search",
+  "capturedAt": "2026-11-05T10:00:00.000000Z",
+  "route": "direct",
+  "request": {
+    "method": "GET",
+    "url": "https://stripchat.com/api/front/v4/models/search/suggestion?query=search&primaryTag=girls",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      "Origin": "https://stripchat.com",
+      "Referer": "https://stripchat.com/"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    }
+  },
+  "body": "body.json",
+  "tool": "stripchat fixture (manual)"
+}

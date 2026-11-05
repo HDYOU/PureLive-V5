@@ -1,0 +1,23 @@
+{
+  "generator": "StripchatApi.qualities",
+  "value": [
+    {
+      "quality": "1080p",
+      "id": "1080p4500",
+      "data": "1080-4500000",
+      "sort": 10804500
+    },
+    {
+      "quality": "720p",
+      "id": "720p2500",
+      "data": "720-2500000",
+      "sort": 7202500
+    },
+    {
+      "quality": "480p",
+      "id": "480p1000",
+      "data": "480-1000000",
+      "sort": 4801000
+    }
+  ]
+}

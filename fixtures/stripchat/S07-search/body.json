@@ -1,0 +1,24 @@
+[
+  {
+    "id": 99999999,
+    "username": "searchgirl",
+    "isLive": true,
+    "status": "public",
+    "viewersCount": 342,
+    "avatarUrl": "https://img.stripchat.com/avatar/searchgirl.jpg",
+    "popularSnapshotTimestamp": 1730800000,
+    "startTime": 1730798500,
+    "description": "Searching for fun"
+  },
+  {
+    "id": 88888888,
+    "username": "offlineuser",
+    "isLive": false,
+    "status": "public",
+    "viewersCount": 0,
+    "avatarUrl": "",
+    "popularSnapshotTimestamp": 1730700000,
+    "startTime": 0,
+    "description": ""
+  }
+]
