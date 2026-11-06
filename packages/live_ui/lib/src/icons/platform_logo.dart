@@ -13,7 +13,7 @@ abstract final class PlatformLogos {
     'bilibili', 'douyu', 'huya', 'douyin', 'kuaishou', 'cc', 'iptv', 'twitch', 'soop', 'yy', 'acfun', //
     'picarto', 'twitcasting', 'missevan', 'inke', 'kilakila', 'xiaohongshu', 'niconico', 'weibo', 'showroom',
     'chzzk', 'kick', 'pandalive', 'fc2live', 'steambroadcast', 'jdlive', 'kugoulive', 'baidulive', 'looklive', '17live',
-    'sixroom', 'youtube', 'bigo', 'liveme', 'tiktok',
+    'sixroom', 'youtube', 'bigo', 'liveme', 'tiktok', 'stripchat',
   };
 
   /// The app logo, shown for any other id.
@@ -64,6 +64,7 @@ abstract final class PlatformLogos {
     'looklive': 0xFFFF2C55,
     '17live': 0xFFFF2D55,
     'iptv': 0xFF00A2FF,
+    'stripchat': 0xFFFF6B35,
   };
 
   /// The colour of [platformId] (trimmed, any case), ARGB, or null for an
