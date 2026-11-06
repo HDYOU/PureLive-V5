@@ -141,11 +141,11 @@ jobs:
             
                awk '{if ($0 ~ /if \(byProtocol != 0\) return byProtocol;/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                awk '{if ($0 ~ /final byProtocol = \(a.protocol ==/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
-               awk '{ gsub(/&& *candidate\.codec == first\.codec/, ""); print }' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed 's|candidate\.codec == first\.codec|true|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                echo "✅ 已添加 , 直播支持 hevc"
               
               echo "$MANIFEST"
-              grep -A5 -B5 "byProtocol″ "$MANIFEST" || true
+              grep -A5 -B5 "byProtocol" "$MANIFEST" || true
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
