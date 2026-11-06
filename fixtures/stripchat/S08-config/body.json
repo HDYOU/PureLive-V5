@@ -1,16 +1,26 @@
 {
   "initial": {
     "common": {
+      "hlsStreamHost": "doppiocdn.org",
       "hlsStreamHosts": {
-        "A": "streaming-a.zh.virtualtaboo.live",
-        "B": "streaming-b.zh.virtualtaboo.live",
-        "C": "streaming-c.zh.virtualtaboo.live"
+        "A": "doppiocdn.com",
+        "A1": "doppiocdn.com",
+        "B": "doppiocdn1.com",
+        "B1": "doppiocdn1.com",
+        "C": "doppiocdn.media",
+        "C1": "doppiocdn.media",
+        "D": "doppiocdn.net",
+        "D1": "doppiocdn.net",
+        "E": "doppiocdn.org",
+        "E1": "doppiocdn.org",
+        "F": "doppiocdn.live",
+        "F1": "doppiocdn.live"
       }
     },
     "client": {
       "websocket": {
-        "url": "wss://chat.zh.virtualtaboo.live/ws",
-        "token": "test-token-12345"
+        "url": "wss://websocket-v6.sc-apps.com/connection/websocket",
+        "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.test"
       }
     }
   }
