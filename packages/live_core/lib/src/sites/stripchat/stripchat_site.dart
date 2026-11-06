@@ -303,17 +303,19 @@ final class StripchatSite extends LiveSite
   }) async {
     final data = detail.data as StripchatRoomData?;
     if (data == null) throw const StreamUnavailable(_site, 'no stream data');
+    final url = quality.data as String?;
+    if (url == null || url.isEmpty) throw StreamUnavailable(_site, 'no variant url for quality ${quality.id}');
     return LivePlayUrlResolution.lines(
       [
         LivePlayLine(
-          data.master.toString(),
+          url,
           headers: {
             'user-agent': StripchatApi.headers['user-agent']!,
             'origin': StripchatApi.origin,
             'referer': '${StripchatApi.roomPageUrl(data.username)}/',
           },
           format: StreamFormat.hls,
-          codec: 'avc',
+          codec: quality.codec ?? 'avc',
           lineId: data.streamName,
         ),
       ],
