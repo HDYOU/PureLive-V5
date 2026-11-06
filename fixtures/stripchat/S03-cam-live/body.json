@@ -4,33 +4,16 @@
     "username": "prettygirl",
     "status": "public",
     "isLive": true,
-    "viewersCount": 1523,
-    "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
     "snapshotTimestamp": 1730800000,
     "statusChangedAt": "2026-11-06T11:43:20Z",
     "description": "Welcome to my stream!",
-    "goalDescription": "Reach 2000 viewers!",
-    "topic": "prettygirl live",
+    "topic": "",
     "userFanClub": {
       "description": " VIP fan club member"
     }
   },
   "cam": {
     "streamName": "prettygirl-webcam",
-    "hlsLines": [
-      {
-        "url": "https://streaming-prettygirl1.stripchat.com/hls/prettygirl-webcam/index.m3u8",
-        "resolution": "1080p"
-      },
-      {
-        "url": "https://streaming-prettygirl2.stripchat.com/hls/prettygirl-webcam/index.m3u8",
-        "resolution": "720p"
-      }
-    ],
-    "pixelatedResolutions": [
-      "360p",
-      "480p"
-    ],
     "goal": {
       "description": "Reach 2000 viewers!"
     },
