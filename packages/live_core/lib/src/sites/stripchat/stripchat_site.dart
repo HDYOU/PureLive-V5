@@ -31,6 +31,9 @@ final class StripchatSite extends LiveSite
   /// Transport.
   final LiveHttp http;
 
+  /// Cached config response (CDN hosts and WebSocket info).
+  StripchatConfig? _cachedConfig;
+
   @override
   String get id => _site;
 
@@ -198,10 +201,13 @@ final class StripchatSite extends LiveSite
     return StripchatApi.camDetail(response.text, modelId: modelId, status: response.status);
   }
 
-  /// Get the config (CDN hosts and WebSocket info).
+  /// Get the config (CDN hosts and WebSocket info). Cached after first fetch.
   Future<StripchatConfig> _getConfig() async {
+    if (_cachedConfig != null) return _cachedConfig!;
     final response = await _get(Uri.https(StripchatApi.apiHost, '/api/front/v3/config/initial'));
-    return StripchatApi.config(response.text, status: response.status);
+    final config = StripchatApi.config(response.text, status: response.status);
+    _cachedConfig = config;
+    return config;
   }
 
   /// The room with its stream (when live).
