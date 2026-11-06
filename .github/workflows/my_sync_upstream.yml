@@ -9,7 +9,7 @@ on:
     paths:
       - ".github/workflows/my_sync_upstream.yml"
   schedule:
-    - cron: "20 */1 * * *"
+    - cron: "20 * * * *"
   workflow_dispatch:
   watch:
     types: [started]
@@ -94,15 +94,15 @@ jobs:
 
           # 统计 v{base_tag} 和 v{base_tag}.pre.{n} 的出现次数
           count=$(echo "$release_tags" \
-            | grep -E "^v${base_tag//./\\.}(\.pre\.[0-9]+)?$" \
-            | wc -l | tr -d ' ')
+             | { grep -E "^v${base_tag//./\\.}(\.pre\.[0-9]+)?$" || true; } \
+             | wc -l | tr -d ' ')
 
           echo "count=$count"
 
           if [ "$count" -eq 0 ]; then
             final_tag="$base_tag"
           else
-            final_tag="$base_tag.pre.$count"
+            final_tag="$base_tag.$count.pre.$count"
           fi
 
           echo "final_tag=$final_tag"
