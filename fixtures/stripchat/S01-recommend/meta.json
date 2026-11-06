@@ -6,7 +6,7 @@
   "route": "direct",
   "request": {
     "method": "GET",
-    "url": "https://zh.virtualtaboo.live/api/front/v2/models?limit=60",
+    "url": "https://zh.virtualtaboo.live/api/front/models?limit=60&primaryTag=girls&filterGroupTags=%5B%5B%22tagLanguageChinese%22%5D%5D&offset=0",
     "headers": {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
       "Accept": "application/json, text/plain, */*",
