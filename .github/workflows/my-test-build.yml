@@ -142,6 +142,10 @@ jobs:
                awk '{if ($0 ~ /if \(byProtocol != 0\) return byProtocol;/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                awk '{if ($0 ~ /final byProtocol = \(a.protocol ==/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                sed 's|candidate\.codec == first\.codec|true|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               
+               sed "s|a.codec == 'avc' ? 0 : 1|a.codec == 'av1' ? 0 : a.codec == 'hevc' ? 1 : a.codec == 'avc' ? 2 : 3|g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s|b.codec == 'avc' ? 0 : 1|b.codec == 'av1' ? 0 : b.codec == 'hevc' ? 1 : b.codec == 'avc' ? 2 : 3|g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               
                echo "✅ 已添加 , 直播支持 hevc"
               
               echo "$MANIFEST"
