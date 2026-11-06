@@ -618,7 +618,7 @@ abstract final class StripchatApi {
 
   /// Build the primary HLS master URI from a stream name and CDN host.
   static Uri masterUri(String streamName, String cdnHost) =>
-      Uri.parse('https://$cdnHost/hls/$streamName/index.m3u8');
+      Uri.parse('https://edge-hls.$cdnHost/hls/$streamName/master/${streamName}_auto.m3u8');
 
   /// Build all CDN HLS master URIs from stream name and config hosts,
   /// ordered by host key (A, B, C, …).
