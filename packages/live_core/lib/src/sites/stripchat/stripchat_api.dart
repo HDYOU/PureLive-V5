@@ -328,10 +328,15 @@ abstract final class StripchatApi {
     final initial = _object(root['initial']) ?? {};
     final common = _object(initial['common']) ?? {};
     final client = _object(initial['client']) ?? {};
+    // Primary host from `hlsStreamHost` always comes first.
+    final primaryHost = jsonString(common['hlsStreamHost']) ?? '';
     final hostsRaw = _object(common['hlsStreamHosts']) ?? {};
     final hlsStreamHosts = <String, String>{};
+    if (primaryHost.isNotEmpty) hlsStreamHosts['primary'] = primaryHost;
     for (final MapEntry(:key, :value) in hostsRaw.entries) {
-      if (value is String && value.isNotEmpty) hlsStreamHosts[key] = value;
+      if (value is String && value.isNotEmpty && !hlsStreamHosts.containsValue(value)) {
+        hlsStreamHosts[key] = value;
+      }
     }
     final wsClient = _object(client['websocket']) ?? {};
     final websocketUrl = jsonString(wsClient['url']) ?? '';
@@ -621,19 +626,20 @@ abstract final class StripchatApi {
   static Uri masterUri(String streamName, String cdnHost) =>
       Uri.parse('https://edge-hls.$cdnHost/hls/$streamName/master/${streamName}_auto.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX');
 
-  /// Build all CDN HLS master URIs from stream name and config hosts,
-  /// ordered by host key (A, B, C, …).
-  static List<Uri> masterUris(String streamName, Map<String, String> hlsStreamHosts) {
-    final ordered = <String>[];
-    for (final key in hlsStreamHosts.keys.toList()..sort()) {
-      ordered.add(key);
-    }
-    return [
-      for (final key in ordered)
-        if (hlsStreamHosts[key] case final host? when host.isNotEmpty)
-          masterUri(streamName, host),
-    ];
-  }
+   /// Build all CDN HLS master URIs from stream name and config hosts,
+   /// with the primary host (key "primary") first, then the rest sorted by key.
+   static List<Uri> masterUris(String streamName, Map<String, String> hlsStreamHosts) {
+     final ordered = <String>[];
+     if (hlsStreamHosts.containsKey('primary')) ordered.add('primary');
+     for (final key in hlsStreamHosts.keys.where((k) => k != 'primary').toList()..sort()) {
+       ordered.add(key);
+     }
+     return [
+       for (final key in ordered)
+         if (hlsStreamHosts[key] case final host? when host.isNotEmpty)
+           masterUri(streamName, host),
+     ];
+   }
 
   /// Thumbnail URL for a model.
   static String thumbnailUrl(int snapshotTimestamp, String modelId) =>
