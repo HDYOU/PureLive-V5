@@ -576,27 +576,29 @@ final class BigoDanmakuConnection extends DanmakuSocketConnection<BigoDanmakuArg
   /// routes the socket; [connector] replaces `dart:io`'s handshake,
   /// [policy] the timing, [loginDelay] the wait before the login, [now] the
   /// clock of the frames' times and [random] the device id (tests).
-  factory({
-    required LiveHttp http,
-    ProxyPolicy proxy = const FixedProxyPolicy(),
-    SocketConnector? connector,
-    DanmakuSocketPolicy policy = defaultPolicy,
-    Duration loginDelay = BigoDanmakuProtocol.loginDelay,
-    DateTime Function()? now,
-    Random? random,
-  }) => BigoDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket),
-    proxy: proxy,
-    policy: policy,
-    loginDelay: loginDelay,
-    now: now ?? DateTime.now,
-    random: random ?? Random.secure(),
-  );
+   factory({
+     required LiveHttp http,
+     ProxyPolicy proxy = const FixedProxyPolicy(),
+     SocketConnector? connector,
+     DanmakuSocketPolicy policy = defaultPolicy,
+     Duration loginDelay = BigoDanmakuProtocol.loginDelay,
+     DateTime Function()? now,
+     Random? random,
+     bool skipSslVerification = false,
+   }) => BigoDanmakuConnection._(
+     _Handshake(http, connector ?? connectIoSocket, skipSslVerification),
+     proxy: proxy,
+     policy: policy,
+     loginDelay: loginDelay,
+     now: now ?? DateTime.now,
+     random: random ?? Random.secure(),
+   );
 
   new _(
     this._handshake, {
     required super.proxy,
     required super.policy,
+    super.skipSslVerification,
     required this._loginDelay,
     required this._now,
     required this._random,
@@ -741,10 +743,11 @@ final class BigoDanmakuConnection extends DanmakuSocketConnection<BigoDanmakuArg
 /// The handshake of a [BigoDanmakuConnection]: asks `getWebSocketLink` for a
 /// visitor first when the run has none, then connects.
 final class _Handshake {
-  new(this._http, this._connect);
+  new(this._http, this._connect, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -755,6 +758,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -772,6 +776,7 @@ final class _Handshake {
       protocols: protocols,
       route: route,
       connectTimeout: connectTimeout,
+      skipSslVerification: skipSslVerification,
     );
   }
 }

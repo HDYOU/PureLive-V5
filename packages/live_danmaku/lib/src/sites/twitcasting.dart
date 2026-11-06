@@ -268,9 +268,10 @@ final class TwitcastingDanmakuConnection extends DanmakuSocketConnection<Twitcas
     ProxyPolicy proxy = const FixedProxyPolicy(),
     SocketConnector? connector,
     DanmakuSocketPolicy policy = defaultPolicy,
-  }) => TwitcastingDanmakuConnection._(_Resolver(http, connector ?? connectIoSocket), proxy: proxy, policy: policy);
+    bool skipSslVerification = false,
+  }) => TwitcastingDanmakuConnection._(_Resolver(http, connector ?? connectIoSocket, skipSslVerification), proxy: proxy, policy: policy);
 
-  new _(this._resolver, {required super.proxy, required super.policy})
+  new _(this._resolver, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.twitcasting, connector: _resolver.connect);
 
   /// The platform's timing: a 10 s tick for the silence watchdog (no frame
@@ -320,10 +321,11 @@ final class TwitcastingDanmakuConnection extends DanmakuSocketConnection<Twitcas
 /// The handshake of a [TwitcastingDanmakuConnection]: resolves the
 /// `eventpubsuburl.php` address to a signed socket URL, then connects.
 final class _Resolver {
-  new(this._http, this._connect);
+  new(this._http, this._connect, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
+  final bool skipSslVerification;
   CancelToken _cancel = CancelToken();
 
   /// A new run: the previous run's requests are cancelled.
@@ -341,11 +343,12 @@ final class _Resolver {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final movie = TwitcastingDanmakuProtocol.movieOf(endpoint);
     final url = movie == null ? endpoint : await _resolve(movie, connectTimeout);
     try {
-      return await _connect(url, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout);
+      return await _connect(url, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout, skipSslVerification: skipSslVerification);
     } on Object catch (error) {
       throw _HandshakeFailure(TwitcastingDanmakuProtocol.redact('$error'));
     }

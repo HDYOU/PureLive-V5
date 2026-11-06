@@ -305,12 +305,13 @@ final class SoopDanmakuConnection extends DanmakuSocketConnection<SoopDanmakuArg
   );
 
   static SocketConnector _withoutPlainCookie(SocketConnector connector) =>
-      (endpoint, {required headers, required protocols, required route, required connectTimeout}) => connector(
+      (endpoint, {required headers, required protocols, required route, required connectTimeout, skipSslVerification = false}) => connector(
         endpoint,
         headers: endpoint.scheme == 'wss' ? headers : SoopDanmakuProtocol.plainHeaders(headers),
         protocols: protocols,
         route: route,
         connectTimeout: connectTimeout,
+        skipSslVerification: skipSslVerification,
       );
 
   String _chatNo = '';

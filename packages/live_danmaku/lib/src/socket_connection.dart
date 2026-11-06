@@ -123,7 +123,7 @@ abstract base class DanmakuSocketConnection<A extends Object> extends DanmakuCon
   /// Creates the connection for platform [site] (it selects the [proxy]
   /// route); `connector` replaces `dart:io`'s handshake (the case-sensitive
   /// one YY and SOOP need).
-  new({required this.site, required this.policy, this.proxy = const FixedProxyPolicy(), this._connector})
+  new({required this.site, required this.policy, this.proxy = const FixedProxyPolicy(), this._connector, this.skipSslVerification = false})
     : super(heartbeatInterval: policy.heartbeatInterval);
 
   /// Platform id.
@@ -136,6 +136,7 @@ abstract base class DanmakuSocketConnection<A extends Object> extends DanmakuCon
   final ProxyPolicy proxy;
 
   final SocketConnector? _connector;
+  final bool skipSslVerification;
   DanmakuSocketSession? _session;
 
   /// Where to connect for [args]; may wait for signatures or credentials.
@@ -334,6 +335,7 @@ final class DanmakuSocketSession {
       required Iterable<String>? protocols,
       required ProxyRoute route,
       required Duration connectTimeout,
+      bool skipSslVerification = false,
     }) async {
       final pending = renewing;
       if (pending != null) {
@@ -367,6 +369,7 @@ final class DanmakuSocketSession {
       connectTimeout: policy.connectTimeout,
       shutdownTimeout: policy.shutdownTimeout,
       connector: handshake,
+      skipSslVerification: _connection.skipSslVerification,
       onReady: () {
         if (current()) _opened();
       },

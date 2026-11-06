@@ -84,7 +84,7 @@ final class AcfunDanmakuConnection extends DanmakuSocketConnection<AcfunDanmakuA
   /// `dart:io`'s handshake. [policy], [now] (the heartbeat's timestamp) and
   /// [random] (the payloads' IVs) are the platform's unless a test fixes
   /// them.
-  new({super.proxy, super.connector, super.policy = defaultPolicy, DateTime Function()? now, Random? random})
+  new({super.proxy, super.connector, super.skipSslVerification, super.policy = defaultPolicy, DateTime Function()? now, Random? random})
     : _now = now ?? DateTime.now,
       _random = random ?? Random.secure(),
       super(site: SiteIds.acfun);

@@ -465,7 +465,7 @@ final class DouyinDanmakuConnection extends DanmakuSocketConnection<DouyinDanmak
   /// Creates the connection. [proxy] routes the handshake; `connector`
   /// replaces `dart:io`'s handshake; `random` (the signature's random bytes)
   /// and `now` (the cursor time) are only for tests.
-  new({super.proxy, super.connector, this._http, Random? random, DateTime Function()? now})
+  new({super.proxy, super.connector, super.skipSslVerification, this._http, Random? random, DateTime Function()? now})
     : _signer = DouyinSigner(userAgent: DouyinApi.userAgent, random: random),
       _now = now ?? DateTime.now,
       super(site: SiteIds.douyin, policy: socketPolicy);

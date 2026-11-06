@@ -622,6 +622,7 @@ final class _Grants {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     // The runtime only ever has the target's address, the grant request.
     final channelId =
@@ -641,6 +642,7 @@ final class _Grants {
         protocols: null,
         route: _proxy.routeFor(SiteIds.fc2Live, grant.socket),
         connectTimeout: connectTimeout,
+        skipSslVerification: skipSslVerification,
       );
     } on Object catch (error) {
       throw _HandshakeFailure('$error');

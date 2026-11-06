@@ -405,7 +405,7 @@ final class KickFrame {
 final class KickDanmakuConnection extends DanmakuSocketConnection<KickDanmakuArgs> {
   /// Creates the connection. [proxy] routes the handshake; `connector`
   /// replaces `dart:io`'s handshake and [policy] the timing (tests).
-  new({super.proxy, super.connector, super.policy = socketPolicy}) : super(site: SiteIds.kick);
+  new({super.proxy, super.connector, super.skipSslVerification, super.policy = socketPolicy}) : super(site: SiteIds.kick);
 
   /// Socket timing: the runtime's defaults with the 30 s ping and the 10 s
   /// join timer.

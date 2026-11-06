@@ -111,14 +111,15 @@ final class BilibiliDanmakuConnection extends DanmakuSocketConnection<BilibiliDa
   /// `dart:io`'s handshake. [policy], `credentialRetryDelay` (the step
   /// between the start's credential attempts) and [random] (the auth
   /// packet's `queue_uuid`) are 3.x's values unless a test shortens them.
-  new({
-    super.proxy,
-    super.connector,
-    super.policy = defaultPolicy,
-    this._credentialRetryDelay = const Duration(milliseconds: 500),
-    Random? random,
-  }) : _random = random ?? Random.secure(),
-       super(site: SiteIds.bilibili);
+   new({
+     super.proxy,
+     super.connector,
+     super.skipSslVerification,
+     super.policy = defaultPolicy,
+     this._credentialRetryDelay = const Duration(milliseconds: 500),
+     Random? random,
+   }) : _random = random ?? Random.secure(),
+        super(site: SiteIds.bilibili);
 
   /// 3.x's timing: a 30 s heartbeat (so 90 s of silence replaces the socket)
   /// and 8 s for the auth reply.

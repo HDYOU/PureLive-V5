@@ -392,13 +392,14 @@ final class JdLiveDanmakuConnection extends DanmakuSocketConnection<JdLiveDanmak
     DanmakuSocketPolicy policy = defaultPolicy,
     DateTime Function()? now,
     Random? random,
+    bool skipSslVerification = false,
   }) => JdLiveDanmakuConnection._(
-    _Resolver(http, connector ?? connectIoSocket, now ?? DateTime.now, random ?? Random.secure()),
+    _Resolver(http, connector ?? connectIoSocket, now ?? DateTime.now, random ?? Random.secure(), skipSslVerification),
     proxy: proxy,
     policy: policy,
   );
 
-  new _(this._resolver, {required super.proxy, required super.policy})
+  new _(this._resolver, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.jdLive, connector: _resolver.connect);
 
   /// The platform's timing: a 20 s tick for the silence watchdog (no frame
@@ -453,12 +454,13 @@ final class JdLiveDanmakuConnection extends DanmakuSocketConnection<JdLiveDanmak
 /// The handshake of a [JdLiveDanmakuConnection]: resolves the `liveauth`
 /// address to a socket URL with a fresh token, then connects.
 final class _Resolver {
-  new(this._http, this._connect, this._now, this._random);
+  new(this._http, this._connect, this._now, this._random, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
   final DateTime Function() _now;
   final Random _random;
+  final bool skipSslVerification;
   CancelToken _cancel = CancelToken();
 
   /// The mask of the current socket's binary frames, from its `liveauth`.
@@ -480,6 +482,7 @@ final class _Resolver {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final liveId = JdLiveDanmakuProtocol.liveIdOf(endpoint);
     var url = endpoint;
@@ -489,7 +492,7 @@ final class _Resolver {
       url = auth.socketUrl;
     }
     try {
-      return await _connect(url, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout);
+      return await _connect(url, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout, skipSslVerification: skipSslVerification);
     } on Object catch (error) {
       throw _HandshakeFailure(JdLiveDanmakuProtocol.redact('$error'));
     }

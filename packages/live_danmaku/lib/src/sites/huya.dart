@@ -353,7 +353,7 @@ final class HuyaDanmakuConnection extends DanmakuSocketConnection<HuyaDanmakuArg
   /// Creates the connection. [proxy] routes the handshake; `connector`
   /// replaces `dart:io`'s handshake and [now] the clock that times board
   /// entries (tests).
-  new({super.proxy, super.connector, DateTime Function()? now})
+  new({super.proxy, super.connector, super.skipSslVerification, DateTime Function()? now})
     : _now = now ?? DateTime.now,
       super(site: SiteIds.huya, policy: socketPolicy);
 

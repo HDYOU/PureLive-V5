@@ -975,13 +975,14 @@ final class SeventeenLiveDanmakuConnection extends DanmakuSocketConnection<Seven
     SocketConnector? connector,
     DanmakuSocketPolicy policy = defaultPolicy,
     DateTime Function()? now,
+    bool skipSslVerification = false,
   }) => SeventeenLiveDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now),
+    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now, skipSslVerification),
     proxy: proxy,
     policy: policy,
   );
 
-  new _(this._handshake, {required super.proxy, required super.policy})
+  new _(this._handshake, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.seventeenLive, connector: _handshake.call);
 
   /// The platform's timing: the server's 15 s heartbeat as the watchdog's
@@ -1195,13 +1196,14 @@ final class SeventeenLiveDanmakuConnection extends DanmakuSocketConnection<Seven
 /// with it, resuming the run's connection while it is fresh (B-14). A
 /// failed handshake's message has the token and the key blanked out.
 final class _Handshake {
-  new(this._http, this._connect, this.now);
+  new(this._http, this._connect, this.now, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
 
   /// The clock.
   final DateTime Function() now;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -1212,6 +1214,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -1224,6 +1227,7 @@ final class _Handshake {
         protocols: protocols,
         route: route,
         connectTimeout: connectTimeout,
+        skipSslVerification: skipSslVerification,
       );
     } on Object catch (error) {
       var message = '$error';

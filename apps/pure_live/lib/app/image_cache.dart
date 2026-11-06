@@ -26,16 +26,16 @@ Directory appImageCacheFolder(Directory temporary) => Directory(p.join(temporary
 /// changed setting applies to the next one; idle connections close after
 /// 30 s. The directive is [ProxyRoute.directive] as is: Android resolves
 /// anything else in it as a host name.
-FileService imageFileService(ProxyPolicy proxy) =>
-    IsolateImageFileService(directiveFor: (url) => proxy.routeFor(imageProxySite, url).directive);
+FileService imageFileService(ProxyPolicy proxy, {bool skipSslVerification = false}) =>
+    IsolateImageFileService(directiveFor: (url) => proxy.routeFor(imageProxySite, url).directive, skipSslVerification: skipSslVerification);
 
 /// The image cache's rules (3.x): 30 minutes before a file is asked for
 /// again, at most 320 files, downloads through [proxy]. [repo] and
 /// [fileSystem] replace the on-disk ones in tests.
-Config appImageCacheConfig(ProxyPolicy proxy, {CacheInfoRepository? repo, FileSystem? fileSystem}) {
+Config appImageCacheConfig(ProxyPolicy proxy, {CacheInfoRepository? repo, FileSystem? fileSystem, bool skipSslVerification = false}) {
   const stalePeriod = Duration(minutes: 30);
   const maxNrOfCacheObjects = 320;
-  final fileService = imageFileService(proxy);
+  final fileService = imageFileService(proxy, skipSslVerification: skipSslVerification);
   if (repo == null || fileSystem == null) {
     return Config(
       appImageCacheKey,

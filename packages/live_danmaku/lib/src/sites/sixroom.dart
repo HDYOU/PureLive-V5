@@ -590,14 +590,15 @@ final class SixRoomDanmakuConnection extends DanmakuSocketConnection<SixRoomDanm
     SocketConnector? connector,
     DanmakuSocketPolicy policy = defaultPolicy,
     Random? random,
+    bool skipSslVerification = false,
   }) => SixRoomDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket),
+    _Handshake(http, connector ?? connectIoSocket, skipSslVerification),
     random ?? Random(),
     proxy: proxy,
     policy: policy,
   );
 
-  new _(this._handshake, this._random, {required super.proxy, required super.policy})
+  new _(this._handshake, this._random, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.sixRoom, connector: _handshake.call);
 
   /// The page's timing: the 16 s heartbeat and the 6 s login; the runtime's
@@ -685,10 +686,11 @@ final class SixRoomDanmakuConnection extends DanmakuSocketConnection<SixRoomDanm
 /// The handshake of a [SixRoomDanmakuConnection]: the next chat server of the
 /// run's room, asking for the list first when it is used up.
 final class _Handshake {
-  new(this._http, this._connect);
+  new(this._http, this._connect, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -699,6 +701,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -713,7 +716,7 @@ final class _Handshake {
         ..next = 0;
     }
     final server = chat.servers[chat.next++];
-    return await _connect(server, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout);
+    return await _connect(server, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout, skipSslVerification: skipSslVerification);
   }
 }
 

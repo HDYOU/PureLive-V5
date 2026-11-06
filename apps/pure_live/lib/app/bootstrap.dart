@@ -333,6 +333,7 @@ abstract final class AppBootstrap {
       proxy: proxy,
       cookies: cookies,
       store: store,
+      skipSslVerification: true,
       // Twitch GraphQL: Android's system TLS, then the headless WebView (3.x).
       twitchFallbacks: [
         ?native,

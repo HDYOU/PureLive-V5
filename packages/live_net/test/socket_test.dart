@@ -54,6 +54,7 @@ final class _Connector {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final index = endpoints.length;
     endpoints.add(endpoint);
@@ -211,7 +212,7 @@ void main() {
       reconnectBaseDelay: const Duration(milliseconds: 1),
       onReconnecting: () => reconnecting++,
       onClosed: closed.add,
-      connector: (endpoint, {required headers, required protocols, required route, required connectTimeout}) =>
+      connector: (endpoint, {required headers, required protocols, required route, required connectTimeout, skipSslVerification = false}) =>
           Future.error(const SocketException('refused')),
     );
     await socket.connect();

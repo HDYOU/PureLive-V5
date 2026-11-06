@@ -20,13 +20,16 @@ import 'package:http/http.dart' as http;
 /// isolate, through them.
 final class IsolateImageFileService extends FileService {
   /// Creates the service.
-  new({required this.directiveFor, this.connectTimeout = const Duration(seconds: 15)});
+  new({required this.directiveFor, this.connectTimeout = const Duration(seconds: 15), this.skipSslVerification = false});
 
   /// The proxy directive for an image URL ("DIRECT", "PROXY host:port").
   final String Function(Uri url) directiveFor;
 
   /// How long a connection may take.
   final Duration connectTimeout;
+
+  /// Whether to skip SSL certificate verification.
+  final bool skipSslVerification;
 
   /// How long a whole download may take.
   static const Duration timeout = Duration(seconds: 60);
@@ -40,7 +43,7 @@ final class IsolateImageFileService extends FileService {
     if (HttpOverrides.current != null) {
       return HttpGetResponse(await _fetchHere(uri, headers ?? const {}, directive));
     }
-    final worker = _worker ??= _Worker(connectTimeout);
+    final worker = _worker ??= _Worker(connectTimeout, skipSslVerification);
     final reply = await worker.fetch(url, headers ?? const {}, directive);
     final bytes = reply.bytes.materialize().asUint8List();
     return HttpGetResponse(
@@ -58,6 +61,7 @@ final class IsolateImageFileService extends FileService {
     final client = HttpClient()
       ..connectionTimeout = connectTimeout
       ..findProxy = (_) => directive;
+    if (skipSslVerification) client.badCertificateCallback = (_, _, _) => true;
     try {
       final reply = await _download(client, uri, headers).timeout(timeout);
       final bytes = reply.bytes.materialize().asUint8List();
@@ -90,9 +94,10 @@ Future<_Reply> _download(HttpClient client, Uri uri, Map<String, String> headers
 
 /// The worker isolate and the requests waiting on it.
 final class _Worker {
-  new(this.connectTimeout);
+  new(this.connectTimeout, this.skipSslVerification);
 
   final Duration connectTimeout;
+  final bool skipSslVerification;
   final Map<int, Completer<_Reply>> _waiting = {};
   int _next = 0;
   Future<SendPort>? _port;
@@ -128,7 +133,7 @@ final class _Worker {
           _fail('image worker ended');
       }
     });
-    await Isolate.spawn(_main, (inbox.sendPort, connectTimeout), onExit: inbox.sendPort, debugName: 'image downloads');
+    await Isolate.spawn(_main, (inbox.sendPort, connectTimeout, skipSslVerification), onExit: inbox.sendPort, debugName: 'image downloads');
     return await ready.future;
   }
 
@@ -145,8 +150,8 @@ final class _Worker {
 
   /// The worker: one client per proxy directive, idle connections kept
   /// 30 s for the next images of the same host.
-  static void _main((SendPort, Duration) setup) {
-    final (reply, connectTimeout) = setup;
+  static void _main((SendPort, Duration, bool) setup) {
+    final (reply, connectTimeout, skipSslVerification) = setup;
     final inbox = ReceivePort();
     final clients = <String, HttpClient>{};
     reply.send(inbox.sendPort);
@@ -157,6 +162,7 @@ final class _Worker {
         ..idleTimeout = const Duration(seconds: 30)
         ..connectionTimeout = connectTimeout
         ..findProxy = (_) => directive;
+      if (skipSslVerification) client.badCertificateCallback = (_, _, _) => true;
       try {
         final result = await _download(client, Uri.parse(url), headers);
         reply.send((id, result.status, result.headers, result.bytes));

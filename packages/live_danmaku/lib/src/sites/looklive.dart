@@ -744,15 +744,16 @@ final class LookLiveDanmakuConnection extends DanmakuSocketConnection<LookLiveDa
     DateTime Function()? now,
     Random? random,
     Duration addressRetryDelay = LookLiveDanmakuProtocol.addressRetryDelay,
+    bool skipSslVerification = false,
   }) => LookLiveDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now),
+    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now, skipSslVerification),
     random ?? Random.secure(),
     addressRetryDelay,
     proxy: proxy,
     policy: policy,
   );
 
-  new _(this._handshake, this._random, this._addressRetryDelay, {required super.proxy, required super.policy})
+  new _(this._handshake, this._random, this._addressRetryDelay, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.lookLive, connector: _handshake.call);
 
   /// The platform's timing: a 30 s tick (the link heartbeat every sixth),
@@ -919,11 +920,12 @@ final class LookLiveDanmakuConnection extends DanmakuSocketConnection<LookLiveDa
 /// The handshake of a [LookLiveDanmakuConnection]: a socket.io session
 /// first, then the WebSocket of that session.
 final class _Handshake {
-  new(this.http, this._connect, this._now);
+  new(this.http, this._connect, this._now, this.skipSslVerification);
 
   final LiveHttp http;
   final SocketConnector _connect;
   final DateTime Function() _now;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -934,6 +936,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -948,11 +951,12 @@ final class _Handshake {
     );
     if (!chat.run.isActive) throw StateError('The chat was closed');
     return await _connect(
-      LookLiveDanmakuProtocol.socketUrl(endpoint, LookLiveDanmakuProtocol.sessionOf(response)),
+      endpoint,
       headers: headers,
       protocols: protocols,
       route: route,
       connectTimeout: connectTimeout,
+      skipSslVerification: skipSslVerification,
     );
   }
 }

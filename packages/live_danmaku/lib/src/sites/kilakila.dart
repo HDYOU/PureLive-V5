@@ -554,7 +554,7 @@ abstract final class KilakilaDanmakuProtocol {
 final class KilakilaDanmakuConnection extends DanmakuSocketConnection<KilakilaDanmakuArgs> {
   /// Creates the connection; [proxy] routes the socket. `connector` replaces
   /// `dart:io`'s handshake and `policy` the timing (tests).
-  new({super.proxy, super.connector, super.policy = defaultPolicy}) : super(site: SiteIds.kilakila);
+  new({super.proxy, super.connector, super.skipSslVerification, super.policy = defaultPolicy}) : super(site: SiteIds.kilakila);
 
   /// The platform's timing: the 25 s Engine.IO ping and an 8 s join timer
   /// (the archived v4's), the runtime's defaults otherwise.

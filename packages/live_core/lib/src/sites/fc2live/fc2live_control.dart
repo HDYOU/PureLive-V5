@@ -71,20 +71,22 @@ final class Fc2LiveControl {
   }
 
   /// [connectIoSocket] with 3.x's WebSocket ping: every [pingInterval].
-  static Future<SocketChannel> connect(
-    Uri endpoint, {
-    required Map<String, String> headers,
-    required Iterable<String>? protocols,
-    required ProxyRoute route,
-    required Duration connectTimeout,
-  }) => connectIoSocket(
-    endpoint,
-    headers: headers,
-    protocols: protocols,
-    route: route,
-    connectTimeout: connectTimeout,
-    pingInterval: pingInterval,
-  );
+   static Future<SocketChannel> connect(
+     Uri endpoint, {
+     required Map<String, String> headers,
+     required Iterable<String>? protocols,
+     required ProxyRoute route,
+     required Duration connectTimeout,
+     bool skipSslVerification = false,
+   }) => connectIoSocket(
+     endpoint,
+     headers: headers,
+     protocols: protocols,
+     route: route,
+     connectTimeout: connectTimeout,
+     pingInterval: pingInterval,
+     skipSslVerification: skipSslVerification,
+   );
 
   /// 3.x's WebSocket ping interval.
   static const Duration pingInterval = Duration(seconds: 15);

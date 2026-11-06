@@ -103,6 +103,7 @@ final class _Connector {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     expect(endpoint, XiaohongshuDanmakuProtocol.endpoint);
     expect(headers.keys, isNot(contains('Cookie')));

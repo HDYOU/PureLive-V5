@@ -43,7 +43,7 @@ import 'package:share_plus/share_plus.dart';
 ///   Windows needs the WebView2 runtime).
 void installPluginHooks(AppServices services) {
   SystemShare.sheet = shareText;
-  final images = AppImageCache.install(() => appImageCacheConfig(services.proxy));
+  final images = AppImageCache.install(() => appImageCacheConfig(services.proxy, skipSslVerification: true));
   ImageCacheTools.clearDisk = images.emptyCache;
   unawaited(AppImageCache.clearLegacyOnce(services.store.meta, () => DefaultCacheManager().emptyCache()));
   AppNavigator.openFile = openLocalFile;

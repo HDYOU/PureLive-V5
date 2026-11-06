@@ -705,6 +705,7 @@ final class MissevanDanmakuConnection extends DanmakuSocketConnection<MissevanDa
     required this._http,
     super.proxy,
     super.connector,
+    super.skipSslVerification,
     this._sessionRetryDelay = const Duration(milliseconds: 500),
     Random? random,
     DateTime Function()? now,

@@ -1029,15 +1029,16 @@ final class KugouLiveDanmakuConnection extends DanmakuSocketConnection<KugouLive
     List<Duration> retryDelays = dispatchRetryDelays,
     DateTime Function()? now,
     Random? random,
+    bool skipSslVerification = false,
   }) => KugouLiveDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now),
+    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now, skipSslVerification),
     random ?? Random.secure(),
     retryDelays,
     proxy: proxy,
     policy: policy,
   );
 
-  new _(this._handshake, this._random, this._retryDelays, {required super.proxy, required super.policy})
+  new _(this._handshake, this._random, this._retryDelays, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.kugouLive, connector: _handshake.call);
 
   /// The platform's timing: the 10 s heartbeat and the 10 s login limit;
@@ -1173,11 +1174,12 @@ final class KugouLiveDanmakuConnection extends DanmakuSocketConnection<KugouLive
 /// The handshake of a [KugouLiveDanmakuConnection]: asks the scheduler
 /// again first when the run's token is spent, then connects.
 final class _Handshake {
-  new(this._http, this._connect, this._now);
+  new(this._http, this._connect, this._now, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
   final DateTime Function() _now;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -1188,6 +1190,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -1201,6 +1204,7 @@ final class _Handshake {
       protocols: protocols,
       route: route,
       connectTimeout: connectTimeout,
+      skipSslVerification: skipSslVerification,
     );
   }
 

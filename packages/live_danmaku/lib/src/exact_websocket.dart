@@ -24,7 +24,8 @@ Future<SocketChannel> connectExactWebSocket(
   required Iterable<String>? protocols,
   required ProxyRoute route,
   required Duration connectTimeout,
-}) => ExactWebSocket.connect(endpoint, headers: headers, protocols: protocols, connectTimeout: connectTimeout);
+  bool skipSslVerification = false,
+}) => ExactWebSocket.connect(endpoint, headers: headers, protocols: protocols, connectTimeout: connectTimeout, skipSslVerification: skipSslVerification);
 
 /// [connectExactWebSocket] through the platform's proxy [route]: an
 /// [HttpProxyRoute] is asked for a `CONNECT` tunnel to the edge, and TLS
@@ -36,12 +37,14 @@ Future<SocketChannel> connectExactWebSocketViaRoute(
   required Iterable<String>? protocols,
   required ProxyRoute route,
   required Duration connectTimeout,
+  bool skipSslVerification = false,
 }) => ExactWebSocket.connect(
   endpoint,
   headers: headers,
   protocols: protocols,
   connectTimeout: connectTimeout,
   route: route,
+  skipSslVerification: skipSslVerification,
 );
 
 /// A WebSocket client (RFC 6455) whose opening handshake is sent exactly as
@@ -55,7 +58,10 @@ Future<SocketChannel> connectExactWebSocketViaRoute(
 /// by the server closes the socket with an error on [stream]. Messages are
 /// limited to 16 MiB and the response head to 32 KiB.
 final class ExactWebSocket implements SocketChannel {
-  new _(this._endpoint, this._connectTimeout, this._protocols, this._headers, this._random, this._route);
+  new _(this._endpoint, this._connectTimeout, this._protocols, this._headers, this._random, this._route, this._skipSslVerification);
+
+  /// Whether to skip SSL certificate verification.
+  final bool _skipSslVerification;
 
   /// Opens [endpoint] (`ws` or `wss`) and completes once the server accepted
   /// the upgrade. The TCP (and TLS) connection and then the upgrade answer
@@ -75,6 +81,7 @@ final class ExactWebSocket implements SocketChannel {
     Duration connectTimeout = const Duration(seconds: 10),
     Random? random,
     ProxyRoute route = const DirectRoute(),
+    bool skipSslVerification = false,
   }) async {
     if (endpoint.scheme != 'ws' && endpoint.scheme != 'wss') {
       throw WebSocketException('Unsupported WebSocket scheme: ${endpoint.scheme}');
@@ -86,6 +93,7 @@ final class ExactWebSocket implements SocketChannel {
       Map.unmodifiable(headers),
       random ?? Random.secure(),
       route,
+      skipSslVerification,
     );
     unawaited(socket._open());
     await socket._ready.future;
@@ -284,6 +292,7 @@ final class ExactWebSocket implements SocketChannel {
               port,
               timeout: _connectTimeout,
               supportedProtocols: const ['http/1.1'],
+              onBadCertificate: _skipSslVerification ? (_) => true : null,
             )
           : await Socket.connect(_endpoint.host, port, timeout: _connectTimeout);
       if (_closed) {
@@ -357,7 +366,7 @@ final class ExactWebSocket implements SocketChannel {
     final plain = _socket!;
     final subscription = _subscription!..pause();
     try {
-      final socket = await SecureSocket.secure(plain, host: _endpoint.host, supportedProtocols: const ['http/1.1']);
+      final socket = await SecureSocket.secure(plain, host: _endpoint.host, supportedProtocols: const ['http/1.1'], onBadCertificate: _skipSslVerification ? (_) => true : null);
       // The plain socket is detached: cancelling its subscription only
       // drops the listener.
       unawaited(subscription.cancel());

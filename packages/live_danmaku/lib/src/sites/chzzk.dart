@@ -681,6 +681,7 @@ final class ChzzkDanmakuConnection extends DanmakuSocketConnection<ChzzkDanmakuA
     required this._http,
     super.proxy,
     super.connector,
+    super.skipSslVerification,
     this._tokenRetryDelay = const Duration(milliseconds: 500),
     Random? random,
     DateTime Function()? clock,

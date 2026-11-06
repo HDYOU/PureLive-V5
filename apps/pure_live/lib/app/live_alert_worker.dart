@@ -30,7 +30,7 @@ Future<void> liveAlertWorkerMain() async {
     final proxy = SettingsProxyPolicy(store.settings);
     final http = IoLiveHttp(proxy: proxy, skipSslVerification: true);
     final sites = buildSiteRegistry(
-      PlatformDeps(http: http, proxy: proxy, cookies: StoreCookieVault(store.secrets), store: store),
+      PlatformDeps(http: http, proxy: proxy, cookies: StoreCookieVault(store.secrets), store: store, skipSslVerification: true),
     );
     const alerts = LiveAlertChannel();
     final started = await runLiveAlertCheck(

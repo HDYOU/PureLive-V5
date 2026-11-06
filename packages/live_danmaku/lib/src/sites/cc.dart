@@ -221,14 +221,15 @@ final class _Inflated implements Sink<List<int>> {
 /// One anonymous connection, ready only after the channel's successful ack.
 final class CcDanmakuConnection extends DanmakuSocketConnection<CcDanmakuArgs> {
   /// Uses the app's CC proxy; all reconnect and cancellation resources are shared.
-  new({
-    super.proxy,
-    super.connector,
-    super.policy = const DanmakuSocketPolicy(
-      heartbeatInterval: Duration(seconds: 30),
-      joinTimeout: Duration(seconds: 15),
-    ),
-  }) : super(site: SiteIds.cc);
+   new({
+     super.proxy,
+     super.connector,
+     super.skipSslVerification,
+     super.policy = const DanmakuSocketPolicy(
+       heartbeatInterval: Duration(seconds: 30),
+       joinTimeout: Duration(seconds: 15),
+     ),
+   }) : super(site: SiteIds.cc);
   late CcDanmakuArgs _args;
   String _visitor = '';
   bool _joined = false;

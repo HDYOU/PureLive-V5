@@ -535,7 +535,7 @@ final class TwitchDanmakuConnection extends DanmakuSocketConnection<TwitchDanmak
   /// Creates the connection. [proxy] routes the handshake; `connector`
   /// replaces `dart:io`'s handshake, [random] draws anonymous nicks and
   /// [now] reads the clock for [switchInterval] (tests).
-  new({super.proxy, super.connector, Random? random, DateTime Function()? now})
+  new({super.proxy, super.connector, super.skipSslVerification, Random? random, DateTime Function()? now})
     : _random = random ?? Random.secure(),
       _now = now ?? DateTime.now,
       super(site: SiteIds.twitch, policy: socketPolicy);

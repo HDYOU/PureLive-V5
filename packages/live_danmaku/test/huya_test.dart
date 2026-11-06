@@ -196,6 +196,7 @@ final class _Connector {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     endpoints.add(endpoint);
     this.headers.add(headers);

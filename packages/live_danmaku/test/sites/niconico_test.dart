@@ -370,6 +370,7 @@ final class _Connector {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     calls.add((endpoint: endpoint, headers: headers, route: route));
     final channel = channels.isEmpty ? _Channel() : channels.removeAt(0);

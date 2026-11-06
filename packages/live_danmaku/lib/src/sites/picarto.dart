@@ -464,14 +464,15 @@ final class PicartoDanmakuConnection extends DanmakuSocketConnection<PicartoDanm
   /// `tokenRetryDelay` the step between token attempts and `now` the clock
   /// that dates a chip tip without a time (tests); handshake failures are
   /// reported without the token.
-  new({
-    required this._http,
-    super.proxy,
-    SocketConnector? connector,
-    this._tokenRetryDelay = const Duration(milliseconds: 500),
-    DateTime Function()? now,
-  }) : _now = now ?? DateTime.now,
-       super(site: SiteIds.picarto, policy: socketPolicy, connector: _withoutToken(connector ?? connectIoSocket));
+   new({
+     required this._http,
+     super.proxy,
+     SocketConnector? connector,
+     super.skipSslVerification,
+     this._tokenRetryDelay = const Duration(milliseconds: 500),
+     DateTime Function()? now,
+   }) : _now = now ?? DateTime.now,
+        super(site: SiteIds.picarto, policy: socketPolicy, connector: _withoutToken(connector ?? connectIoSocket));
 
   /// Socket timing: the defaults of the shared runtime with the site's 50 s
   /// keep-alive. No join timer: an open socket counts as joined.
@@ -499,7 +500,7 @@ final class PicartoDanmakuConnection extends DanmakuSocketConnection<PicartoDanm
   /// path (`dart:io` names the URL in its errors, which end up in
   /// [DanmakuClosed.detail]).
   static SocketConnector _withoutToken(SocketConnector connector) =>
-      (endpoint, {required headers, required protocols, required route, required connectTimeout}) async {
+      (endpoint, {required headers, required protocols, required route, required connectTimeout, skipSslVerification = false}) async {
         try {
           return await connector(
             endpoint,
@@ -507,6 +508,7 @@ final class PicartoDanmakuConnection extends DanmakuSocketConnection<PicartoDanm
             protocols: protocols,
             route: route,
             connectTimeout: connectTimeout,
+            skipSslVerification: skipSslVerification,
           );
         } on Object catch (error) {
           throw _HandshakeFailure('$error'.replaceAll(_tokenInText, 'token=…'));

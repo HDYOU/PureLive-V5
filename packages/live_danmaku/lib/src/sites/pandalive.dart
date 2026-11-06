@@ -411,19 +411,20 @@ final class PandaLiveDanmakuConnection extends DanmakuSocketConnection<PandaLive
   /// routes the socket; [connector] replaces `dart:io`'s handshake,
   /// [policy] the timing and [now] the clock the token's expiry is read
   /// against (tests).
-  factory({
-    required LiveHttp http,
-    ProxyPolicy proxy = const FixedProxyPolicy(),
-    SocketConnector? connector,
-    DanmakuSocketPolicy policy = defaultPolicy,
-    DateTime Function()? now,
-  }) => PandaLiveDanmakuConnection._(
-    _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now),
-    proxy: proxy,
-    policy: policy,
-  );
+   factory({
+     required LiveHttp http,
+     ProxyPolicy proxy = const FixedProxyPolicy(),
+     SocketConnector? connector,
+     DanmakuSocketPolicy policy = defaultPolicy,
+     DateTime Function()? now,
+     bool skipSslVerification = false,
+   }) => PandaLiveDanmakuConnection._(
+     _Handshake(http, connector ?? connectIoSocket, now ?? DateTime.now, skipSslVerification),
+     proxy: proxy,
+     policy: policy,
+   );
 
-  new _(this._handshake, {required super.proxy, required super.policy})
+  new _(this._handshake, {required super.proxy, required super.policy, super.skipSslVerification})
     : super(site: SiteIds.pandaLive, connector: _handshake.call);
 
   /// The platform's timing: the 25 s ping and the 8 s join limit; the
@@ -557,11 +558,12 @@ final class PandaLiveDanmakuConnection extends DanmakuSocketConnection<PandaLive
 /// The handshake of a [PandaLiveDanmakuConnection]: asks `live/play` for a
 /// token first when the run's token is spent or lapsing, then connects.
 final class _Handshake {
-  new(this._http, this._connect, this._now);
+  new(this._http, this._connect, this._now, this.skipSslVerification);
 
   final LiveHttp _http;
   final SocketConnector _connect;
   final DateTime Function() _now;
+  final bool skipSslVerification;
 
   /// The current run's chat.
   _Chat? chat;
@@ -572,6 +574,7 @@ final class _Handshake {
     required Iterable<String>? protocols,
     required ProxyRoute route,
     required Duration connectTimeout,
+    bool skipSslVerification = false,
   }) async {
     final chat = this.chat;
     if (chat == null || !chat.run.isActive) throw StateError('The chat was closed');
@@ -582,6 +585,7 @@ final class _Handshake {
       protocols: protocols,
       route: route,
       connectTimeout: connectTimeout,
+      skipSslVerification: skipSslVerification,
     );
   }
 

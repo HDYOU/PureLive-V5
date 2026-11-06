@@ -198,7 +198,7 @@ abstract final class ShowroomDanmakuProtocol {
 final class ShowroomDanmakuConnection extends DanmakuSocketConnection<ShowroomDanmakuArgs> {
   /// Creates the connection. [proxy] routes the handshake; `connector`
   /// replaces `dart:io`'s handshake and [policy] the timing (tests).
-  new({super.proxy, super.connector, super.policy = socketPolicy}) : super(site: SiteIds.showroom);
+  new({super.proxy, super.connector, super.skipSslVerification, super.policy = socketPolicy}) : super(site: SiteIds.showroom);
 
   /// Socket timing: the runtime's defaults with the 60 s ping. No join
   /// timer: an open socket counts as joined.

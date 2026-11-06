@@ -453,7 +453,7 @@ final class DouyuDanmakuConnection extends DanmakuSocketConnection<DouyuDanmakuA
   /// `filterSuspectedAutomatedMessages` drops chat 3.x deems automated when
   /// it returns true (null: never); `connector` replaces `dart:io`'s
   /// handshake (tests).
-  new({super.proxy, this._filterSuspectedAutomatedMessages, super.connector})
+  new({super.proxy, this._filterSuspectedAutomatedMessages, super.connector, super.skipSslVerification})
     : super(site: SiteIds.douyu, policy: socketPolicy);
 
   /// Socket timing: 3.x's `WebScoketUtils` defaults with a 45 s heartbeat,

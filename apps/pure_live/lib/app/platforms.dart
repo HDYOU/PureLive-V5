@@ -120,21 +120,26 @@ final class PlatformDeps {
     this.kickApi,
     this.iptv,
     this.videoCodecs = _engineVideoCodecs,
+    this.skipSslVerification = false,
   });
 
   static Set<String> _engineVideoCodecs() => engineVideoCodecs;
 
-  /// The HTTP client of every adapter (per-platform proxy routes inside).
-  final LiveHttp http;
+   /// The HTTP client of every adapter (per-platform proxy routes inside).
+   final LiveHttp http;
 
-  /// The proxy rules (sockets of the danmaku and FC2/niconico controls).
-  final ProxyPolicy proxy;
+   /// The proxy rules (sockets of the danmaku and FC2/niconico controls).
+   final ProxyPolicy proxy;
 
-  /// The user's cookies.
-  final CookieVault cookies;
+   /// The user's cookies.
+   final CookieVault cookies;
 
-  /// Storage (settings read at each request).
-  final LiveStore store;
+   /// Storage (settings read at each request).
+   final LiveStore store;
+
+   /// Whether to skip SSL certificate verification for danmaku sockets and
+   /// image downloads.
+   final bool skipSslVerification;
 
   /// Extra GraphQL transports of Twitch (Android's system TLS, then the
   /// headless WebView).
@@ -244,7 +249,7 @@ DanmakuRegistry buildDanmakuRegistry(PlatformDeps deps, SiteRegistry sites) {
   final http = deps.http;
   final proxy = deps.proxy;
   final settings = deps.store.settings;
-  final generic = danmakuHandshake();
+  final generic = danmakuHandshake(skipSslVerification: deps.skipSslVerification);
   // Only the platforms on dart:io's handshake take the plain one (Q03.1).
   SocketConnector? connector(String site) => genericDanmakuHandshakeSites.contains(site) ? generic : null;
   return DanmakuRegistry({
@@ -331,16 +336,29 @@ const Set<String> genericDanmakuHandshakeSites = {
 /// The handshake of the danmaku sockets that use dart:io: null (the
 /// default) unless [plainDanmakuUserAgent] is on; only for
 /// [genericDanmakuHandshakeSites].
-SocketConnector? danmakuHandshake({bool plain = plainDanmakuUserAgent}) => plain
-    ? (endpoint, {required headers, required protocols, required route, required connectTimeout}) => connectIoSocket(
-        endpoint,
-        headers: headers,
-        protocols: protocols,
-        route: route,
-        connectTimeout: connectTimeout,
-        plainUserAgent: true,
-      )
-    : null;
+SocketConnector? danmakuHandshake({bool plain = plainDanmakuUserAgent, bool skipSslVerification = false}) {
+  if (plain) {
+    return (endpoint, {required headers, required protocols, required route, required connectTimeout, bool skipSslVerification = false}) => connectIoSocket(
+      endpoint,
+      headers: headers,
+      protocols: protocols,
+      route: route,
+      connectTimeout: connectTimeout,
+      plainUserAgent: true,
+    );
+  }
+  if (skipSslVerification) {
+    return (endpoint, {required headers, required protocols, required route, required connectTimeout, bool skipSslVerification = false}) => connectIoSocket(
+      endpoint,
+      headers: headers,
+      protocols: protocols,
+      route: route,
+      connectTimeout: connectTimeout,
+      skipSslVerification: true,
+    );
+  }
+  return null;
+}
 
 /// Moves 3.x's per-broadcast follows to the streamer (M9
 /// `IdentityMigration`; UPGRADES 17-1, 23-1, Douyin room_id → web_rid):

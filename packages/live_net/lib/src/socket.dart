@@ -42,6 +42,7 @@ typedef SocketConnector = Future<SocketChannel> Function(
   required Iterable<String>? protocols,
   required ProxyRoute route,
   required Duration connectTimeout,
+  bool skipSslVerification,
 });
 
 /// The `HttpClient` for a WebSocket handshake through [route], or null to use
@@ -54,7 +55,7 @@ typedef SocketConnector = Future<SocketChannel> Function(
 /// cleared, so a caller's `user-agent` header is sent without dart:io's
 /// `Dart/<version> (dart:io)` prefix (UPGRADES B-2, off by default until
 /// verified on Android, where 3.x saw a custom direct client stall).
-HttpClient? webSocketClientFor(ProxyRoute route, {bool plainUserAgent = false}) {
+HttpClient? webSocketClientFor(ProxyRoute route, {bool plainUserAgent = false, bool skipSslVerification = false}) {
   final client = switch (route) {
     DirectRoute() => plainUserAgent ? HttpClient() : null,
     HttpProxyRoute() =>
@@ -63,6 +64,7 @@ HttpClient? webSocketClientFor(ProxyRoute route, {bool plainUserAgent = false}) 
         ..findProxy = (_) => route.directive,
   };
   if (plainUserAgent) client?.userAgent = null;
+  if (skipSslVerification) client?.badCertificateCallback = (_, _, _) => true;
   return client;
 }
 
@@ -80,8 +82,9 @@ Future<SocketChannel> connectIoSocket(
   required Duration connectTimeout,
   Duration? pingInterval,
   bool plainUserAgent = false,
+  bool skipSslVerification = false,
 }) async {
-  final client = webSocketClientFor(route, plainUserAgent: plainUserAgent);
+  final client = webSocketClientFor(route, plainUserAgent: plainUserAgent, skipSslVerification: skipSslVerification);
   try {
     final socket = await WebSocket.connect(
       endpoint.toString(),
@@ -154,6 +157,7 @@ final class LiveSocket {
     this.onFailure,
     this.onClosed,
     SocketConnector? connector,
+    this.skipSslVerification = false,
   }) : endpoints = _unique(endpoints),
        _connector = connector ?? connectIoSocket;
 
@@ -211,6 +215,7 @@ final class LiveSocket {
   final void Function(String reason)? onClosed;
 
   final SocketConnector _connector;
+  final bool skipSslVerification;
 
   /// Current state.
   SocketStatus get status => _status;
@@ -262,6 +267,7 @@ final class LiveSocket {
         protocols: protocols,
         route: proxy.routeFor(site, endpoint),
         connectTimeout: connectTimeout,
+        skipSslVerification: skipSslVerification,
       );
       final channel = await Future.any<SocketChannel?>([handshake, abort.future.then((_) => null)]);
       if (channel == null || abort.isCompleted || generation != _generation) {
