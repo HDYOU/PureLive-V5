@@ -8,10 +8,8 @@
       "snapshotTimestamp": 1730800000,
       "statusChangedAt": "2026-11-06T11:43:20Z",
       "description": "Welcome to my stream!",
-      "topic": "",
-      "userFanClub": {
-        "description": " VIP fan club member"
-      }
+      "topic": null,
+      "userFanClub": null
     }
   },
   "cam": {
