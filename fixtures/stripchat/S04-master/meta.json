@@ -6,7 +6,7 @@
   "route": "direct",
   "request": {
     "method": "GET",
-    "url": "https://edge-hls.streaming-a.zh.virtualtaboo.live/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8",
+    "url": "https://edge-hls.streaming-a.zh.virtualtaboo.live/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX",
     "headers": {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
       "Origin": "https://zh.virtualtaboo.live",
