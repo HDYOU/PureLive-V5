@@ -168,6 +168,19 @@ final class StripchatCam {
 
   /// Goal description.
   final String goalDescription;
+
+  /// The card fields, taken from the same `user` block.
+  StripchatModel toModel() => StripchatModel(
+        username: username,
+        modelId: modelId,
+        isLive: isLive,
+        status: status,
+        viewersCount: viewersCount,
+        avatarUrl: avatarUrl,
+        popularSnapshotTimestamp: popularSnapshotTimestamp,
+        startTime: startTime,
+        description: description,
+      );
 }
 
 /// Config from `/api/front/v3/config/initial`: CDN hosts and WebSocket info.
