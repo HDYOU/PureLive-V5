@@ -59,22 +59,24 @@ final class StripchatSite extends LiveSite
   // Directory -----------------------------------------------------------------
 
   /// Sort areas: 'all', 'recommended', 'mobile', 'chinese', etc.
-  static const Map<String, String> _sortQuery = {
-    'all': '',
-    'recommended': 'filterGroupTags=%5B%5B%22recommended%22%5D%5D',
-    'mobile': 'filterGroupTags=%5B%5B%22mobile%22%5D%5D',
-    'chinese': 'filterGroupTags=%5B%5B%22tagLanguageChinese%22%5D%5D',
-    'japanese': 'filterGroupTags=%5B%5B%22tagLanguageJapanese%22%5D%5D',
-    'korean': 'filterGroupTags=%5B%5B%22tagLanguageKorean%22%5D%5D',
-    'russian': 'filterGroupTags=%5B%5B%22tagLanguageRussianSpeaking%22%5D%5D',
-    'asmr': 'filterGroupTags=%5B%5B%22asmr%22%5D%5D',
-    'cosplay': 'filterGroupTags=%5B%5B%22doCosplay%22%5D%5D',
-    'couples': 'primaryTag=couples',
-    'trans': 'primaryTag=trans',
-    'teen': 'filterGroupTags=%5B%5B%22ageTeen%22%5D%5D',
-    'outdoor': 'filterGroupTags=%5B%5B%22doPublicPlace%22%5D%5D',
-    'new': 'filterGroupTags=%5B%5B%22autoTagNew%22%5D%5D',
-    'interactive': 'filterGroupTags=%5B%5B%22autoTagInteractiveToy%22%5D%5D',
+  /// Each entry contributes extra query parameters; `primaryTag` defaults to
+  /// 'girls' and is overridden by couples/trans areas.
+  static const Map<String, Map<String, String>> _sortQuery = {
+    'all': {},
+    'recommended': {'filterGroupTags': '[["recommended"]]'},
+    'mobile': {'filterGroupTags': '[["mobile"]]'},
+    'chinese': {'filterGroupTags': '[["tagLanguageChinese"]]'},
+    'japanese': {'filterGroupTags': '[["tagLanguageJapanese"]]'},
+    'korean': {'filterGroupTags': '[["tagLanguageKorean"]]'},
+    'russian': {'filterGroupTags': '[["tagLanguageRussianSpeaking"]]'},
+    'asmr': {'filterGroupTags': '[["asmr"]]'},
+    'cosplay': {'filterGroupTags': '[["doCosplay"]]'},
+    'couples': {'primaryTag': 'couples'},
+    'trans': {'primaryTag': 'trans'},
+    'teen': {'filterGroupTags': '[["ageTeen"]]'},
+    'outdoor': {'filterGroupTags': '[["doPublicPlace"]]'},
+    'new': {'filterGroupTags': '[["autoTagNew"]]'},
+    'interactive': {'filterGroupTags': '[["autoTagInteractiveToy"]]'},
   };
 
   /// Page [page] of models sorted by [area].
@@ -82,11 +84,15 @@ final class StripchatSite extends LiveSite
   Future<LiveDirectoryPage> getDirectoryPage({int page = 1, LiveArea? category, CancelToken? cancel}) async {
     final number = page < 1 ? 1 : page;
     final sort = _areaSort(category);
-    final query = _sortQuery[sort] ?? '';
+    final extra = _sortQuery[sort] ?? const {};
+    const limit = StripchatApi.pageSize;
+    final offset = (number - 1) * limit;
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/v2/models', {
-        'limit': '${StripchatApi.pageSize}',
-        if (query.isNotEmpty) 'query': query,
+      Uri.https(StripchatApi.apiHost, '/api/front/models', {
+        'limit': '$limit',
+        'offset': '$offset',
+        'primaryTag': extra['primaryTag'] ?? 'girls',
+        'filterGroupTags': ?extra['filterGroupTags'],
       }),
       cancel: cancel,
     );
@@ -96,7 +102,7 @@ final class StripchatSite extends LiveSite
       if (!m.isLive || m.status != 'public') continue;
       rooms[m.username.toLowerCase()] = _card(m, isLive: true);
     }
-    return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: models.length == StripchatApi.pageSize);
+    return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: models.length == limit);
   }
 
   static String _areaSort(LiveArea? area) {
@@ -108,9 +114,14 @@ final class StripchatSite extends LiveSite
   /// Live models by viewers (recommendations).
   @override
   Future<List<LiveRoom>> getRecommendRooms({int page = 1, int pageSize = 30}) async {
+    final limit = pageSize.clamp(1, StripchatApi.pageSize);
+    final offset = (page - 1) * limit;
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/v2/models', {
-        'limit': '${(pageSize.clamp(1, StripchatApi.pageSize))}',
+      Uri.https(StripchatApi.apiHost, '/api/front/models', {
+        'limit': '$limit',
+        'primaryTag': 'girls',
+        'filterGroupTags': '[["tagLanguageChinese"]]',
+        'offset': '$offset',
       }),
     );
     final models = StripchatApi.modelsList(response.text, status: response.status);
@@ -143,12 +154,16 @@ final class StripchatSite extends LiveSite
   }) async {
     final text = keyword.trim();
     if (text.isEmpty) return const [];
+    final limit = pageSize.clamp(1, StripchatApi.pageSize);
+    final offset = (page - 1) * limit;
     final response = await _get(
       Uri.https(StripchatApi.apiHost, '/api/front/v4/models/search/suggestion', {
         'query': text.length > StripchatApi.maxKeywordLength
             ? text.substring(0, StripchatApi.maxKeywordLength)
             : text,
         'primaryTag': 'girls',
+        'limit': '$limit',
+        'offset': '$offset',
       }),
       cancel: cancel,
     );
