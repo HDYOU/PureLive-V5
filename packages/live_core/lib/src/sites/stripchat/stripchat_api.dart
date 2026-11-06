@@ -581,7 +581,7 @@ abstract final class StripchatApi {
     if (body.trimLeft().split('\n').first.trim() != '#EXTM3U') {
       throw ApiChanged(_site, 'master: not a playlist (${_snippet(body)})');
     }
-    final grouped = <String, ({String label, int height, int bandwidth, Set<String> urls})>{};
+    final grouped = <String, ({String label, int height, int bandwidth, String url, String? codec})>{};
     Map<String, String>? pending;
     for (final raw in body.split('\n')) {
       final line = raw.trim();
@@ -602,12 +602,14 @@ abstract final class StripchatApi {
       final heightMatch = RegExp(r'x(\d+)').firstMatch(resolution);
       final height = heightMatch == null ? 0 : int.parse(heightMatch.group(1)!);
       if (bandwidth <= 0 || height <= 0) continue;
+      final url = master.resolve(line).toString();
       final label = '${height}p${bandwidth >= 5000000 ? ' 5Mbps' : bandwidth >= 2000000 ? ' 2Mbps' : ''}';
       grouped['$height-$bandwidth'] = (
         label: label,
         height: height,
         bandwidth: bandwidth,
-        urls: {master.resolve(line).toString()},
+        url: url,
+        codec: _extractCodec(attrs['CODECS']),
       );
     }
     if (grouped.isEmpty) throw const ApiChanged(_site, 'master: no valid variant');
@@ -616,10 +618,23 @@ abstract final class StripchatApi {
         LivePlayQuality(
           quality: entry.value.label.trim(),
           id: '${entry.value.height}p${entry.value.bandwidth ~/ 1000}',
-          data: entry.key,
+          data: entry.value.url,
           sort: entry.value.height * 10000 + entry.value.bandwidth,
+          codec: entry.value.codec,
         ),
     ];
+  }
+
+  /// Extract video codec family from an HLS `CODECS` attribute string.
+  static String? _extractCodec(String? codecs) {
+    if (codecs == null || codecs.isEmpty) return null;
+    for (final c in codecs.toLowerCase().split(',')) {
+      final name = c.trim();
+      if (name.startsWith('avc1') || name.startsWith('avc3')) return 'avc';
+      if (name.startsWith('hev1') || name.startsWith('hevc')) return 'hevc';
+      if (name.startsWith('av01')) return 'av1';
+    }
+    return null;
   }
 
   /// Build the primary HLS master URI from a stream name and CDN host.
