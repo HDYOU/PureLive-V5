@@ -1,17 +1,12 @@
 // StripchatSite over the recorded responses (ReplayHttp): catalog, directory,
 // room entry, streams, search and links.
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:live_core/live_core.dart';
-import 'package:live_net/live_net.dart';
 import 'package:live_net/testing.dart';
 import 'package:test/test.dart';
 
-import 'fixture.dart';
-
 const _root = '../../fixtures/stripchat';
-const _apiHost = 'stripchat.com';
 
 ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySample(
       method: 'GET',
@@ -67,7 +62,6 @@ void main() {
     test('live room: detail with stream data', () async {
       final setup = _setup([
         'S05-userid',
-        'S02-detail-live',
         'S03-cam-live',
         'S04-master',
         'S08-config',
@@ -87,7 +81,6 @@ void main() {
     test('offline room: no stream data', () async {
       final setup = _setup([
         'S05-userid',
-        'S02-detail-live',
         'S03-cam-offline',
         'S08-config',
       ]);
@@ -116,33 +109,26 @@ void main() {
   });
 
   group('refresh', () {
-    test('getRoomDetailForRefresh reads card only', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live']);
+    test('getRoomDetailForRefresh reads cam only', () async {
+      final setup = _setup(['S05-userid', 'S03-cam-live']);
       final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
       expect(room.data, isNull);
-      // Only two requests: user-ids and model card (no cam, no master)
+      // Only two requests: user-ids and cam (no card, no master)
       expect(setup.http.requests, hasLength(2));
     });
   });
 
   group('live status', () {
     test('returns true for live room', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live']);
+      final setup = _setup(['S05-userid', 'S03-cam-live']);
       expect(await setup.site.getLiveStatus(roomId: 'prettygirl'), isTrue);
     });
 
     test('returns false for offline room', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live']);
-      // Edit the card to be offline
-      final body = jsonDecode(File('${_root}/S02-detail-live/body.json').readAsStringSync()) as Map;
-      body['model']['isLive'] = false;
-      body['model']['status'] = 'offline';
-      final offlineSetup = _setup(['S05-userid'], extra: [
-        _synthetic('https://zh.virtualtaboo.live/api/front/v2/models/12345678', body),
-      ]);
-      expect(await offlineSetup.site.getLiveStatus(roomId: 'prettygirl'), isFalse);
+      final setup = _setup(['S05-userid', 'S03-cam-offline']);
+      expect(await setup.site.getLiveStatus(roomId: 'prettygirl'), isFalse);
     });
   });
 
@@ -174,7 +160,7 @@ void main() {
 
   group('streams', () {
     test('getPlayQualities returns qualities from room data', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master', 'S08-config']);
+      final setup = _setup(['S05-userid', 'S03-cam-live', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities, hasLength(3));
@@ -182,7 +168,7 @@ void main() {
     });
 
     test('getPlayUrls returns master playlist URL', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-live', 'S04-master', 'S08-config']);
+      final setup = _setup(['S05-userid', 'S03-cam-live', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final urls = await setup.site.getPlayUrls(detail: room, quality: const LivePlayQuality(quality: '1080p', id: 0, data: 0));
       expect(urls, hasLength(1));
@@ -190,7 +176,7 @@ void main() {
     });
 
     test('room without stream throws StreamUnavailable', () async {
-      final setup = _setup(['S05-userid', 'S02-detail-live', 'S03-cam-offline', 'S08-config']);
+      final setup = _setup(['S05-userid', 'S03-cam-offline', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(
         () => setup.site.getPlayQualities(detail: room),
@@ -200,9 +186,12 @@ void main() {
   });
 
   group('errors', () {
-    test('bad JSON in model card is ApiChanged', () async {
+    test('bad JSON in cam is ApiChanged', () async {
       final setup = _setup(['S05-userid'], extra: [
-        _synthetic('https://zh.virtualtaboo.live/api/front/v2/models/12345678', '<html>'),
+        _synthetic(
+          'https://zh.virtualtaboo.live/api/front/v2/models/12345678/cam?timezoneOffset=-480&triggerRequest=loadCam&withRecentShow=1',
+          '<html>',
+        ),
       ]);
       await expectLater(
         setup.site.getRoomDetailForRefresh(roomId: 'prettygirl'),
