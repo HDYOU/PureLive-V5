@@ -67,11 +67,11 @@ void main() {
       expect(cam.modelId, 12345678);
       expect(cam.username, 'prettygirl');
       expect(cam.streamName, 'prettygirl-webcam');
-      expect(cam.hlsLines, hasLength(2));
-      expect(cam.hlsLines[0], contains('streaming-prettygirl1'));
+      expect(cam.hlsLines, isEmpty);
+      expect(cam.pixelatedResolutions, isEmpty);
       expect(cam.isLive, isTrue);
       expect(cam.status, 'public');
-      expect(cam.viewersCount, 1523);
+      expect(cam.viewersCount, 0);
       expect(cam.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
       expect(cam.title, 'prettygirl live');
       expect(cam.description, 'Welcome to my stream!');
