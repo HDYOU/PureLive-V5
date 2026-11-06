@@ -142,6 +142,7 @@ abstract final class SearchCapabilities {
     SiteIds.sixRoom: SearchCapability(coverage: SearchCoverage.liveAndOffline, paged: false),
     SiteIds.lookLive: SearchCapability(coverage: SearchCoverage.showcaseSnapshot, paged: false),
     SiteIds.seventeenLive: SearchCapability(coverage: SearchCoverage.liveOnly, paged: false),
+    SiteIds.stripchat: SearchCapability(coverage: SearchCoverage.liveOnly, paged: true),
     SiteIds.iptv: SearchCapability(coverage: SearchCoverage.localChannels, paged: false),
   };
 
