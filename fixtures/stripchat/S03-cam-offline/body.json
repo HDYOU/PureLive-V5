@@ -8,13 +8,15 @@
       "snapshotTimestamp": 1730700000,
       "statusChangedAt": 0,
       "description": "",
-      "topic": "",
-      "userFanClub": {}
+      "topic": null,
+      "userFanClub": null
     }
   },
   "cam": {
     "streamName": "",
     "topic": "",
-    "userFanClub": {}
+    "userFanClub": {
+      "description": ""
+    }
   }
 }
