@@ -1,8 +1,6 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
-import 'package:live_danmaku/src/connection.dart';
 import 'package:live_danmaku/src/connection_base.dart';
 import 'package:live_danmaku/src/socket_connection.dart';
 import 'package:meta/meta.dart';
@@ -51,11 +49,11 @@ abstract final class StripchatDanmakuProtocol {
   /// The client ping frame.
   static const String ping = '{"type":"ping"}';
 
-  /// The WebSocket endpoint URL for [args].
+  /// Builds the WebSocket endpoint URL for [args].
   static Uri endpoint(StripchatDanmakuArgs args) => Uri.parse(args.websocketUrl).replace(query: 'token=${Uri.encodeQueryComponent(args.token)}');
 
   /// Reads one text frame; returns parsed messages.
-  static List<LiveMessage> read(Object? data, StripchatDanmakuArgs args) {
+  static List<LiveMessage> read(Object? data) {
     final text = switch (data) {
       final String text => text,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
@@ -64,15 +62,15 @@ abstract final class StripchatDanmakuProtocol {
     if (text == null || text.length > 256 * 1024) return const [];
     final obj = _object(text);
     if (obj == null) return const [];
-    return _parseMessage(obj, args);
+    return _parseMessage(obj);
   }
 
-  static List<LiveMessage> _parseMessage(Map<String, Object?> obj, StripchatDanmakuArgs args) {
+  static List<LiveMessage> _parseMessage(Map<String, Object?> obj) {
     final messages = <LiveMessage>[];
     // Handle array of messages
     if (obj['messages'] case final List<Object?> list) {
       for (final item in list) {
-        if (item is Map<String, Object?>) messages.addAll(_parseMessage(item, args));
+        if (item is Map<String, Object?>) messages.addAll(_parseMessage(item));
       }
       return messages;
     }
@@ -80,9 +78,8 @@ abstract final class StripchatDanmakuProtocol {
     final type = _text(obj['type']) ?? _text(obj['event']) ?? '';
     switch (type) {
       case 'chat' || 'message' || 'chat_message':
-        final msg = _chatMessage(obj, args);
+        final msg = _chatMessage(obj);
         if (msg != null) messages.add(msg);
-        break;
       case 'ping' || 'pong':
         break; // Heartbeat, ignore
       case 'subscribe' || 'subscribed':
@@ -93,8 +90,8 @@ abstract final class StripchatDanmakuProtocol {
     return messages;
   }
 
-  static LiveMessage? _chatMessage(Map<String, Object?> obj, StripchatDanmakuArgs args) {
-    final user = _object(obj['user']) ?? _object(obj['sender']) ?? {};
+  static LiveMessage? _chatMessage(Map<String, Object?> obj) {
+    final user = _object(obj['user']) ?? _object(obj['sender']) ?? const {};
     final name = _text(user['name']) ?? _text(obj['username']) ?? '';
     final content = _content(obj['message']) ?? _content(obj['text']) ?? '';
     if (name.isEmpty || content.isEmpty) return null;
@@ -110,7 +107,7 @@ abstract final class StripchatDanmakuProtocol {
   }
 
   static LiveMessageColor _color(Map<String, Object?> obj) {
-    final raw = _text(obj['color']) ?? _text(obj['user']?['color']) ?? '';
+    final raw = _text(obj['color']) ?? _text(_object(obj['user'])?['color']) ?? '';
     if (raw.isEmpty) return LiveMessageColor.white;
     final hex = raw.replaceFirst('#', '');
     final value = int.tryParse(hex, radix: 16);
@@ -135,25 +132,34 @@ abstract final class StripchatDanmakuProtocol {
     return null;
   }
 
-  static Map<String, dynamic>? _object(Object? value) => value is Map<String, dynamic> ? value : null;
+  static Map<String, Object?>? _object(Object? value) => value is Map<String, Object?> ? value : null;
 }
 
 /// Stripchat's danmaku connection: a raw WebSocket of JSON text frames.
 final class StripchatDanmakuConnection extends DanmakuSocketConnection<StripchatDanmakuArgs> {
   /// Creates the connection; [proxy] routes the socket.
-  new({required super.proxy, super.connector})
-      : super(policy: const DanmakuSocketPolicy(heartbeatInterval: StripchatDanmakuProtocol.heartbeatInterval));
+  new({super.proxy, super.connector})
+      : super(policy: const DanmakuSocketPolicy(heartbeatInterval: StripchatDanmakuProtocol.heartbeatInterval), site: 'stripchat');
 
   @override
-  Uri endpoint(StripchatDanmakuArgs args) => StripchatDanmakuProtocol.endpoint(args);
+  @protected
+  Future<DanmakuSocketTarget> target(StripchatDanmakuArgs args, DanmakuRun run) async {
+    return DanmakuSocketTarget(endpoints: [StripchatDanmakuProtocol.endpoint(args)], headers: StripchatDanmakuProtocol.headers);
+  }
 
   @override
-  Map<String, String> headers(StripchatDanmakuArgs args) => StripchatDanmakuProtocol.headers;
+  @protected
+  void onOpen(DanmakuSocketSession session) {
+    session.ready();
+  }
 
   @override
-  String? heartbeat(StripchatDanmakuArgs args) => StripchatDanmakuProtocol.ping;
+  @protected
+  void onData(DanmakuSocketSession session, Object? data) {
+    StripchatDanmakuProtocol.read(data).forEach(session.message);
+  }
 
   @override
-  List<LiveMessage> readFrame(Object? data, StripchatDanmakuArgs args) =>
-      StripchatDanmakuProtocol.read(data, args);
+  @protected
+  Object? heartbeatFrame(DanmakuSocketSession session) => StripchatDanmakuProtocol.ping;
 }
