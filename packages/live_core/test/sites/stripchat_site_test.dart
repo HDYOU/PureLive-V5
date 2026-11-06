@@ -79,7 +79,6 @@ void main() {
       expect(room.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
       expect(room.introduction, 'VIP fan club description');
       expect(room.notice, 'Reach 2000 viewers!');
-      expect(room.data, isNotNull);
       final data = room.data as StripchatRoomData;
       expect(data.modelId, 12345678);
       expect(data.streamName, 'prettygirl-webcam');
