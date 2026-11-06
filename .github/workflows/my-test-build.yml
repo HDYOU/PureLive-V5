@@ -17,6 +17,7 @@ on:
     branches:
       - master
       - main
+      - '*'
     paths-ignore:
       - "**.md"
       - ".github/**"
@@ -126,10 +127,25 @@ jobs:
             if grep -q "'codec': '2,1'" "$MANIFEST"; then
             echo "⚠️ bilibili直播支持 hevc 已存在，跳过"
             else
-               sed "s/'codec': '0'/'codec': '2,1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s/'codec': '0'/'codec': '2,1,0'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
                echo "✅ 已添加 , 直播支持 hevc"
               fi
+              echo "$MANIFEST"
               grep -A5 -B5 "'codec':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
+          MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_api.dart"
+          if [ -f "$MANIFEST" ]; then
+            
+               awk '{if ($0 ~ /if \(byProtocol != 0\) return byProtocol;/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               awk '{if ($0 ~ /final byProtocol = \(a.protocol ==/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               
+               echo "✅ 已添加 , 直播支持 hevc"
+              
+              echo "$MANIFEST"
+              grep -A5 -B5 "byProtocol" "$MANIFEST" || true
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
@@ -149,6 +165,42 @@ jobs:
           else
             echo "⚠️ $MANIFEST 不存在，跳过"
           fi
+          
+       # ====================== 自动修改  解析播放链接 hevc 编码 ======================
+      - name: 解析播放链接 hevc 编码增强解析
+        run: |
+          MANIFEST="apps/pure_live/lib/shared/rooms/playback_lines.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "hevc|codec=265|" "$MANIFEST"; then
+            echo "⚠️ codec=265 已存在，跳过"
+            else
+               sed "s/hevc|/hevc|codec=265|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s/avc|/avc|codec=264|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "hevc|codec=265|" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改 去除 ssl验证 ======================
+      - name: 去除 ssl验证
+        run: |
+          MANIFEST="packages/live_net/lib/src/io_http.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'badCertificateCallback' "$MANIFEST"; then
+            echo "⚠️ 去除 ssl 已存在，跳过"
+            else
+               sed  's/() => HttpClient()/() { final client = HttpClient()/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed  's/route\.directive,/route.directive;\n     client.badCertificateCallback = (_, _, _) => true;\n      return client;\n }/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 badCertificateCallback"
+              fi
+              echo "flie: $MANIFEST"
+              grep -A30 -B30 "badCertificateCallback" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
 
       - name: 设置 Java 环境
         uses: actions/setup-java@v4
@@ -284,20 +336,11 @@ jobs:
           retention-days: 7
 
   build-linux:
-    if: false
+    if: true
     runs-on: ubuntu-22.04
     steps:
       - name: 签出代码
         uses: actions/checkout@v4
-
-      - name: 设置 Flutter 环境
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: 启用 Flutter Linux
-        run: flutter config --enable-linux-desktop
 
       - name: 安装 Linux 依赖
         run: |
@@ -317,22 +360,78 @@ jobs:
               x11proto-core-dev zlib1g-dev libfdk-aac-dev libtheora-dev libwebp-dev \
               unixodbc-dev libpq-dev libxxhash-dev libaom-dev
 
-      - name: 更新 Flutter packages
-        run: flutter pub get
+      - name: Toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          grep -E '^FLUTTER_VERSION=' toolchain.env >> "$GITHUB_ENV"
+          version=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1/p' apps/pure_live/pubspec.yaml)
+          build=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\2/p' apps/pure_live/pubspec.yaml)
+          echo "name=PureLive-$version-$build" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        name: 设置 Flutter 环境
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Packages and native bundles
+        run: |
+          set -euo pipefail
+          python3 tools/flutter_sdk/prepare.py --apply
+          python3 tools/flutter_sdk/prepare.py --test
+          flutter --version
+          flutter pub get --enforce-lockfile
+          bash tools/ffmpeg_kit/fetch.sh linux
+
+      - name: 启用 Flutter Linux
+        run: flutter config --enable-linux-desktop 
 
       - name: Install fastforge
+        working-directory: apps/pure_live
         run: dart pub global activate fastforge
+        
+      - name: 配置 fastforge 文件
+        run: |
+          mkdir -p apps/pure_live/linux/packaging/deb
+          
+          cat > apps/pure_live/linux/packaging/deb/make_config.yaml <<'EOF'
+          display_name: 纯粹直播
+          package_name: pure-live
+          maintainer:
+            name: liuchuancong
+            email: 17792321552@163.com
+          priority: optional
+          section: x11
+          installed_size: 500000
+          essential: false
+          icon: assets/icons/icon.png
+          generic_name: Livestream Player
+          keywords:
+            - Livestream
+            - Video
+          categories:
+            - AudioVideo
+            - Audio
+            - Video
+            - Network
+          startup_notify: true
+          EOF
+          
+          cat apps/pure_live/linux/packaging/deb/make_config.yaml
 
-      - name: Package Linux
-        run: fastforge package --platform linux --targets deb,zip
+      - name: 打包 Linux
+        working-directory: apps/pure_live
+        run: fastforge package --platform linux --targets deb,zip --skip-clean
 
       - name: 上传 Linux 安装包
         uses: actions/upload-artifact@v4
         with:
           name: artifact-linux
           path: |
-            dist/**/*.deb
-            dist/**/*.zip
+            apps/pure_live/dist/**/*.deb
+            apps/pure_live/dist/**/*.zip
           retention-days: 7
 
   upload-release:
@@ -431,4 +530,4 @@ jobs:
 
       - name: 输出状态
         if: always()
-        run: 'echo "✅ Release published with status: ${{ job.status }}"'
+        run: 'echo "✅ Release published with status: ${{ job.status }}"' 
