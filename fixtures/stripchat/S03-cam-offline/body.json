@@ -9,11 +9,15 @@
     "popularSnapshotTimestamp": 1730700000,
     "statusChangedAt": 0,
     "description": "",
-    "goalDescription": ""
+    "goalDescription": "",
+    "topic": "",
+    "userFanClub": {}
   },
   "cam": {
     "streamName": "",
     "hlsLines": [],
-    "pixelatedResolutions": []
+    "pixelatedResolutions": [],
+    "topic": "",
+    "userFanClub": {}
   }
 }

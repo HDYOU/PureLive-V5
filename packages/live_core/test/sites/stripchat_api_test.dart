@@ -20,7 +20,8 @@ void main() {
       expect(models[0].status, 'public');
       expect(models[0].viewersCount, 1523);
       expect(models[0].avatarUrl, 'https://img.stripchat.com/avatar/prettygirl.jpg');
-      expect(models[0].startTime, 1730799000);
+      expect(models[0].startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
+      expect(models[0].title, '按摩');
       expect(models[2].status, 'private');
       expect(models[2].isLive, isTrue);
     });
@@ -43,7 +44,7 @@ void main() {
       expect(model.isLive, isTrue);
       expect(model.status, 'public');
       expect(model.viewersCount, 1523);
-      expect(model.startTime, 1730799000);
+      expect(model.startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
       expect(model.description, 'Welcome to my stream!');
     });
 
@@ -71,9 +72,11 @@ void main() {
       expect(cam.isLive, isTrue);
       expect(cam.status, 'public');
       expect(cam.viewersCount, 1523);
-      expect(cam.startTime, 1730799000);
+      expect(cam.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
+      expect(cam.title, 'prettygirl live');
       expect(cam.description, 'Welcome to my stream!');
-      expect(cam.goalDescription, 'Reach 2000 viewers!');
+      expect(cam.introduction, 'VIP fan club description');
+      expect(cam.notice, 'Reach 2000 viewers!');
     });
 
     test('parses an offline cam with no stream', () {
@@ -84,7 +87,9 @@ void main() {
       expect(cam.streamName, '');
       expect(cam.hlsLines, isEmpty);
       expect(cam.viewersCount, 0);
-      expect(cam.startTime, 0);
+      expect(cam.startedAt, isNull);
+      expect(cam.introduction, '');
+      expect(cam.notice, '');
     });
 
     test('model id mismatch throws ApiChanged', () {
@@ -130,12 +135,32 @@ void main() {
       expect(models, hasLength(2));
       expect(models[0].username, 'searchgirl');
       expect(models[0].isLive, isTrue);
+      expect(models[0].title, 'searchgirl room');
       expect(models[1].username, 'offlineuser');
       expect(models[1].isLive, isFalse);
     });
 
     test('empty response returns empty list', () {
       expect(StripchatApi.searchModels('[]'), isEmpty);
+    });
+  });
+
+  group('S09 members', () {
+    test('sums guest types', () {
+      expect(
+        StripchatApi.membersCount('''
+          {"guests": 100, "spies": 5, "invisibles": 10, "greens": 50, "golds": 20, "regulars": 30}
+        '''),
+        215,
+      );
+    });
+
+    test('returns 0 for non-JSON', () {
+      expect(StripchatApi.membersCount('<html>'), 0);
+    });
+
+    test('returns 0 when keys missing', () {
+      expect(StripchatApi.membersCount('{}'), 0);
     });
   });
 
@@ -175,6 +200,20 @@ void main() {
       expect(catalog.children[0].areaName, '全部直播');
       expect(catalog.children[1].areaId, 'recommended');
       expect(catalog.children[1].areaName, '直播推荐');
+    });
+
+    test('restrictionFor maps status correctly', () {
+      expect(StripchatApi.restrictionFor('public'), LiveRestriction.none);
+      expect(StripchatApi.restrictionFor('private'), LiveRestriction.private);
+      expect(StripchatApi.restrictionFor('groupShow'), LiveRestriction.paid);
+      expect(StripchatApi.restrictionFor('offline'), LiveRestriction.none);
+    });
+
+    test('isLiveStatus recognises groupShow', () {
+      expect(StripchatApi.isLiveStatus('public'), isTrue);
+      expect(StripchatApi.isLiveStatus('groupShow'), isTrue);
+      expect(StripchatApi.isLiveStatus('private'), isFalse);
+      expect(StripchatApi.isLiveStatus('offline'), isFalse);
     });
   });
 }

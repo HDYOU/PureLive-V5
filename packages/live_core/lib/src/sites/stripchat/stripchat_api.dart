@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:live_core/src/json.dart';
 import 'package:live_core/src/live_area.dart';
+import 'package:live_core/src/live_room.dart';
 import 'package:live_core/src/site_error.dart';
 import 'package:meta/meta.dart';
 
@@ -78,7 +79,8 @@ final class StripchatModel {
     required this.viewersCount,
     required this.avatarUrl,
     required this.popularSnapshotTimestamp,
-    required this.startTime,
+    required this.startedAt,
+    required this.title,
     required this.description,
   });
 
@@ -91,10 +93,10 @@ final class StripchatModel {
   /// Whether the model is currently live.
   final bool isLive;
 
-  /// The model's status: 'public' or 'private'.
+  /// The model's status: 'public', 'private' or 'groupShow'.
   final String status;
 
-  /// Number of concurrent viewers.
+  /// Total viewers of the current session.
   final int viewersCount;
 
   /// Avatar URL.
@@ -103,8 +105,11 @@ final class StripchatModel {
   /// Timestamp for the popular snapshot thumbnail.
   final int popularSnapshotTimestamp;
 
-  /// Broadcast start time (Unix seconds), 0 when offline.
-  final int startTime;
+  /// Broadcast start time, null when unknown or offline.
+  final DateTime? startedAt;
+
+  /// Room title from `groupShowTopic` (recommend/directory) or `topic`.
+  final String title;
 
   /// User description.
   final String description;
@@ -125,9 +130,11 @@ final class StripchatCam {
     required this.viewersCount,
     required this.avatarUrl,
     required this.popularSnapshotTimestamp,
-    required this.startTime,
+    required this.startedAt,
+    required this.title,
     required this.description,
-    required this.goalDescription,
+    required this.introduction,
+    required this.notice,
   });
 
   /// The model's numeric id.
@@ -148,10 +155,10 @@ final class StripchatCam {
   /// Whether the model is currently live.
   final bool isLive;
 
-  /// The model's status: 'public' or 'private'.
+  /// The model's status: 'public', 'private' or 'groupShow'.
   final String status;
 
-  /// Number of concurrent viewers.
+  /// Total viewers reported by the user block.
   final int viewersCount;
 
   /// Avatar URL.
@@ -160,14 +167,20 @@ final class StripchatCam {
   /// Timestamp for the popular snapshot thumbnail.
   final int popularSnapshotTimestamp;
 
-  /// Broadcast start time (Unix seconds), 0 when offline.
-  final int startTime;
+  /// Broadcast start time from `statusChangedAt`, null when unknown.
+  final DateTime? startedAt;
+
+  /// Room title from `topic`.
+  final String title;
 
   /// User description.
   final String description;
 
-  /// Goal description.
-  final String goalDescription;
+  /// Room introduction from `cam.userFanClub.description`.
+  final String introduction;
+
+  /// Room notice/announcement from `cam.goal.description`.
+  final String notice;
 
   /// The card fields, taken from the same `user` block.
   StripchatModel toModel() => StripchatModel(
@@ -178,7 +191,8 @@ final class StripchatCam {
         viewersCount: viewersCount,
         avatarUrl: avatarUrl,
         popularSnapshotTimestamp: popularSnapshotTimestamp,
-        startTime: startTime,
+        startedAt: startedAt,
+        title: title,
         description: description,
       );
 }
@@ -254,6 +268,31 @@ abstract final class StripchatApi {
 
   /// Whether [name] is a valid model username.
   static bool isUsername(String name) => _usernamePattern.hasMatch(name) && !reservedNames.contains(name.toLowerCase());
+
+  /// Whether [status] represents a room that is currently on air.
+  static bool isLiveStatus(String status) =>
+      status == 'public' || status == 'groupShow';
+
+  /// Map [status] to the corresponding restriction.
+  static LiveRestriction restrictionFor(String status) => switch (status) {
+        'private' => LiveRestriction.private,
+        'groupShow' => LiveRestriction.paid,
+        _ => LiveRestriction.none,
+      };
+
+  /// Parse [value] as a broadcast start time. Accepts an epoch-seconds int or
+  /// an ISO-8601 string such as '2026-11-06T11:28:39Z'.
+  static DateTime? _parseStartedAt(Object? value) {
+    if (value == null) return null;
+    if (value is int && value > 0) {
+      return DateTime.fromMillisecondsSinceEpoch(value * 1000, isUtc: true);
+    }
+    if (value is String && value.isNotEmpty) {
+      final dt = DateTime.tryParse(value)?.toUtc();
+      return dt;
+    }
+    return null;
+  }
 
   /// The model page URL.
   static String roomPageUrl(String username) => '$_web/$username';
@@ -331,7 +370,7 @@ abstract final class StripchatApi {
 
   // Directory -----------------------------------------------------------------
 
-  /// `/api/front/v2/models`: live model cards by viewers, one per page.
+  /// `/api/front/models`: live model cards by viewers, one per page.
   static List<StripchatModel> modelsList(String body, {int status = 200}) {
     final root = _root(body, what: 'models', status: status);
     final rows = _list(root['models']);
@@ -349,7 +388,10 @@ abstract final class StripchatApi {
       final viewers = jsonInt(m['viewersCount']) ?? 0;
       final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
       final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
-      final startTime = jsonInt(m['startTime']) ?? 0;
+      final startedAt = _parseStartedAt(m['statusChangedAt'] ?? m['startTime']);
+      final title = (jsonString(m['groupShowTopic']) ?? '').isNotEmpty
+          ? jsonString(m['groupShowTopic'])!
+          : (jsonString(m['topic']) ?? '');
       final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
       models[username.toLowerCase()] = StripchatModel(
         username: username,
@@ -359,7 +401,8 @@ abstract final class StripchatApi {
         viewersCount: viewers,
         avatarUrl: avatar,
         popularSnapshotTimestamp: snapshotTs,
-        startTime: startTime,
+        startedAt: startedAt,
+        title: title,
         description: description,
       );
     }
@@ -382,7 +425,10 @@ abstract final class StripchatApi {
     final viewers = jsonInt(row['viewersCount']) ?? 0;
     final avatar = normalizeImageUrl(row['avatarUrl'] ?? '');
     final snapshotTs = jsonInt(row['popularSnapshotTimestamp']) ?? 0;
-    final startTime = jsonInt(row['startTime']) ?? 0;
+    final startedAt = _parseStartedAt(row['statusChangedAt'] ?? row['startTime']);
+    final title = (jsonString(row['groupShowTopic']) ?? '').isNotEmpty
+        ? jsonString(row['groupShowTopic'])!
+        : (jsonString(row['topic']) ?? '');
     final description = decodeHtmlEntities(jsonString(row['description']) ?? '');
     return StripchatModel(
       username: username,
@@ -392,7 +438,8 @@ abstract final class StripchatApi {
       viewersCount: viewers,
       avatarUrl: avatar,
       popularSnapshotTimestamp: snapshotTs,
-      startTime: startTime,
+      startedAt: startedAt,
+      title: title,
       description: description,
     );
   }
@@ -408,17 +455,20 @@ abstract final class StripchatApi {
     if (uid != modelId) throw ApiChanged(_site, 'cam: model id mismatch (${_snippet(body)})');
     final username = jsonString(user['username'])?.trim() ?? '';
     if (username.isEmpty) throw ApiChanged(_site, 'cam: no username (${_snippet(body)})');
-    final isLive = user['status'] == 'public' || (root['user']?['isLive'] == true);
+    final isLive = user['status'] == 'public' || user['status'] == 'groupShow' || (root['user']?['isLive'] == true);
     final statusStr = jsonString(user['status']) ?? 'offline';
     final viewers = jsonInt(user['viewersCount']) ?? 0;
     final avatar = normalizeImageUrl(user['avatarUrl'] ?? '');
     final snapshotTs = jsonInt(user['popularSnapshotTimestamp']) ?? 0;
-    final startTimeRaw = user['statusChangedAt'];
-    final startTime = switch (startTimeRaw) {
-      final int s when s > 0 => s,
-      final String s => int.tryParse(s) ?? 0,
-      _ => 0,
-    };
+    final startedAt = _parseStartedAt(user['statusChangedAt']);
+    final title = (jsonString(cam['topic']) ?? '').isNotEmpty
+        ? jsonString(cam['topic'])!
+        : (jsonString(user['topic']) ?? '');
+    final description = decodeHtmlEntities(jsonString(user['description']) ?? '');
+    final userFanClub = _object(cam['userFanClub']) ?? _object(user['userFanClub']) ?? {};
+    final introduction = decodeHtmlEntities(jsonString(userFanClub['description']) ?? '');
+    final goal = _object(cam['goal']) ?? {};
+    final notice = decodeHtmlEntities(jsonString(goal['description']) ?? '');
     final streamName = jsonString(cam['streamName']) ?? '';
     final hlsLines = [
       for (final raw in _list(cam['hlsLines']))
@@ -429,8 +479,6 @@ abstract final class StripchatApi {
       for (final raw in _list(cam['pixelatedResolutions']))
         if (raw is String && raw.isNotEmpty) raw,
     ];
-    final description = decodeHtmlEntities(jsonString(user['description']) ?? '');
-    final goalDesc = decodeHtmlEntities(jsonString(_object(cam['goal'])?['description']) ?? '');
     return StripchatCam(
       modelId: uid!,
       username: username,
@@ -442,9 +490,11 @@ abstract final class StripchatApi {
       viewersCount: viewers,
       avatarUrl: avatar,
       popularSnapshotTimestamp: snapshotTs,
-      startTime: startTime,
+      startedAt: startedAt,
+      title: title,
       description: description,
-      goalDescription: goalDesc,
+      introduction: introduction,
+      notice: notice,
     );
   }
 
@@ -475,7 +525,10 @@ abstract final class StripchatApi {
       final viewers = jsonInt(m['viewersCount']) ?? 0;
       final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
       final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
-      final startTime = jsonInt(m['startTime']) ?? 0;
+      final startedAt = _parseStartedAt(m['statusChangedAt'] ?? m['startTime']);
+      final title = (jsonString(m['topic']) ?? '').isNotEmpty
+          ? jsonString(m['topic'])!
+          : (jsonString(m['groupShowTopic']) ?? '');
       final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
       models[username.toLowerCase()] = StripchatModel(
         username: username,
@@ -485,11 +538,32 @@ abstract final class StripchatApi {
         viewersCount: viewers,
         avatarUrl: avatar,
         popularSnapshotTimestamp: snapshotTs,
-        startTime: startTime,
+        startedAt: startedAt,
+        title: title,
         description: description,
       );
     }
     return List.unmodifiable(models.values);
+  }
+
+  // Members -------------------------------------------------------------------
+
+  /// `/api/front/v2/models/{uid}/members`: summed member counts.
+  /// Returns 0 when the response cannot be parsed.
+  static int membersCount(String body, {int status = 200}) {
+    if (status < 200 || status >= 300) return 0;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return 0;
+    }
+    if (decoded is! Map<String, dynamic>) return 0;
+    int sum = 0;
+    for (final key in ['guests', 'spies', 'invisibles', 'greens', 'golds', 'regulars']) {
+      sum += jsonInt(decoded[key]) ?? 0;
+    }
+    return sum;
   }
 
   // Streams -------------------------------------------------------------------

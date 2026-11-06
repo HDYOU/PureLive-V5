@@ -99,7 +99,7 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.modelsList(response.text, status: response.status);
     final rooms = <String, LiveRoom>{};
     for (final m in models) {
-      if (!m.isLive || m.status != 'public') continue;
+      if (!m.isLive || !StripchatApi.isLiveStatus(m.status)) continue;
       rooms[m.username.toLowerCase()] = _card(m, isLive: true);
     }
     return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: models.length == limit);
@@ -127,7 +127,7 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.modelsList(response.text, status: response.status);
     return [
       for (final m in models)
-        if (m.isLive && m.status == 'public') _card(m, isLive: true),
+        if (m.isLive && StripchatApi.isLiveStatus(m.status)) _card(m, isLive: true),
     ];
   }
 
@@ -170,7 +170,7 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.searchModels(response.text, status: response.status);
     return [
       for (final m in models)
-        if (m.isLive && m.status == 'public') _card(m, isLive: true),
+        if (m.isLive && StripchatApi.isLiveStatus(m.status)) _card(m, isLive: true),
     ];
   }
 
@@ -212,12 +212,25 @@ final class StripchatSite extends LiveSite
     final modelId = await _resolveModelId(username);
     final cam = await _getCam(modelId);
     final config = await _getConfig();
-    final isLive = cam.isLive && cam.status == 'public';
+    final isLive = cam.isLive && StripchatApi.isLiveStatus(cam.status);
     LiveRoom room = _card(cam.toModel(), isLive: isLive);
     if (!isLive) return room;
+    // Override introduction/notice from cam fields.
+    room = room.copyWith(
+      introduction: cam.introduction.isEmpty ? null : cam.introduction,
+      notice: cam.notice.isEmpty ? null : cam.notice,
+    );
+    // Fetch member total when live.
+    final membersResponse = await _get(
+      Uri.https(StripchatApi.apiHost, '/api/front/v2/models/$modelId/members'),
+    );
+    final membersTotal = StripchatApi.membersCount(membersResponse.text, status: membersResponse.status);
+    if (membersTotal > 0) {
+      room = room.copyWith(totalViewers: '$membersTotal');
+    }
     // Build HLS master URIs from CDN hosts (multi-CDN support).
     final masters = StripchatApi.masterUris(cam.streamName, config.hlsStreamHosts);
-    if (masters.isEmpty || cam.streamName.isEmpty) return room.copyWith(restriction: LiveRestriction.unplayable);
+    if (masters.isEmpty || cam.streamName.isEmpty) return room;
     // Use the first CDN host's master for quality parsing.
     final master = masters.first;
     final response = await _get(master);
@@ -246,7 +259,11 @@ final class StripchatSite extends LiveSite
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
     final modelId = await _resolveModelId(username);
     final cam = await _getCam(modelId);
-    return _card(cam.toModel(), isLive: cam.isLive && cam.status == 'public');
+    final isLive = cam.isLive && StripchatApi.isLiveStatus(cam.status);
+    LiveRoom room = _card(cam.toModel(), isLive: isLive);
+    if (cam.introduction.isNotEmpty) room = room.copyWith(introduction: cam.introduction);
+    if (cam.notice.isNotEmpty) room = room.copyWith(notice: cam.notice);
+    return room;
   }
 
   /// Recording: detail with stream, same as room entry.
@@ -310,23 +327,20 @@ final class StripchatSite extends LiveSite
   static LiveRoom _card(StripchatModel m, {required bool isLive}) => LiveRoom(
         roomId: m.username,
         platform: _site,
-        title: m.username,
+        title: m.title,
         nick: m.username,
         avatar: m.avatarUrl,
         cover: m.popularSnapshotTimestamp > 0
             ? StripchatApi.thumbnailUrl(m.popularSnapshotTimestamp, '${m.modelId}')
             : '',
         area: '',
-        watching: m.viewersCount > 0 ? '${m.viewersCount}' : '',
-        popularity: '${m.viewersCount}',
-        totalViewers: '',
-        audienceMetricType: AudienceMetricType.popularity,
+        watching: '',
+        totalViewers: m.viewersCount > 0 ? '${m.viewersCount}' : '',
+        audienceMetricType: AudienceMetricType.totalViewers,
         liveStatus: isLive ? LiveStatus.live : LiveStatus.offline,
-        startedAt: isLive && m.startTime > 0
-            ? DateTime.fromMillisecondsSinceEpoch(m.startTime * 1000, isUtc: true)
-            : null,
+        startedAt: m.startedAt,
         introduction: m.description.isEmpty ? null : m.description,
-        restriction: m.status == 'private' ? LiveRestriction.private : LiveRestriction.none,
+        restriction: StripchatApi.restrictionFor(m.status),
         link: StripchatApi.roomPageUrl(m.username),
       );
 
