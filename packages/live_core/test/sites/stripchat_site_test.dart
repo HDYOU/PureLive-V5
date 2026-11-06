@@ -180,12 +180,13 @@ void main() {
       expect(qualities[0].quality, '1080p 2Mbps');
     });
 
-    test('getPlayUrls returns master playlist URL', () async {
+    test('getPlayUrls returns variant playlist URL', () async {
       final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
-      final urls = await setup.site.getPlayUrls(detail: room, quality: const LivePlayQuality(quality: '1080p', id: 0, data: 0));
+      final qualities = await setup.site.getPlayQualities(detail: room);
+      final urls = await setup.site.getPlayUrls(detail: room, quality: qualities.first);
       expect(urls, hasLength(1));
-      expect(urls[0], contains('prettygirl-webcam'));
+      expect(urls[0], contains('edge-hls.doppiocdn.org'));
     });
 
     test('room without stream throws StreamUnavailable', () async {
