@@ -11,7 +11,10 @@
       "avatarUrl": "https://img.stripchat.com/avatar/prettygirl.jpg",
       "popularSnapshotTimestamp": 1730800000,
       "startTime": 1730799000,
-      "description": "Welcome to my stream!"
+      "description": "Welcome to my stream!",
+      "statusChangedAt": "2026-11-06T11:28:39Z",
+      "groupShowTopic": "按摩",
+      "topic": ""
     },
     {
       "id": 87654321,
@@ -22,7 +25,10 @@
       "avatarUrl": "",
       "popularSnapshotTimestamp": 1730700000,
       "startTime": 0,
-      "description": ""
+      "description": "",
+      "statusChangedAt": "2026-11-06T11:28:39Z",
+      "groupShowTopic": "按摩",
+      "topic": ""
     },
     {
       "id": 11111111,
@@ -33,7 +39,10 @@
       "avatarUrl": "https://img.stripchat.com/avatar/private.jpg",
       "popularSnapshotTimestamp": 1730800000,
       "startTime": 1730798000,
-      "description": "Private show"
+      "description": "Private show",
+      "statusChangedAt": "2026-11-06T11:28:39Z",
+      "groupShowTopic": "按摩",
+      "topic": ""
     }
   ],
   "hasMore": false

@@ -186,6 +186,14 @@ const Map<String, AudiencePlatformCapability> audienceCapabilities = {
     hasTotalViewers: true,
     onlineAvailability: AudienceOnlineAvailability.roomRealtime,
   ),
+  // Stripchat exposes viewersCount as cumulative session viewers across
+  // its directory and detail APIs. The members endpoint gives a richer total
+  // when the model is on air.
+  'stripchat': AudiencePlatformCapability(
+    hasPopularity: false,
+    hasTotalViewers: true,
+    onlineAvailability: AudienceOnlineAvailability.roomList,
+  ),
   // The watch page exposes a dedicated concurrent-view renderer while a
   // broadcast is live. Historical viewCount is deliberately not reused. The
   // live chat's `next` answer carries the same renderer; the danmaku

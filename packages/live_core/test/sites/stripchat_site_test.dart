@@ -40,14 +40,17 @@ void main() {
   });
 
   group('directory', () {
-    test('lists live public models, filters private and offline', () async {
+    test('lists live models including groupShow, filters private and offline', () async {
       final setup = _setup(['S01-guest']);
       final rooms = await setup.site.getRecommendRooms();
-      // Only public + live models
+      // Only public + groupShow + live models
       expect(rooms, hasLength(1));
       expect(rooms[0].roomId, 'prettygirl');
       expect(rooms[0].isLiveNow, isTrue);
-      expect(rooms[0].watching, '1523');
+      expect(rooms[0].totalViewers, '1523');
+      expect(rooms[0].audienceMetricType, AudienceMetricType.totalViewers);
+      expect(rooms[0].title, '按摩');
+      expect(rooms[0].startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
     });
 
     test('directory page respects category sort', () async {
@@ -63,13 +66,19 @@ void main() {
       final setup = _setup([
         'S05-userid',
         'S03-cam-live',
+        'S09-members',
         'S04-master',
         'S08-config',
       ]);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
-      expect(room.watching, '1523');
+      expect(room.totalViewers, '215');
+      expect(room.audienceMetricType, AudienceMetricType.totalViewers);
+      expect(room.title, 'prettygirl live');
+      expect(room.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
+      expect(room.introduction, 'VIP fan club description');
+      expect(room.notice, 'Reach 2000 viewers!');
       expect(room.data, isNotNull);
       final data = room.data as StripchatRoomData;
       expect(data.modelId, 12345678);
@@ -115,7 +124,10 @@ void main() {
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
       expect(room.data, isNull);
-      // Only two requests: user-ids and cam (no card, no master)
+      expect(room.title, 'prettygirl live');
+      expect(room.introduction, 'VIP fan club description');
+      expect(room.notice, 'Reach 2000 viewers!');
+      // Only two requests: user-ids and cam (no master, no members)
       expect(setup.http.requests, hasLength(2));
     });
   });
@@ -139,6 +151,8 @@ void main() {
       expect(rooms, hasLength(1));
       expect(rooms[0].roomId, 'searchgirl');
       expect(rooms[0].isLiveNow, isTrue);
+      expect(rooms[0].title, 'searchgirl room');
+      expect(rooms[0].totalViewers, '342');
     });
 
     test('blank keyword returns empty without request', () async {
@@ -160,7 +174,7 @@ void main() {
 
   group('streams', () {
     test('getPlayQualities returns qualities from room data', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live', 'S04-master', 'S08-config']);
+      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities, hasLength(3));
@@ -168,7 +182,7 @@ void main() {
     });
 
     test('getPlayUrls returns master playlist URL', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live', 'S04-master', 'S08-config']);
+      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final urls = await setup.site.getPlayUrls(detail: room, quality: const LivePlayQuality(quality: '1080p', id: 0, data: 0));
       expect(urls, hasLength(1));
