@@ -1,14 +1,16 @@
 {
   "user": {
-    "id": 12345678,
-    "username": "prettygirl",
-    "status": "offline",
-    "isLive": false,
-    "snapshotTimestamp": 1730700000,
-    "statusChangedAt": 0,
-    "description": "",
-    "topic": "",
-    "userFanClub": {}
+    "user": {
+      "id": 12345678,
+      "username": "prettygirl",
+      "status": "offline",
+      "isLive": false,
+      "snapshotTimestamp": 1730700000,
+      "statusChangedAt": 0,
+      "description": "",
+      "topic": "",
+      "userFanClub": {}
+    }
   },
   "cam": {
     "streamName": "",
