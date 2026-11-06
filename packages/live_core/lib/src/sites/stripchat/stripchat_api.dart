@@ -2,9 +2,6 @@ import 'dart:convert';
 
 import 'package:live_core/src/json.dart';
 import 'package:live_core/src/live_area.dart';
-import 'package:live_core/src/live_room.dart';
-import 'package:live_core/src/live_site.dart';
-import 'package:live_core/src/play_line.dart';
 import 'package:live_core/src/site_error.dart';
 import 'package:meta/meta.dart';
 
@@ -450,7 +447,7 @@ abstract final class StripchatApi {
     } on FormatException {
       decoded = null;
     }
-    final rows = decoded is List ? decoded : (decoded is Map ? _list(decoded) : const []);
+    final rows = decoded is List ? decoded : (decoded is Map ? _list(decoded) : const <dynamic>[]);
     if (rows.isEmpty) return const [];
     final models = <String, StripchatModel>{};
     for (final raw in rows) {
