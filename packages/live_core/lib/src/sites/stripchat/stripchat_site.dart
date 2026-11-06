@@ -186,13 +186,7 @@ final class StripchatSite extends LiveSite
     return id;
   }
 
-  /// Get the model card (basic info).
-  Future<StripchatModel> _getModelCard(int modelId) async {
-    final response = await _get(Uri.https(StripchatApi.apiHost, '/api/front/v2/models/$modelId'));
-    return StripchatApi.modelCard(response.text, status: response.status);
-  }
-
-  /// Get the cam detail (stream info).
+  /// Get the cam detail (stream info and card fields).
   Future<StripchatCam> _getCam(int modelId) async {
     final response = await _get(
       Uri.https(StripchatApi.apiHost, '/api/front/v2/models/$modelId/cam', {
@@ -216,11 +210,10 @@ final class StripchatSite extends LiveSite
     final username = roomId.trim();
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
     final modelId = await _resolveModelId(username);
-    final card = await _getModelCard(modelId);
     final cam = await _getCam(modelId);
     final config = await _getConfig();
     final isLive = cam.isLive && cam.status == 'public';
-    LiveRoom room = _card(card, isLive: isLive);
+    LiveRoom room = _card(cam.toModel(), isLive: isLive);
     if (!isLive) return room;
     // Build HLS master URIs from CDN hosts (multi-CDN support).
     final masters = StripchatApi.masterUris(cam.streamName, config.hlsStreamHosts);
@@ -246,14 +239,14 @@ final class StripchatSite extends LiveSite
     );
   }
 
-  /// Follow-card refresh: the card only, no stream check.
+  /// Follow-card refresh: the cam card, no stream check.
   @override
   Future<LiveRoom> getRoomDetailForRefresh({required String roomId}) async {
     final username = roomId.trim();
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
     final modelId = await _resolveModelId(username);
-    final card = await _getModelCard(modelId);
-    return _card(card, isLive: card.isLive && card.status == 'public');
+    final cam = await _getCam(modelId);
+    return _card(cam.toModel(), isLive: cam.isLive && cam.status == 'public');
   }
 
   /// Recording: detail with stream, same as room entry.
