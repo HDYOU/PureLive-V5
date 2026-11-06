@@ -459,7 +459,7 @@ abstract final class StripchatApi {
     final statusStr = jsonString(user['status']) ?? 'offline';
     final viewers = jsonInt(user['viewersCount']) ?? 0;
     final avatar = normalizeImageUrl(user['avatarUrl'] ?? '');
-    final snapshotTs = jsonInt(user['popularSnapshotTimestamp']) ?? 0;
+    final snapshotTs = jsonInt(user['snapshotTimestamp']) ?? jsonInt(user['popularSnapshotTimestamp']) ?? 0;
     final startedAt = _parseStartedAt(user['statusChangedAt']);
     final title = (jsonString(cam['topic']) ?? '').isNotEmpty
         ? jsonString(cam['topic'])!
