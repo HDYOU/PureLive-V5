@@ -449,7 +449,8 @@ abstract final class StripchatApi {
   /// `/api/front/v2/models/{uid}/cam`: the model's stream data.
   static StripchatCam camDetail(String body, {required int modelId, int status = 200}) {
     final root = _root(body, what: 'cam', status: status);
-    final user = _object(root['user']) ?? {};
+    final userRoot = _object(root['user']) ?? {};
+    final user = _object(userRoot['user']) ?? userRoot;
     final cam = _object(root['cam']) ?? {};
     final uid = jsonInt(user['id']);
     if (uid != modelId) throw ApiChanged(_site, 'cam: model id mismatch (${_snippet(body)})');
