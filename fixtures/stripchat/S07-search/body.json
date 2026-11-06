@@ -8,7 +8,10 @@
     "avatarUrl": "https://img.stripchat.com/avatar/searchgirl.jpg",
     "popularSnapshotTimestamp": 1730800000,
     "startTime": 1730798500,
-    "description": "Searching for fun"
+    "description": "Searching for fun",
+    "topic": "searchgirl room",
+    "statusChangedAt": "2026-11-06T11:28:39Z",
+    "groupShowTopic": ""
   },
   {
     "id": 88888888,
@@ -19,6 +22,9 @@
     "avatarUrl": "",
     "popularSnapshotTimestamp": 1730700000,
     "startTime": 0,
-    "description": ""
+    "description": "",
+    "topic": "offlineuser room",
+    "statusChangedAt": "2026-11-06T11:28:39Z",
+    "groupShowTopic": ""
   }
 ]
