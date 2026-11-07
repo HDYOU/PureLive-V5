@@ -307,8 +307,8 @@ abstract final class StripchatApi {
   /// Largest answer accepted (2 MiB).
   static const int responseLimit = 2 * 1024 * 1024;
 
-  /// Model username pattern: letters, digits, underscore, 1-30 chars.
-  static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_]{1,30}$');
+  /// Model username pattern: letters, digits, underscore, hyphen, 1-30 chars.
+  static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_-]{1,30}$');
 
   /// Site paths that are never models.
   static const Set<String> reservedNames = {

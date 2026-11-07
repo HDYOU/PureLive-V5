@@ -183,6 +183,7 @@ void main() {
       final site = _setup([]).site;
       expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/prettygirl'), 'prettygirl');
       expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/offlineuser'), 'offlineuser');
+      expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/R-bonbon'), 'R-bonbon');
       expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/webcam'), isNull);
       expect(site.roomIdFromUrl('https://example.com/prettygirl'), isNull);
     });
