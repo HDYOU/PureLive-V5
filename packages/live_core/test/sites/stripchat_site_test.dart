@@ -81,6 +81,7 @@ void main() {
       expect(rooms[0].totalViewers, '1523');
       expect(rooms[0].audienceMetricType, AudienceMetricType.totalViewers);
       expect(rooms[0].title, '按摩');
+      expect(rooms[0].userId, '12345678');
       expect(rooms[0].startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
       // cutegirl99 is not live: isLive false in the fixture.
       expect(rooms[1].roomId, 'cutegirl99');
@@ -159,6 +160,7 @@ void main() {
       final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
+      expect(room.userId, '12345678');
       expect(room.data, isNull);
       expect(room.title, 'Reach 2000 viewers!');
       expect(room.introduction, 'VIP fan club description');

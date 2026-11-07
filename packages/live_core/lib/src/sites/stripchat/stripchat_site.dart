@@ -456,6 +456,7 @@ final class StripchatSite extends LiveSite
 
   static LiveRoom _card(StripchatModel m, {required bool isLive}) => LiveRoom(
         roomId: m.username,
+        userId: '${m.modelId}',
         platform: _site,
         title: m.title,
         nick: m.username,
