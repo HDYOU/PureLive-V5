@@ -751,6 +751,17 @@ abstract final class StripchatApi {
   static Uri masterUri(String streamName, String cdnHost) =>
       Uri.parse('https://edge-hls.$cdnHost/hls/$streamName/master/${streamName}_auto.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX');
 
+  /// Liveness/latency probe endpoint on a CDN host: all edge-hls CDNs
+  /// serve a static `ping.m3u8` that answers fast with a small body.
+  static Uri cdnPingUri(String cdnHost) => Uri.https('edge-hls.$cdnHost', '/ping.m3u8');
+
+  /// Extract the CDN host from an edge-hls master URI (`edge-hls.<host>`).
+  static String? cdnHostOf(Uri master) {
+    final h = master.host;
+    if (!h.startsWith('edge-hls.')) return null;
+    return h.substring('edge-hls.'.length);
+  }
+
    /// Build all CDN HLS master URIs from stream name and config hosts,
    /// with the primary host (key "primary") first, then the rest sorted by key.
    static List<Uri> masterUris(String streamName, Map<String, String> hlsStreamHosts) {
