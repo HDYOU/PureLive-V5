@@ -104,25 +104,26 @@ void main() {
     test('parses HLS master into qualities', () {
       final fixture = _sample('S04-master');
       final master = Uri.parse('https://streaming-prettygirl1.stripchat.com/hls/prettygirl-webcam/index.m3u8');
-      final qualities = StripchatApi.qualities(fixture.body, master: master, status: fixture.status);
+      final variants = StripchatApi.parseVariants(fixture.body, master: master, status: fixture.status);
+      expect(variants, hasLength(3));
+      final qualities = StripchatApi.qualitiesFromVariants(variants, username: 'prettygirl');
       expect(qualities, hasLength(3));
-      expect(qualities[0].quality, '1080p 2Mbps');
-      expect(qualities[1].quality, '720p 2Mbps');
+      expect(qualities[0].quality, '1080p');
+      expect(qualities[1].quality, '720p');
       expect(qualities[2].quality, '480p');
-      // Tallest first
       expect(qualities[0].sort > qualities[1].sort, isTrue);
     });
 
     test('HTTP 404 is StreamUnavailable', () {
       expect(
-        () => StripchatApi.qualities('', master: Uri.parse('https://x.m3u8'), status: 404),
+        () => StripchatApi.parseVariants('', master: Uri.parse('https://x.m3u8'), status: 404),
         throwsA(isA<StreamUnavailable>()),
       );
     });
 
     test('not a playlist throws ApiChanged', () {
       expect(
-        () => StripchatApi.qualities('not a playlist', master: Uri.parse('https://x.m3u8')),
+        () => StripchatApi.parseVariants('not a playlist', master: Uri.parse('https://x.m3u8')),
         throwsA(isA<ApiChanged>()),
       );
     });
