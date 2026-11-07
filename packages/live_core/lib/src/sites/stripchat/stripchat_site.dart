@@ -304,9 +304,10 @@ final class StripchatSite extends LiveSite
   /// The room with its stream (when live).
   @override
   Future<LiveRoom> getRoomDetail({required String roomId}) async {
-    final username = roomId.trim();
+    final parsed = StripchatApi.parseRoomId(roomId);
+    final username = parsed.username;
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
-    final modelId = await _resolveModelId(username);
+    final modelId = parsed.userId ?? await _resolveModelId(username);
     final cam = await _getCam(modelId);
     final config = await _getConfig();
     final isLive = cam.isLive && StripchatApi.isLiveStatus(cam.status);
@@ -361,9 +362,10 @@ final class StripchatSite extends LiveSite
   /// Follow-card refresh: the cam card, no stream check.
   @override
   Future<LiveRoom> getRoomDetailForRefresh({required String roomId}) async {
-    final username = roomId.trim();
+    final parsed = StripchatApi.parseRoomId(roomId);
+    final username = parsed.username;
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
-    final modelId = await _resolveModelId(username);
+    final modelId = parsed.userId ?? await _resolveModelId(username);
     final cam = await _getCam(modelId);
     final isLive = cam.isLive && StripchatApi.isLiveStatus(cam.status);
     LiveRoom room = _card(cam.toModel(), isLive: isLive);
@@ -455,7 +457,7 @@ final class StripchatSite extends LiveSite
   // Helpers -------------------------------------------------------------------
 
   static LiveRoom _card(StripchatModel m, {required bool isLive}) => LiveRoom(
-        roomId: m.username,
+        roomId: '${m.username}?uid=${m.modelId}',
         userId: '${m.modelId}',
         platform: _site,
         title: m.title,

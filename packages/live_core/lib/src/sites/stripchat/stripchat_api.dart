@@ -357,6 +357,20 @@ abstract final class StripchatApi {
   /// Whether [name] is a valid model username.
   static bool isUsername(String name) => _usernamePattern.hasMatch(name) && !reservedNames.contains(name.toLowerCase());
 
+  /// The room id is `username?uid=modelId`. Splits [roomId] on `?uid=` and
+  /// returns the username plus, when present, the numeric user id. A bare
+  /// username (no `?uid=`) gives `userId` null.
+  static ({String username, int? userId}) parseRoomId(String roomId) {
+    final raw = roomId.trim();
+    final index = raw.indexOf('?uid=');
+    if (index < 0) {
+      return (username: raw, userId: null);
+    }
+    final username = raw.substring(0, index);
+    final userId = int.tryParse(raw.substring(index + 5));
+    return (username: username, userId: userId);
+  }
+
   /// Whether [status] represents a room that is currently on air.
   static bool isLiveStatus(String status) =>
       status == 'public' || status == 'groupShow';
