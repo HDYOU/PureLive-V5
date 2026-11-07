@@ -434,6 +434,11 @@ abstract final class StripchatApi {
 
   // Directory -----------------------------------------------------------------
 
+  /// The `hasRecommendedModels` flag in the root of a `/api/front/models`
+  /// response: true while the server has another page of recommendations.
+  static bool hasRecommendedModels(String body, {int status = 200}) =>
+      _root(body, what: 'models', status: status)['hasRecommendedModels'] == true;
+
   /// `/api/front/models`: live model cards by viewers, one per page.
   static List<StripchatModel> modelsList(String body, {int status = 200}) {
     final root = _root(body, what: 'models', status: status);
