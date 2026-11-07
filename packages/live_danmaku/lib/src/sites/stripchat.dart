@@ -32,12 +32,14 @@ final class StripchatFrameResult {
 /// - Server may send `{}` (keepalive) or `{ping: "..."}` (client replies `{pong: ...}`).
 /// - Chat pushes arrive as `{"push":{"channel":"newChatMessage@{id}","pub":{"data":{...}}}}`.
 abstract final class StripchatDanmakuProtocol {
-  /// WebSocket handshake headers.
-  static const Map<String, String> headers = {
-    'origin': 'https://zh.virtualtaboo.live',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/138.0.0.0 Safari/537.36',
-  };
+  /// WebSocket handshake headers, built from the API host that served the
+  /// config so origin/referer match the host the token came from.
+  static Map<String, String> headersFor(String apiHost) => {
+        'origin': 'https://$apiHost',
+        'referer': 'https://$apiHost/',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/138.0.0.0 Safari/537.36',
+      };
 
   /// Heartbeat period (30 s). Client does not send pings; the server-initiated
   /// ping/pong handles liveness.
@@ -218,7 +220,7 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
     _modelId = args.modelId;
     return DanmakuSocketTarget(
       endpoints: [Uri.parse(args.websocketUrl)],
-      headers: StripchatDanmakuProtocol.headers,
+      headers: StripchatDanmakuProtocol.headersFor(args.apiHost),
     );
   }
 
