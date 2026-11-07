@@ -105,6 +105,7 @@ String _chatPush({
   String color = '#FF0000',
   String messageId = 'msg-001',
   int createdAt = 1790536489000,
+  int? userLevel,
 }) =>
     jsonEncode({
       'push': {
@@ -118,6 +119,7 @@ String _chatPush({
               'username': username,
               'name': username,
               'color': color,
+              if (userLevel != null) 'userRanking': {'level': userLevel},
             },
             'details': {'body': body},
             'createdAt': createdAt,
@@ -134,6 +136,7 @@ String _tipPush({
   String messageId = 'msg-002',
   int createdAt = 1790536500000,
   String color = '#00FF00',
+  int? userLevel,
 }) =>
     jsonEncode({
       'push': {
@@ -147,6 +150,7 @@ String _tipPush({
               'username': username,
               'name': username,
               'color': color,
+              if (userLevel != null) 'userRanking': {'level': userLevel},
             },
             'details': {'amount': amount},
             'amount': amount,
@@ -165,6 +169,7 @@ String _lovensePush({
   String messageId = 'msg-003',
   int createdAt = 1790536510000,
   String color = '#0000FF',
+  int? userLevel,
 }) =>
     jsonEncode({
       'push': {
@@ -178,6 +183,7 @@ String _lovensePush({
               'username': username,
               'name': username,
               'color': color,
+              if (userLevel != null) 'userRanking': {'level': userLevel},
             },
             'details': {
               'lovenseDetails': {
@@ -271,6 +277,27 @@ void main() {
       expect(m.message, 'toy_user: 中强度 · 15秒');
       final l = StripchatDanmakuProtocol.read(_lovensePush(power: 'low')).messages.single;
       expect(l.message, 'toy_user: 低强度 · 15秒');
+    });
+
+    test('userRanking.level fills the sender level when present', () {
+      final chat = StripchatDanmakuProtocol.read(_chatPush(userLevel: 3)).messages.single;
+      expect(chat.userLevelValue, 3);
+      expect(chat.userLevel, '3');
+      final tip = StripchatDanmakuProtocol.read(_tipPush(userLevel: 7)).messages.single;
+      expect(tip.userLevelValue, 7);
+      expect(tip.userLevel, '7');
+      final lovense = StripchatDanmakuProtocol.read(_lovensePush(userLevel: 1)).messages.single;
+      expect(lovense.userLevelValue, 1);
+      expect(lovense.userLevel, '1');
+    });
+
+    test('missing userRanking leaves the level unset', () {
+      final chat = StripchatDanmakuProtocol.read(_chatPush()).messages.single;
+      expect(chat.userLevelValue, isNull);
+      expect(chat.userLevel, '');
+      final tip = StripchatDanmakuProtocol.read(_tipPush()).messages.single;
+      expect(tip.userLevelValue, isNull);
+      expect(tip.userLevel, '');
     });
 
     test('unknown push types are ignored', () {
