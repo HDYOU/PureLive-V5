@@ -347,11 +347,13 @@ final class StripchatSite extends LiveSite
         isLive: true,
         qualities: qualities,
         variants: variants,
+        apiHost: host,
       ),
       danmakuData: StripchatDanmakuArgs(
         websocketUrl: config.websocketUrl,
         token: config.websocketToken,
         modelId: cam.modelId,
+        apiHost: host,
       ),
     );
   }
@@ -430,8 +432,8 @@ final class StripchatSite extends LiveSite
           url,
           headers: {
             'user-agent': StripchatApi.headers['user-agent']!,
-            'origin': StripchatApi.origin,
-            'referer': '${StripchatApi.roomPageUrl(data.username)}/',
+            'origin': 'https://${data.apiHost}',
+            'referer': 'https://${data.apiHost}/${data.username}/',
           },
           format: StreamFormat.hls,
           codec: variants[i].codec,
