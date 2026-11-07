@@ -44,6 +44,7 @@ final class StripchatRoomData {
     required this.username,
     required this.streamName,
     required this.master,
+    required this.masterUris,
     required this.isLive,
     required List<LivePlayQuality> qualities,
   }) : qualities = List.unmodifiable(qualities);
@@ -57,8 +58,11 @@ final class StripchatRoomData {
   /// The stream name used in the HLS path.
   final String streamName;
 
-  /// The HLS master playlist URI.
+  /// The primary HLS master playlist URI (first CDN).
   final Uri master;
+
+  /// All CDN master URIs, first is primary.
+  final List<Uri> masterUris;
 
   /// Whether the model is currently live.
   final bool isLive;
@@ -615,10 +619,10 @@ abstract final class StripchatApi {
     if (grouped.isEmpty) throw const ApiChanged(_site, 'master: no valid variant');
     return [
       for (final entry in grouped.entries.toList()..sort((a, b) => b.value.height.compareTo(a.value.height)))
-        LivePlayQuality(
-          quality: entry.value.label.trim(),
-          id: '${entry.value.height}p${entry.value.bandwidth ~/ 1000}',
-          data: entry.value.url,
+           LivePlayQuality(
+             quality: entry.value.label.trim(),
+             id: '${entry.value.height}',
+             data: entry.value.url,
           sort: entry.value.height * 10000 + entry.value.bandwidth,
           codec: entry.value.codec,
         ),

@@ -237,7 +237,7 @@ final class StripchatSite extends LiveSite
     // Build HLS master URIs from CDN hosts (multi-CDN support).
     final masters = StripchatApi.masterUris(cam.streamName, config.hlsStreamHosts);
     if (masters.isEmpty || cam.streamName.isEmpty) return room;
-    // Use the first CDN host's master for quality parsing.
+    // Use the first CDN host's master for initial quality parsing.
     final master = masters.first;
     final response = await _get(master);
     final qualities = StripchatApi.qualities(response.text, master: master, status: response.status);
@@ -247,6 +247,7 @@ final class StripchatSite extends LiveSite
         username: cam.username,
         streamName: cam.streamName,
         master: master,
+        masterUris: masters,
         isLive: true,
         qualities: qualities,
       ),
@@ -303,24 +304,49 @@ final class StripchatSite extends LiveSite
   }) async {
     final data = detail.data as StripchatRoomData?;
     if (data == null) throw const StreamUnavailable(_site, 'no stream data');
-    final url = quality.data as String?;
-    if (url == null || url.isEmpty) throw StreamUnavailable(_site, 'no variant url for quality ${quality.id}');
-    return LivePlayUrlResolution.lines(
-      [
+    if (data.masterUris.isEmpty) throw StreamUnavailable(_site, 'no master uri for quality ${quality.id}');
+    // Parse all CDN masters in parallel, collect all qualities per cdn key.
+    final allParsed = await Future.wait(
+      data.masterUris.map((uri) async {
+        try {
+          final r = await _get(uri);
+          return (uri: uri, qs: StripchatApi.qualities(r.text, master: uri, status: r.status));
+        } catch (_) {
+          return (uri: uri, qs: const <LivePlayQuality>[]);
+        }
+      }),
+    );
+    // Group by quality.id, dedup by url, carry first-seen codec.
+    final byId = <String, List<(String url, String? codec)>>{};
+    for (final entry in allParsed) {
+      final qs = entry.qs;
+      for (final q in qs) {
+        final url = q.data as String? ?? '';
+        if (url.isEmpty) continue;
+        final list = byId.putIfAbsent(q.id.toString(), () => []);
+        if (list.any((e) => e.$1 == url)) continue;
+        list.add((url, q.codec));
+      }
+    }
+    final entries = byId[quality.id.toString()];
+    if (entries == null || entries.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
+    final lines = <LivePlayLine>[];
+    for (var i = 0; i < entries.length; i++) {
+      lines.add(
         LivePlayLine(
-          url,
+          entries[i].$1,
           headers: {
             'user-agent': StripchatApi.headers['user-agent']!,
             'origin': StripchatApi.origin,
             'referer': '${StripchatApi.roomPageUrl(data.username)}/',
           },
           format: StreamFormat.hls,
-          codec: quality.codec ?? 'avc',
-          lineId: data.streamName,
+          codec: entries[i].$2 ?? 'avc',
+          lineId: '${data.streamName}-cdn$i',
         ),
-      ],
-      appliedQualityData: quality.data,
-    );
+      );
+    }
+    return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.data);
   }
 
   @override
