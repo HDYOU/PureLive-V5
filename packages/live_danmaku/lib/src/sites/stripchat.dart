@@ -78,19 +78,18 @@ abstract final class StripchatDanmakuProtocol {
     if (text == null || text.length > 256 * 1024) return const StripchatFrameResult(messages: [], respondEmpty: false);
     if (text.trim() == '{}') return const StripchatFrameResult(messages: [], respondEmpty: true);
     final obj = _object(text);
-    if (obj == null) return const StripchatFrameResult(messages: [], respondEmpty: false);
     if (obj.containsKey('ping')) return const StripchatFrameResult(messages: [], respondEmpty: false);
     return StripchatFrameResult(messages: _parsePush(obj), respondEmpty: false);
   }
 
   static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
     final messages = <LiveMessage>[];
-    final push = _object(obj['push']) ?? _object(obj['event']);
+    final push = _object(obj['push']);
     final pub = _object(push['pub']);
-    final data = _object(pub['data']) ?? push;
+    final data = _object(pub['data']);
     if (data.isEmpty) return const [];
     final type = _text(data['type']) ?? '';
-    final userData = _object(data['userData']) ?? _object(data['user']);
+    final userData = _object(data['userData']);
     final details = _object(data['details']);
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     switch (type) {
@@ -119,9 +118,8 @@ abstract final class StripchatDanmakuProtocol {
             count: int.tryParse(amount) ?? 1,
             kind: LiveGiftKind.tip,
             unitPrice: 1,
-            totalValue: int.tryParse(amount) ?? 1,
-            unit: LiveGiftUnit.other,
-          ),
+             totalValue: int.tryParse(amount) ?? 1,
+           ),
           messageId: _text(data['id']) ?? '',
           sentAt: _time(data['createdAt']),
           color: _color(userData),
@@ -171,11 +169,11 @@ abstract final class StripchatDanmakuProtocol {
 
 /// Stripchat's danmaku connection: WebSocket with connect+subscribe handshake.
 final class StripchatDanmakuConnection extends DanmakuSocketConnection<StripchatDanmakuArgs> {
-  String _token = '';
-  int _modelId = 0;
-
   new({super.proxy, super.connector})
       : super(policy: const DanmakuSocketPolicy(heartbeatInterval: StripchatDanmakuProtocol.heartbeatInterval), site: 'stripchat');
+
+  String _token = '';
+  int _modelId = 0;
 
   @override
   @protected
