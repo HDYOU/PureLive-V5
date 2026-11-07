@@ -105,7 +105,8 @@ final class StripchatSite extends LiveSite
       if (!m.isLive || !StripchatApi.isLiveStatus(m.status)) continue;
       rooms[m.username.toLowerCase()] = _card(m, isLive: true);
     }
-    return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: models.length == limit);
+    final hasMore = StripchatApi.hasRecommendedModels(response.text, status: response.status);
+    return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: hasMore);
   }
 
   static String _areaSort(LiveArea? area) {
