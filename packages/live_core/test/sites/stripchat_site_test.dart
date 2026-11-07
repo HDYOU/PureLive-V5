@@ -72,11 +72,11 @@ void main() {
       // All models are returned; each card reflects its own live status.
       expect(rooms, hasLength(3));
       expect(rooms.map((r) => r.roomId), containsAll([
-        'prettygirl',
-        'cutegirl99',
-        'privatemodel',
+        'prettygirl?uid=12345678',
+        'cutegirl99?uid=87654321',
+        'privatemodel?uid=11111111',
       ]));
-      expect(rooms[0].roomId, 'prettygirl');
+      expect(rooms[0].roomId, 'prettygirl?uid=12345678');
       expect(rooms[0].isLiveNow, isTrue);
       expect(rooms[0].totalViewers, '1523');
       expect(rooms[0].audienceMetricType, AudienceMetricType.totalViewers);
@@ -84,10 +84,10 @@ void main() {
       expect(rooms[0].userId, '12345678');
       expect(rooms[0].startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
       // cutegirl99 is not live: isLive false in the fixture.
-      expect(rooms[1].roomId, 'cutegirl99');
+      expect(rooms[1].roomId, 'cutegirl99?uid=87654321');
       expect(rooms[1].isLiveNow, isFalse);
       // privatemodel is live but private: status 'private'.
-      expect(rooms[2].roomId, 'privatemodel');
+      expect(rooms[2].roomId, 'privatemodel?uid=11111111');
       expect(rooms[2].isLiveNow, isFalse);
     });
 
@@ -109,7 +109,7 @@ void main() {
         'S08-config',
       ], withCdnPings: true);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
-      expect(room.roomId, 'prettygirl');
+      expect(room.roomId, 'prettygirl?uid=12345678');
       expect(room.isLiveNow, isTrue);
       expect(room.totalViewers, '215');
       expect(room.audienceMetricType, AudienceMetricType.totalViewers);
@@ -131,7 +131,7 @@ void main() {
         'S08-config',
       ]);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
-      expect(room.roomId, 'prettygirl');
+      expect(room.roomId, 'prettygirl?uid=12345678');
       expect(room.isLiveNow, isFalse);
       expect(room.data, isNull);
     });
@@ -158,7 +158,7 @@ void main() {
     test('getRoomDetailForRefresh reads cam only', () async {
       final setup = _setup(['S05-userid', 'S03-cam-live'], withCdnPings: true);
       final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl');
-      expect(room.roomId, 'prettygirl');
+      expect(room.roomId, 'prettygirl?uid=12345678');
       expect(room.isLiveNow, isTrue);
       expect(room.userId, '12345678');
       expect(room.data, isNull);
@@ -167,6 +167,21 @@ void main() {
       expect(room.notice, 'Reach 2000 viewers!');
       // Three requests: config race, user-ids and cam (no master, no members)
       expect(setup.http.requests, hasLength(3));
+    });
+
+    test('roomId carrying ?uid=<modelId> skips the user-ids lookup', () async {
+      // Only the cam fixture is recorded; no S05-userid. With the uid in the
+      // room id the site must not issue the user-ids request.
+      final setup = _setup(['S03-cam-live'], withCdnPings: true);
+      final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl?uid=12345678');
+      expect(room.roomId, 'prettygirl?uid=12345678');
+      expect(room.isLiveNow, isTrue);
+      // Two requests: config race and cam; the user-ids call was skipped.
+      expect(setup.http.requests, hasLength(2));
+      expect(
+        setup.http.requests.map((r) => r.url.path),
+        isNot(contains('/api/front/users/user-ids/prettygirl')),
+      );
     });
   });
 
@@ -188,14 +203,14 @@ void main() {
       final rooms = await setup.site.searchRooms('search');
       expect(rooms, hasLength(2));
       expect(rooms.map((r) => r.roomId), containsAll([
-        'searchgirl',
-        'offlineuser',
+        'searchgirl?uid=99999999',
+        'offlineuser?uid=88888888',
       ]));
-      expect(rooms[0].roomId, 'searchgirl');
+      expect(rooms[0].roomId, 'searchgirl?uid=99999999');
       expect(rooms[0].isLiveNow, isTrue);
       expect(rooms[0].title, 'searchgirl room');
       expect(rooms[0].totalViewers, '342');
-      expect(rooms[1].roomId, 'offlineuser');
+      expect(rooms[1].roomId, 'offlineuser?uid=88888888');
       expect(rooms[1].isLiveNow, isFalse);
     });
 
@@ -371,7 +386,7 @@ void main() {
       ]);
       final site = StripchatSite(http, ['zh.virtualtaboo.live', 'zh.mywebcamroom.com']);
       final room = await site.getRoomDetailForRefresh(roomId: 'prettygirl');
-      expect(room.roomId, 'prettygirl');
+      expect(room.roomId, 'prettygirl?uid=12345678');
       // user-ids and cam both went to the pinned host, not the failed one.
       final apiPaths = http.requests.where((r) => r.url.path != '/api/front/v3/config/initial').toList();
       for (final r in apiPaths) {
