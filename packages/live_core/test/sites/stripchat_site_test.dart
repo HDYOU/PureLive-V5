@@ -177,7 +177,7 @@ void main() {
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities, hasLength(3));
-      expect(qualities[0].quality, '1080p 2Mbps');
+      expect(qualities[0].quality, '1080p');
     });
 
     test('getPlayUrls returns variant playlist URL', () async {

@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:live_core/src/hls_master.dart';
 import 'package:live_core/src/json.dart';
 import 'package:live_core/src/live_area.dart';
 import 'package:live_core/src/live_room.dart';
+import 'package:live_core/src/play_line.dart';
 import 'package:live_core/src/site_error.dart';
 import 'package:meta/meta.dart';
 
@@ -47,7 +49,9 @@ final class StripchatRoomData {
     required this.masterUris,
     required this.isLive,
     required List<LivePlayQuality> qualities,
-  }) : qualities = List.unmodifiable(qualities);
+    required List<StripchatVariant> variants,
+  })  : qualities = List.unmodifiable(qualities),
+        variants = List.unmodifiable(variants);
 
   /// The model's numeric id.
   final int modelId;
@@ -69,6 +73,9 @@ final class StripchatRoomData {
 
   /// Qualities of [master], best first.
   final List<LivePlayQuality> qualities;
+
+  /// All parsed variant entries from the primary master.
+  final List<StripchatVariant> variants;
 }
 
 /// A model card from the models list endpoint.
@@ -219,6 +226,54 @@ final class StripchatConfig {
 
   /// WebSocket authentication token.
   final String websocketToken;
+}
+
+/// One video variant entry from a Stripchat HLS master playlist.
+@immutable
+final class StripchatVariant {
+  new({
+    required this.height,
+    required this.bandwidth,
+    required this.frameRate,
+    required this.uri,
+    required this.codec,
+    required this.master,
+  });
+
+  /// Video height in pixels.
+  final int height;
+
+  /// Bandwidth in bits per second.
+  final int bandwidth;
+
+  /// Frame rate, zero when absent.
+  final double frameRate;
+
+  /// Variant playlist URI, relative to [master].
+  final String uri;
+
+  /// Video codec family (`avc`, `hevc`, `av1`), null when unknown.
+  final String? codec;
+
+  /// The master playlist URI this variant belongs to.
+  final Uri master;
+
+  /// Resolved absolute URL of this variant against [master].
+  String get url => master.resolve(uri).toString();
+
+  @override
+  bool operator ==(Object other) =>
+      other is StripchatVariant &&
+      other.height == height &&
+      other.bandwidth == bandwidth &&
+      other.uri == uri &&
+      other.master == master;
+
+  @override
+  int get hashCode => Object.hash(height, bandwidth, uri, master);
+
+  @override
+  String toString() => 'StripchatVariant($height, $bandwidth, $uri)';
 }
 
 /// Pure parsing of Stripchat responses.
@@ -578,56 +633,71 @@ abstract final class StripchatApi {
 
   // Streams -------------------------------------------------------------------
 
-  /// Parse an HLS master playlist into qualities.
-  static List<LivePlayQuality> qualities(String body, {required Uri master, int status = 200}) {
+  /// Parse an HLS master playlist into variant entries.
+  static List<StripchatVariant> parseVariants(String body, {required Uri master, int status = 200}) {
     if (status == 404) throw const StreamUnavailable(_site, 'master playlist: HTTP 404');
     if (status < 200 || status >= 300) throw ApiChanged(_site, 'master: HTTP $status');
-    if (body.trimLeft().split('\n').first.trim() != '#EXTM3U') {
+    final List<HlsStreamInf> entries;
+    try {
+      entries = HlsStreamInf.read(body);
+    } on FormatException {
       throw ApiChanged(_site, 'master: not a playlist (${_snippet(body)})');
     }
-    final grouped = <String, ({String label, int height, int bandwidth, String url, String? codec})>{};
-    Map<String, String>? pending;
-    for (final raw in body.split('\n')) {
-      final line = raw.trim();
-      if (line.startsWith('#EXT-X-STREAM-INF:')) {
-        if (pending != null) throw const ApiChanged(_site, 'master: variant without attributes');
-        pending = {
-          for (final match in RegExp(r'([A-Z0-9-]+)=("[^"]*"|[^,]*)').allMatches(line.substring(18)))
-            match.group(1)!: match.group(2)!.replaceAll('"', ''),
-        };
-        continue;
-      }
-      if (line.isEmpty || line.startsWith('#')) continue;
-      if (pending == null) continue;
-      final attrs = pending;
-      pending = null;
-      final bandwidth = jsonInt(attrs['BANDWIDTH']) ?? 0;
+    final variants = <StripchatVariant>[];
+    for (final entry in entries) {
+      final attrs = entry.attributes();
+      final uri = entry.uri;
+      if (uri == null) continue;
       final resolution = attrs['RESOLUTION'] ?? '';
       final heightMatch = RegExp(r'x(\d+)').firstMatch(resolution);
       final height = heightMatch == null ? 0 : int.parse(heightMatch.group(1)!);
+      final bandwidth = int.tryParse(attrs['BANDWIDTH'] ?? '') ?? 0;
+      final frameRate = double.tryParse(attrs['FRAME-RATE'] ?? '') ?? 0;
       if (bandwidth <= 0 || height <= 0) continue;
-      final url = master.resolve(line).toString();
-      final label = '${height}p${bandwidth >= 5000000 ? ' 5Mbps' : bandwidth >= 2000000 ? ' 2Mbps' : ''}';
-      grouped['$height-$bandwidth'] = (
-        label: label,
+      variants.add(StripchatVariant(
         height: height,
         bandwidth: bandwidth,
-        url: url,
+        frameRate: frameRate,
+        uri: uri,
         codec: _extractCodec(attrs['CODECS']),
-      );
+        master: master,
+      ));
     }
-    if (grouped.isEmpty) throw const ApiChanged(_site, 'master: no valid variant');
+    if (variants.isEmpty) throw const ApiChanged(_site, 'master: no valid variant');
+    return variants;
+  }
+
+  /// Build qualities from parsed variants, one per unique height (best bandwidth first).
+  static List<LivePlayQuality> qualitiesFromVariants(List<StripchatVariant> variants, {required String username}) {
+    final grouped = <int, StripchatVariant>{};
+    for (final v in variants) {
+      final existing = grouped[v.height];
+      if (existing == null || v.bandwidth > existing.bandwidth) grouped[v.height] = v;
+    }
     return [
-      for (final entry in grouped.entries.toList()..sort((a, b) => b.value.height.compareTo(a.value.height)))
-           LivePlayQuality(
-             quality: entry.value.label.trim(),
-             id: '${entry.value.height}',
-             data: entry.value.url,
-          sort: entry.value.height * 10000 + entry.value.bandwidth,
+      for (final entry in grouped.entries.toList()..sort((a, b) => b.key.compareTo(a.key)))
+        LivePlayQuality(
+          quality: '${entry.value.height}p',
+          id: '${entry.value.height}',
+          data: _buildLines(entry.value, username: username),
+          sort: entry.value.height * 10000000 + entry.value.bandwidth,
           codec: entry.value.codec,
         ),
     ];
   }
+
+  static List<LivePlayLine> _buildLines(StripchatVariant variant, {required String username}) => [
+        LivePlayLine(
+          variant.url,
+          headers: {
+            'user-agent': headers['user-agent']!,
+            'origin': origin,
+            'referer': '${roomPageUrl(username)}/',
+          },
+          format: StreamFormat.hls,
+          codec: variant.codec,
+        ),
+      ];
 
   /// Extract video codec family from an HLS `CODECS` attribute string.
   static String? _extractCodec(String? codecs) {
