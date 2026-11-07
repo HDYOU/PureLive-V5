@@ -189,6 +189,16 @@ void main() {
       expect(urls[0], contains('edge-hls.doppiocdn.org'));
     });
 
+    test('resolvePlayUrlsRaw confirms the requested quality', () async {
+      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final qualities = await setup.site.getPlayQualities(detail: room);
+      final requested = qualities.first;
+      final resolution = await setup.site.resolvePlayUrlsRaw(detail: room, quality: requested);
+      expect(resolution.appliedQualityData, requested.selectionId);
+      expect(resolution.lines, isNotEmpty);
+    });
+
     test('room without stream throws StreamUnavailable', () async {
       final setup = _setup(['S05-userid', 'S03-cam-offline', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
