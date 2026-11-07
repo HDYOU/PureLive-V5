@@ -181,7 +181,7 @@ void main() {
     test('masterUri builds correct HLS URL', () {
       expect(
         StripchatApi.masterUri('prettygirl-webcam', 'streaming-prettygirl.stripchat.com').toString(),
-        'https://edge-hls.streaming-prettygirl.stripchat.com/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8?playlistType=lowLatency&preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX',
+        'https://edge-hls.streaming-prettygirl.stripchat.com/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8?preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX',
       );
     });
 
