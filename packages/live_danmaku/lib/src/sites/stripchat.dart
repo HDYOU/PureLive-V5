@@ -123,7 +123,7 @@ abstract final class StripchatDanmakuProtocol {
           ));
         }
       case 'tip':
-        final amount = _text(details['amount']) ?? _text(container['amount']) ?? '0';
+        final amount = _int(details['amount']) ?? _int(container['amount']) ?? 0;
         messages.add(LiveMessage(
           type: LiveMessageType.gift,
           userName: name,
@@ -131,10 +131,10 @@ abstract final class StripchatDanmakuProtocol {
           message: '$name 已支付 $amount 代币',
           data: LiveGift(
             name: '代币',
-            count: int.tryParse(amount) ?? 1,
+            count: amount,
             kind: LiveGiftKind.tip,
             unitPrice: 1,
-            totalValue: int.tryParse(amount) ?? 1,
+            totalValue: amount,
           ),
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
@@ -146,7 +146,7 @@ abstract final class StripchatDanmakuProtocol {
         final clientInfo = _object(lovense['clientUserInfo']);
         final clientName = _text(clientInfo['username']) ?? _text(clientInfo['name']) ?? name;
         final power = _text(detail['power']) ?? 'low';
-        final time = _text(detail['time']) ?? '0';
+        final time = _int(detail['time']) ?? 0;
         final powerText = power == 'high' ? '高' : power == 'medium' ? '中' : '低';
         messages.add(LiveMessage(
           type: LiveMessageType.notice,
@@ -179,6 +179,12 @@ abstract final class StripchatDanmakuProtocol {
   };
 
   static String? _text(Object? value) => value is String ? value : null;
+
+  static int? _int(Object? value) => switch (value) {
+        final int i => i,
+        final String s => int.tryParse(s),
+        _ => null,
+      };
 
   static String _id(Object? value) => switch (value) {
         final int i => '$i',
