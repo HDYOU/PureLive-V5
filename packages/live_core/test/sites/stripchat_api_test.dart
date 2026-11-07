@@ -178,6 +178,18 @@ void main() {
       expect(StripchatApi.roomPageUrl('prettygirl'), 'https://zh.virtualtaboo.live/prettygirl');
     });
 
+    test('parseRoomId splits the ?uid= suffix', () {
+      expect(StripchatApi.parseRoomId('prettygirl?uid=12345678'), (username: 'prettygirl', userId: 12345678));
+      // A bare username gives a null user id.
+      final bare = StripchatApi.parseRoomId('prettygirl');
+      expect(bare.username, 'prettygirl');
+      expect(bare.userId, isNull);
+      // Whitespace is trimmed.
+      expect(StripchatApi.parseRoomId('  prettygirl?uid=9  '), (username: 'prettygirl', userId: 9));
+      // A non-numeric uid falls back to null.
+      expect(StripchatApi.parseRoomId('prettygirl?uid=abc').userId, isNull);
+    });
+
     test('masterUri builds correct HLS URL', () {
       expect(
         StripchatApi.masterUri('prettygirl-webcam', 'streaming-prettygirl.stripchat.com').toString(),
