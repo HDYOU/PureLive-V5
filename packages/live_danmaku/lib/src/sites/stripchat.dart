@@ -8,7 +8,6 @@ import 'package:meta/meta.dart';
 /// What a danmaku connection needs to join one model's public chat.
 @immutable
 final class StripchatDanmakuArgs {
-  /// Creates the arguments.
   const new({required this.websocketUrl, required this.token, required this.modelId});
 
   /// The WebSocket endpoint URL (e.g. `wss://websocket-v6.sc-apps.com/connection/websocket`).
@@ -29,6 +28,14 @@ final class StripchatDanmakuArgs {
 
   @override
   String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId)';
+}
+
+/// Result of parsing one WebSocket frame.
+@immutable
+final class StripchatFrameResult {
+  const StripchatFrameResult({required this.messages, required this.respondEmpty});
+  final List<LiveMessage> messages;
+  final bool respondEmpty;
 }
 
 /// Stripchat's public chat over WebSocket (anonymous, token in connect frame).
@@ -53,44 +60,38 @@ abstract final class StripchatDanmakuProtocol {
   static const Duration heartbeatInterval = Duration(seconds: 30);
 
   /// Connect frame with auth token.
-  static String connectFrame(String token) =>
-      '{"connect":{"token":"$token"},"id":1}';
+  static String connectFrame(String token) => '{"connect":{"token":"$token"},"id":1}';
 
   /// Subscribe frame for the model's chat channel.
-  static String subscribeFrame(int modelId) =>
-      '{"subscribe":{"channel":"newChatMessage@$modelId"},"id":2}';
+  static String subscribeFrame(int modelId) => '{"subscribe":{"channel":"newChatMessage@$modelId"},"id":2}';
 
   /// Pong reply to a server ping.
   static String pongFrame(Object pingValue) => '{"pong":${jsonEncode(pingValue)}}';
 
   /// Reads one text frame; returns parsed messages and control actions.
-  /// Returns a pair: `[messages, shouldRespond]` where `shouldRespond` is true
-  /// when the frame is `{}` (keepalive echo).
-  static ({List<LiveMessage> messages, bool respondEmpty}) read(Object? data) {
+  static StripchatFrameResult read(Object? data) {
     final text = switch (data) {
       final String text => text,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
       _ => null,
     };
-    if (text == null || text.length > 256 * 1024) return (const [], false);
-    // Empty frame: echo back as keepalive.
-    if (text.trim() == '{}') return (const [], true);
+    if (text == null || text.length > 256 * 1024) return const StripchatFrameResult(messages: [], respondEmpty: false);
+    if (text.trim() == '{}') return const StripchatFrameResult(messages: [], respondEmpty: true);
     final obj = _object(text);
-    if (obj == null) return (const [], false);
-    // Server ping: respond with pong, no chat messages.
-    if (obj.containsKey('ping')) return (const [], false);
-    return (_parsePush(obj), false);
+    if (obj == null) return const StripchatFrameResult(messages: [], respondEmpty: false);
+    if (obj.containsKey('ping')) return const StripchatFrameResult(messages: [], respondEmpty: false);
+    return StripchatFrameResult(messages: _parsePush(obj), respondEmpty: false);
   }
 
   static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
     final messages = <LiveMessage>[];
-    final push = _object(obj['push']) ?? _object(obj['event']) ?? const {};
-    final pub = _object(push['pub']) ?? const {};
+    final push = _object(obj['push']) ?? _object(obj['event']) ?? const <String, Object?>{};
+    final pub = _object(push['pub']) ?? const <String, Object?>{};
     final data = _object(pub['data']) ?? pub;
     if (data.isEmpty) return const [];
     final type = _text(data['type']) ?? '';
-    final userData = _object(data['userData']) ?? _object(data['user']) ?? const {};
-    final details = _object(data['details']) ?? const {};
+    final userData = _object(data['userData']) ?? _object(data['user']) ?? const <String, Object?>{};
+    final details = _object(data['details']) ?? const <String, Object?>{};
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     switch (type) {
       case 'text':
@@ -123,11 +124,12 @@ abstract final class StripchatDanmakuProtocol {
           ),
           messageId: _text(data['id']) ?? '',
           sentAt: _time(data['createdAt']),
+          color: _color(userData),
         ));
       case 'lovense':
-        final lovense = _object(details['lovenseDetails']) ?? const {};
-        final detail = _object(lovense['detail']) ?? const {};
-        final clientInfo = _object(lovense['clientUserInfo']) ?? const {};
+        final lovense = _object(details['lovenseDetails']) ?? const <String, Object?>{};
+        final detail = _object(lovense['detail']) ?? const <String, Object?>{};
+        final clientInfo = _object(lovense['clientUserInfo']) ?? const <String, Object?>{};
         final clientName = _text(clientInfo['username']) ?? _text(clientInfo['name']) ?? name;
         final power = _text(detail['power']) ?? 'low';
         final time = _text(detail['time']) ?? '0';
@@ -139,6 +141,7 @@ abstract final class StripchatDanmakuProtocol {
           message: '$clientName: $powerText强度 · $time秒',
           messageId: _text(data['id']) ?? '',
           sentAt: _time(data['createdAt']),
+          color: _color(clientInfo),
         ));
       default:
         break;
@@ -168,13 +171,17 @@ abstract final class StripchatDanmakuProtocol {
 
 /// Stripchat's danmaku connection: WebSocket with connect+subscribe handshake.
 final class StripchatDanmakuConnection extends DanmakuSocketConnection<StripchatDanmakuArgs> {
-  /// Creates the connection; [proxy] routes the socket.
+  String _token = '';
+  int _modelId = 0;
+
   new({super.proxy, super.connector})
       : super(policy: const DanmakuSocketPolicy(heartbeatInterval: StripchatDanmakuProtocol.heartbeatInterval), site: 'stripchat');
 
   @override
   @protected
   Future<DanmakuSocketTarget> target(StripchatDanmakuArgs args, DanmakuRun run) async {
+    _token = args.token;
+    _modelId = args.modelId;
     return DanmakuSocketTarget(
       endpoints: [Uri.parse(args.websocketUrl)],
       headers: StripchatDanmakuProtocol.headers,
@@ -184,17 +191,16 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
   @override
   @protected
   void onOpen(DanmakuSocketSession session) {
-    session.send(StripchatDanmakuProtocol.connectFrame(args.token));
-    session.send(StripchatDanmakuProtocol.subscribeFrame(args.modelId));
+    session
+      ..send(StripchatDanmakuProtocol.connectFrame(_token))
+      ..send(StripchatDanmakuProtocol.subscribeFrame(_modelId));
   }
 
   @override
   @protected
   void onData(DanmakuSocketSession session, Object? data) {
     final result = StripchatDanmakuProtocol.read(data);
-    // Echo {} keepalive.
     if (result.respondEmpty) session.send('{}');
-    // Handle server ping: respond with pong.
     final text = switch (data) {
       final String t => t,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
@@ -203,13 +209,11 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
     if (text != null) {
       final obj = StripchatDanmakuProtocol._object(text);
       if (obj.containsKey('ping')) {
-        session.send(StripchatDanmakuProtocol.pongFrame(obj!['ping']));
+        final pingValue = obj['ping'];
+        session.send(StripchatDanmakuProtocol.pongFrame(pingValue is String ? pingValue : ''));
       }
     }
-    // Parse and forward chat messages.
-    for (final msg in result.messages) {
-      session.message(msg);
-    }
+    result.messages.forEach(session.message);
   }
 
   @override
