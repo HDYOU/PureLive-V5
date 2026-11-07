@@ -286,8 +286,34 @@ abstract final class StripchatApi {
   /// Web origin.
   static const String origin = _web;
 
-  /// Host of the API.
+  /// Every API host: the platform is served from several mirror domains,
+  /// all of which answer the same endpoints. The first is canonical (room
+  /// links, origin and referer headers).
+  static const List<String> apiHosts = [
+    'zh.virtualtaboo.live',
+    'zh.stripchat.webcam',
+    'zh.mywebcamroom.com',
+    'zh.topcams.tv',
+    'zh.stripchatgirls.com',
+    'zh.stripchat.com',
+    'zh.xhamsterlive.com',
+    'zh.hotzcam.com',
+    'zh.tklivechat.com',
+    'zh.spankbanglive.com',
+  ];
+
+  /// Canonical API host; the one all generated links point at.
   static const String apiHost = 'zh.virtualtaboo.live';
+
+  /// The `/api/front/v3/config/initial` endpoint on [host], the request raced
+  /// across the API hosts to pick the fastest one.
+  static Uri configUrl(String host) => Uri.https(host, '/api/front/v3/config/initial');
+
+  /// Whether [host] is one of the API hosts (exact match or a subdomain).
+  static bool isApiHost(String host) {
+    host = host.toLowerCase();
+    return apiHosts.any((h) => host == h || host.endsWith('.$h'));
+  }
 
   /// Headers of every API request.
   static const Map<String, String> headers = {

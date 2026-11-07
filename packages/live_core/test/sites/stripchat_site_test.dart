@@ -17,9 +17,14 @@ ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySa
 
 typedef _Setup = ({StripchatSite site, ReplayHttp http});
 
-_Setup _setup(List<String> samples, {List<ReplaySample> extra = const []}) {
-  final http = ReplayHttp([...extra, for (final name in samples) ReplaySample.load('$_root/$name')]);
-  return (site: StripchatSite(http), http: http);
+/// Single-host setup: the site pins to the canonical host, so the config
+/// race issues exactly one request (S08-config) before the first API call.
+/// [autoConfig] adds the config sample for any test that will send a request.
+_Setup _setup(List<String> samples, {List<ReplaySample> extra = const [], bool autoConfig = true, List<String> hosts = const [StripchatApi.apiHost]}) {
+  final all = <String>[...samples];
+  if (autoConfig && !all.contains('S08-config')) all.add('S08-config');
+  final http = ReplayHttp([...extra, for (final name in all) ReplaySample.load('$_root/$name')]);
+  return (site: StripchatSite(http, hosts), http: http);
 }
 
 void main() {
@@ -137,8 +142,8 @@ void main() {
       expect(room.title, 'Reach 2000 viewers!');
       expect(room.introduction, 'VIP fan club description');
       expect(room.notice, 'Reach 2000 viewers!');
-      // Only two requests: user-ids and cam (no master, no members)
-      expect(setup.http.requests, hasLength(2));
+      // Three requests: config race, user-ids and cam (no master, no members)
+      expect(setup.http.requests, hasLength(3));
     });
   });
 
@@ -186,6 +191,12 @@ void main() {
       expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/R-bonbon'), 'R-bonbon');
       expect(site.roomIdFromUrl('https://zh.virtualtaboo.live/webcam'), isNull);
       expect(site.roomIdFromUrl('https://example.com/prettygirl'), isNull);
+      // Every mirror domain is accepted, so a link from any of them parses.
+      for (final host in StripchatApi.apiHosts) {
+        expect(site.roomIdFromUrl('https://$host/prettygirl'), 'prettygirl');
+      }
+      // A foreign host still rejects.
+      expect(site.roomIdFromUrl('https://other.example.com/prettygirl'), isNull);
     });
   });
 
@@ -238,6 +249,78 @@ void main() {
       await expectLater(
         setup.site.getRoomDetailForRefresh(roomId: 'prettygirl'),
         throwsA(isA<ApiChanged>()),
+      );
+    });
+  });
+
+  group('host race', () {
+    final configFor = (String host, {required String wsUrl}) => ReplaySample(
+          method: 'GET',
+          url: Uri.https(host, '/api/front/v3/config/initial'),
+          status: 200,
+          bytes: utf8.encode(
+            jsonEncode({
+              'initial': {
+                'client': {'websocket': {'url': wsUrl, 'token': 'tok'}},
+                'common': {'hlsStreamHost': 'doppiocdn.org'},
+              }
+            }),
+          ),
+        );
+
+    test('the all-10-domain race pins the first host that answers the config', () async {
+      final models = ReplaySample.load('$_root/S01-recommend');
+      final http = ReplayHttp([
+        configFor('zh.stripchat.webcam', wsUrl: 'wss://websocket-v6.sc-apps.com/connection/websocket'),
+        _synthetic(
+          'https://zh.stripchat.webcam/api/front/models?limit=30&primaryTag=girls&filterGroupTags=%5B%5B%22tagLanguageChinese%22%5D%5D&offset=0',
+          utf8.decode(models.bytes, allowMalformed: true),
+        ),
+      ]);
+      final site = StripchatSite(http, StripchatApi.apiHosts);
+      // Only the second host (zh.stripchat.webcam) answers the config; the
+      // others are raced and dropped. The winner is pinned for the call.
+      final rooms = await site.getRecommendRooms();
+      expect(rooms, isNotEmpty);
+      // The directory request went to the winner, not to the canonical host.
+      final directory = http.requests.singleWhere((r) => r.url.path == '/api/front/models');
+      expect(directory.url.host, 'zh.stripchat.webcam');
+      // The config request was raced on the winner among the ten hosts.
+      final configResponses =
+          http.requests.where((r) => r.url.path == '/api/front/v3/config/initial').toList();
+      expect(configResponses.map((r) => r.url.host), contains('zh.stripchat.webcam'));
+    });
+
+    test('a failed host is skipped and the next one is pinned', () async {
+      final camOffline = ReplaySample.load('$_root/S03-cam-offline');
+      final http = ReplayHttp([
+        _synthetic('https://zh.virtualtaboo.live/api/front/v3/config/initial', '<html>'),
+        configFor('zh.mywebcamroom.com', wsUrl: 'wss://websocket-v6.mywebcamroom.com/connection/websocket'),
+        _synthetic('https://zh.mywebcamroom.com/api/front/users/user-ids/prettygirl', {'id': 12345678}),
+        _synthetic(
+          'https://zh.mywebcamroom.com/api/front/v2/models/12345678/cam?timezoneOffset=-480&triggerRequest=loadCam&withRecentShow=1',
+          utf8.decode(camOffline.bytes, allowMalformed: true),
+        ),
+      ]);
+      final site = StripchatSite(http, ['zh.virtualtaboo.live', 'zh.mywebcamroom.com']);
+      final room = await site.getRoomDetailForRefresh(roomId: 'prettygirl');
+      expect(room.roomId, 'prettygirl');
+      // user-ids and cam both went to the pinned host, not the failed one.
+      final apiPaths = http.requests.where((r) => r.url.path != '/api/front/v3/config/initial').toList();
+      for (final r in apiPaths) {
+        expect(r.url.host, 'zh.mywebcamroom.com');
+      }
+    });
+
+    test('every host down throws a NetworkFailure from the race', () async {
+      final http = ReplayHttp([
+        _synthetic('https://zh.virtualtaboo.live/api/front/v3/config/initial', '<html>'),
+        _synthetic('https://zh.stripchat.webcam/api/front/v3/config/initial', '<html>'),
+      ]);
+      final site = StripchatSite(http, ['zh.virtualtaboo.live', 'zh.stripchat.webcam']);
+      await expectLater(
+        site.getRecommendRooms(),
+        throwsA(isA<NetworkFailure>()),
       );
     });
   });
