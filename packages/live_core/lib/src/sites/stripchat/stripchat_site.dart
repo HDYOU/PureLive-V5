@@ -102,8 +102,8 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.modelsList(response.text, status: response.status);
     final rooms = <String, LiveRoom>{};
     for (final m in models) {
-      if (!m.isLive || !StripchatApi.isLiveStatus(m.status)) continue;
-      rooms[m.username.toLowerCase()] = _card(m, isLive: true);
+      final isLive = m.isLive && StripchatApi.isLiveStatus(m.status);
+      rooms[m.username.toLowerCase()] = _card(m, isLive: isLive);
     }
     final hasMore = StripchatApi.hasRecommendedModels(response.text, status: response.status);
     return LiveDirectoryPage(rooms: rooms.values, page: number, hasMore: hasMore);
@@ -131,7 +131,7 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.modelsList(response.text, status: response.status);
     return [
       for (final m in models)
-        if (m.isLive && StripchatApi.isLiveStatus(m.status)) _card(m, isLive: true),
+        _card(m, isLive: m.isLive && StripchatApi.isLiveStatus(m.status)),
     ];
   }
 
@@ -174,7 +174,7 @@ final class StripchatSite extends LiveSite
     final models = StripchatApi.searchModels(response.text, status: response.status);
     return [
       for (final m in models)
-        if (m.isLive && StripchatApi.isLiveStatus(m.status)) _card(m, isLive: true),
+        _card(m, isLive: m.isLive && StripchatApi.isLiveStatus(m.status)),
     ];
   }
 
