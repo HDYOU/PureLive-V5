@@ -5,37 +5,21 @@ import 'package:live_danmaku/src/connection_base.dart';
 import 'package:live_danmaku/src/socket_connection.dart';
 import 'package:meta/meta.dart';
 
-/// What a danmaku connection needs to join one model's public chat.
-@immutable
-final class StripchatDanmakuArgs {
-  const new({required this.websocketUrl, required this.token, required this.modelId});
-
-  /// The WebSocket endpoint URL (e.g. `wss://websocket-v6.sc-apps.com/connection/websocket`).
-  final String websocketUrl;
-
-  /// Authentication token from `/api/front/v3/config/initial`.
-  final String token;
-
-  /// The model's numeric id.
-  final int modelId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is StripchatDanmakuArgs && other.websocketUrl == websocketUrl && other.token == token && other.modelId == modelId;
-
-  @override
-  int get hashCode => Object.hash(websocketUrl, token, modelId);
-
-  @override
-  String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId)';
-}
-
 /// Result of parsing one WebSocket frame.
 @immutable
 final class StripchatFrameResult {
-  const StripchatFrameResult({required this.messages, required this.respondEmpty});
+  const StripchatFrameResult({
+    required this.messages,
+    this.respondEmpty = false,
+    this.pingValue,
+  });
   final List<LiveMessage> messages;
+
+  /// Send a `{}` keepalive reply.
   final bool respondEmpty;
+
+  /// The server's ping value to echo back in a pong frame; null when absent.
+  final Object? pingValue;
 }
 
 /// Stripchat's public chat over WebSocket (anonymous, token in connect frame).
@@ -69,17 +53,45 @@ abstract final class StripchatDanmakuProtocol {
   static String pongFrame(Object pingValue) => '{"pong":${jsonEncode(pingValue)}}';
 
   /// Reads one text frame; returns parsed messages and control actions.
+  /// A frame may contain several JSON objects separated by newlines; each is
+  /// parsed in order.
   static StripchatFrameResult read(Object? data) {
     final text = switch (data) {
       final String text => text,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
       _ => null,
     };
-    if (text == null || text.length > 256 * 1024) return const StripchatFrameResult(messages: [], respondEmpty: false);
-    if (text.trim() == '{}') return const StripchatFrameResult(messages: [], respondEmpty: true);
-    final obj = _object(text);
-    if (obj.containsKey('ping')) return const StripchatFrameResult(messages: [], respondEmpty: false);
-    return StripchatFrameResult(messages: _parsePush(obj), respondEmpty: false);
+    if (text == null || text.length > 256 * 1024) {
+      return const StripchatFrameResult(messages: []);
+    }
+    if (text.trim() == '{}') {
+      return const StripchatFrameResult(messages: [], respondEmpty: true);
+    }
+    final lines = text.split('\n');
+    final messages = <LiveMessage>[];
+    var respondEmpty = false;
+    Object? pingValue;
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      if (line == '{}') {
+        respondEmpty = true;
+        continue;
+      }
+      Object? parsed;
+      try {
+        parsed = jsonDecode(line);
+      } on FormatException {
+        continue;
+      }
+      final obj = _object(parsed);
+      if (obj.containsKey('ping')) {
+        pingValue = obj['ping'];
+        continue;
+      }
+      messages.addAll(_parsePush(obj));
+    }
+    return StripchatFrameResult(messages: messages, respondEmpty: respondEmpty, pingValue: pingValue);
   }
 
   static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
@@ -87,10 +99,14 @@ abstract final class StripchatDanmakuProtocol {
     final push = _object(obj['push']);
     final pub = _object(push['pub']);
     final data = _object(pub['data']);
-    if (data.isEmpty) return const [];
-    final type = _text(data['type']) ?? '';
-    final userData = _object(data['userData']);
-    final details = _object(data['details']);
+    // Real structure: push.pub.data.message contains the actual message.
+    // Some frames may place fields directly under data (flat layout).
+    final msg = _object(data['message']);
+    final container = msg.isNotEmpty ? msg : data;
+    if (container.isEmpty) return const [];
+    final type = _text(container['type']) ?? '';
+    final userData = _object(container['userData']);
+    final details = _object(container['details']);
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     switch (type) {
       case 'text':
@@ -101,13 +117,13 @@ abstract final class StripchatDanmakuProtocol {
             userName: name,
             userId: _text(userData['id']) ?? '',
             message: body,
-            messageId: _text(data['id']) ?? '',
-            sentAt: _time(data['createdAt']),
+            messageId: _id(container['id']),
+            sentAt: _time(container['createdAt']),
             color: _color(userData),
           ));
         }
       case 'tip':
-        final amount = _text(details['amount']) ?? _text(data['amount']) ?? '0';
+        final amount = _text(details['amount']) ?? _text(container['amount']) ?? '0';
         messages.add(LiveMessage(
           type: LiveMessageType.gift,
           userName: name,
@@ -118,10 +134,10 @@ abstract final class StripchatDanmakuProtocol {
             count: int.tryParse(amount) ?? 1,
             kind: LiveGiftKind.tip,
             unitPrice: 1,
-             totalValue: int.tryParse(amount) ?? 1,
-           ),
-          messageId: _text(data['id']) ?? '',
-          sentAt: _time(data['createdAt']),
+            totalValue: int.tryParse(amount) ?? 1,
+          ),
+          messageId: _id(container['id']),
+          sentAt: _time(container['createdAt']),
           color: _color(userData),
         ));
       case 'lovense':
@@ -137,8 +153,8 @@ abstract final class StripchatDanmakuProtocol {
           userName: clientName,
           userId: _text(clientInfo['id']) ?? '',
           message: '$clientName: $powerText强度 · $time秒',
-          messageId: _text(data['id']) ?? '',
-          sentAt: _time(data['createdAt']),
+          messageId: _id(container['id']),
+          sentAt: _time(container['createdAt']),
           color: _color(clientInfo),
         ));
       default:
@@ -163,6 +179,12 @@ abstract final class StripchatDanmakuProtocol {
   };
 
   static String? _text(Object? value) => value is String ? value : null;
+
+  static String _id(Object? value) => switch (value) {
+        final int i => '$i',
+        final String s => s,
+        _ => '',
+      };
 
   static Map<String, Object?> _object(Object? value) => value is Map<String, Object?> ? value : const {};
 }
@@ -192,6 +214,7 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
     session
       ..send(StripchatDanmakuProtocol.connectFrame(_token))
       ..send(StripchatDanmakuProtocol.subscribeFrame(_modelId));
+    session.ready();
   }
 
   @override
@@ -199,18 +222,8 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
   void onData(DanmakuSocketSession session, Object? data) {
     final result = StripchatDanmakuProtocol.read(data);
     if (result.respondEmpty) session.send('{}');
-    final text = switch (data) {
-      final String t => t,
-      final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
-      _ => null,
-    };
-    if (text != null) {
-      final obj = StripchatDanmakuProtocol._object(text);
-      if (obj.containsKey('ping')) {
-        final pingValue = obj['ping'];
-        session.send(StripchatDanmakuProtocol.pongFrame(pingValue is String ? pingValue : ''));
-      }
-    }
+    final pingValue = result.pingValue;
+    if (pingValue != null) session.send(StripchatDanmakuProtocol.pongFrame(pingValue));
     result.messages.forEach(session.message);
   }
 
