@@ -909,11 +909,11 @@ class ChatLineView extends StatelessWidget {
     ];
   }
 
-  /// Douyu's sender level before the name (3.x `DanmakuItem`): "Lv.N" in the
-  /// level's colour; nothing on other platforms.
+  /// The sender's level before the name: "Lv.N" in the level's colour;
+  /// nothing when the platform gave no level.
   List<InlineSpan> _level(ThemeData theme, LiveMessage message, Color background) {
     final level = message.userLevel.trim();
-    if (platform != SiteIds.douyu || level.isEmpty) return const [];
+    if (level.isEmpty) return const [];
     final color = _readableOn(
       douyuUserLevelColor(int.tryParse(level) ?? 0, dark: theme.brightness == Brightness.dark),
       background,
