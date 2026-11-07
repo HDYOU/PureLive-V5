@@ -11,10 +11,10 @@ final class StripchatDanmakuArgs {
   /// Creates the arguments.
   const new({required this.websocketUrl, required this.token, required this.modelId});
 
-  /// The WebSocket endpoint URL.
+  /// The WebSocket endpoint URL (e.g. `wss://websocket-v6.sc-apps.com/connection/websocket`).
   final String websocketUrl;
 
-  /// Authentication token.
+  /// Authentication token from `/api/front/v3/config/initial`.
   final String token;
 
   /// The model's numeric id.
@@ -31,83 +31,123 @@ final class StripchatDanmakuArgs {
   String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId)';
 }
 
-/// Stripchat's public chat over WebSocket (anonymous, no auth beyond token).
+/// Stripchat's public chat over WebSocket (anonymous, token in connect frame).
 ///
-/// The socket connects to [args.websocketUrl] with the [token] as a query
-/// parameter. Frames are JSON text; chat messages carry `type: "chat"` with
-/// the sender's name in `user.name` and the text in `message`.
+/// Protocol (from the web client):
+/// - Connect to [args.websocketUrl] without token in the URL.
+/// - On open: send connect frame with token, then subscribe to
+///   `newChatMessage@{modelId}`.
+/// - The server responds with `subscribed`; client calls [DanmakuSocketSession.ready].
+/// - Server may send `{}` (keepalive) or `{ping: "..."}` (client replies `{pong: ...}`).
+/// - Chat pushes arrive as `{"push":{"channel":"newChatMessage@{id}","pub":{"data":{...}}}}`.
 abstract final class StripchatDanmakuProtocol {
   /// WebSocket handshake headers.
   static const Map<String, String> headers = {
     'origin': 'https://zh.virtualtaboo.live',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/138.0.0.0 Safari/537.36',
   };
 
-  /// Heartbeat period (30 s).
+  /// Heartbeat period (30 s). Client does not send pings; the server-initiated
+  /// ping/pong handles liveness.
   static const Duration heartbeatInterval = Duration(seconds: 30);
 
-  /// The client ping frame.
-  static const String ping = '{"type":"ping"}';
+  /// Connect frame with auth token.
+  static String connectFrame(String token) =>
+      '{"connect":{"token":"$token"},"id":1}';
 
-  /// Builds the WebSocket endpoint URL for [args].
-  static Uri endpoint(StripchatDanmakuArgs args) => Uri.parse(args.websocketUrl).replace(query: 'token=${Uri.encodeQueryComponent(args.token)}');
+  /// Subscribe frame for the model's chat channel.
+  static String subscribeFrame(int modelId) =>
+      '{"subscribe":{"channel":"newChatMessage@$modelId"},"id":2}';
 
-  /// Reads one text frame; returns parsed messages.
-  static List<LiveMessage> read(Object? data) {
+  /// Pong reply to a server ping.
+  static String pongFrame(Object pingValue) => '{"pong":${jsonEncode(pingValue)}}';
+
+  /// Reads one text frame; returns parsed messages and control actions.
+  /// Returns a pair: `[messages, shouldRespond]` where `shouldRespond` is true
+  /// when the frame is `{}` (keepalive echo).
+  static ({List<LiveMessage> messages, bool respondEmpty}) read(Object? data) {
     final text = switch (data) {
       final String text => text,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
       _ => null,
     };
-    if (text == null || text.length > 256 * 1024) return const [];
+    if (text == null || text.length > 256 * 1024) return (const [], false);
+    // Empty frame: echo back as keepalive.
+    if (text.trim() == '{}') return (const [], true);
     final obj = _object(text);
-    if (obj == null) return const [];
-    return _parseMessage(obj);
+    if (obj == null) return (const [], false);
+    // Server ping: respond with pong, no chat messages.
+    if (obj.containsKey('ping')) return (const [], false);
+    return (_parsePush(obj), false);
   }
 
-  static List<LiveMessage> _parseMessage(Map<String, Object?> obj) {
+  static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
     final messages = <LiveMessage>[];
-    // Handle array of messages
-    if (obj['messages'] case final List<Object?> list) {
-      for (final item in list) {
-        if (item is Map<String, Object?>) messages.addAll(_parseMessage(item));
-      }
-      return messages;
-    }
-    // Single message
-    final type = _text(obj['type']) ?? _text(obj['event']) ?? '';
+    final push = _object(obj['push']) ?? _object(obj['event']) ?? const {};
+    final pub = _object(push['pub']) ?? const {};
+    final data = _object(pub['data']) ?? pub;
+    if (data.isEmpty) return const [];
+    final type = _text(data['type']) ?? '';
+    final userData = _object(data['userData']) ?? _object(data['user']) ?? const {};
+    final details = _object(data['details']) ?? const {};
+    final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     switch (type) {
-      case 'chat' || 'message' || 'chat_message':
-        final msg = _chatMessage(obj);
-        if (msg != null) messages.add(msg);
-      case 'ping' || 'pong':
-        break; // Heartbeat, ignore
-      case 'subscribe' || 'subscribed':
-        break; // Join confirmation, ignore
+      case 'text':
+        final body = _text(details['body']) ?? '';
+        if (name.isNotEmpty && body.isNotEmpty) {
+          messages.add(LiveMessage(
+            type: LiveMessageType.chat,
+            userName: name,
+            userId: _text(userData['id']) ?? '',
+            message: body,
+            messageId: _text(data['id']) ?? '',
+            sentAt: _time(data['createdAt']),
+            color: _color(userData),
+          ));
+        }
+      case 'tip':
+        final amount = _text(details['amount']) ?? _text(data['amount']) ?? '0';
+        messages.add(LiveMessage(
+          type: LiveMessageType.gift,
+          userName: name,
+          userId: _text(userData['id']) ?? '',
+          message: '$name 已支付 $amount 代币',
+          data: LiveGift(
+            name: '代币',
+            count: int.tryParse(amount) ?? 1,
+            kind: LiveGiftKind.tip,
+            unitPrice: 1,
+            totalValue: int.tryParse(amount) ?? 1,
+            unit: LiveGiftUnit.other,
+          ),
+          messageId: _text(data['id']) ?? '',
+          sentAt: _time(data['createdAt']),
+        ));
+      case 'lovense':
+        final lovense = _object(details['lovenseDetails']) ?? const {};
+        final detail = _object(lovense['detail']) ?? const {};
+        final clientInfo = _object(lovense['clientUserInfo']) ?? const {};
+        final clientName = _text(clientInfo['username']) ?? _text(clientInfo['name']) ?? name;
+        final power = _text(detail['power']) ?? 'low';
+        final time = _text(detail['time']) ?? '0';
+        final powerText = power == 'high' ? '高' : power == 'medium' ? '中' : '低';
+        messages.add(LiveMessage(
+          type: LiveMessageType.notice,
+          userName: clientName,
+          userId: _text(clientInfo['id']) ?? '',
+          message: '$clientName: $powerText强度 · $time秒',
+          messageId: _text(data['id']) ?? '',
+          sentAt: _time(data['createdAt']),
+        ));
       default:
         break;
     }
     return messages;
   }
 
-  static LiveMessage? _chatMessage(Map<String, Object?> obj) {
-    final user = _object(obj['user']) ?? _object(obj['sender']) ?? const {};
-    final name = _text(user['name']) ?? _text(obj['username']) ?? '';
-    final content = _content(obj['message']) ?? _content(obj['text']) ?? '';
-    if (name.isEmpty || content.isEmpty) return null;
-    return LiveMessage(
-      type: LiveMessageType.chat,
-      userName: name,
-      userId: _text(user['id']) ?? '',
-      message: content,
-      messageId: _text(obj['id']) ?? _text(obj['msgId']) ?? '',
-      sentAt: _time(obj['timestamp']) ?? _time(obj['createdAt']),
-      color: _color(obj),
-    );
-  }
-
-  static LiveMessageColor _color(Map<String, Object?> obj) {
-    final raw = _text(obj['color']) ?? _text(_object(obj['user'])?['color']) ?? '';
+  static LiveMessageColor _color(Map<String, Object?> user) {
+    final raw = _text(user['color']) ?? '';
     if (raw.isEmpty) return LiveMessageColor.white;
     final hex = raw.replaceFirst('#', '');
     final value = int.tryParse(hex, radix: 16);
@@ -123,19 +163,10 @@ abstract final class StripchatDanmakuProtocol {
 
   static String? _text(Object? value) => value is String ? value : null;
 
-  static String? _content(Object? value) {
-    if (value is String) return value.trim().isEmpty ? null : value.trim();
-    if (value is Map) {
-      final text = _text(value['text']) ?? _text(value['content']) ?? '';
-      return text.trim().isEmpty ? null : text.trim();
-    }
-    return null;
-  }
-
-  static Map<String, Object?>? _object(Object? value) => value is Map<String, Object?> ? value : null;
+  static Map<String, Object?> _object(Object? value) => value is Map<String, Object?> ? value : const {};
 }
 
-/// Stripchat's danmaku connection: a raw WebSocket of JSON text frames.
+/// Stripchat's danmaku connection: WebSocket with connect+subscribe handshake.
 final class StripchatDanmakuConnection extends DanmakuSocketConnection<StripchatDanmakuArgs> {
   /// Creates the connection; [proxy] routes the socket.
   new({super.proxy, super.connector})
@@ -144,22 +175,44 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
   @override
   @protected
   Future<DanmakuSocketTarget> target(StripchatDanmakuArgs args, DanmakuRun run) async {
-    return DanmakuSocketTarget(endpoints: [StripchatDanmakuProtocol.endpoint(args)], headers: StripchatDanmakuProtocol.headers);
+    return DanmakuSocketTarget(
+      endpoints: [Uri.parse(args.websocketUrl)],
+      headers: StripchatDanmakuProtocol.headers,
+    );
   }
 
   @override
   @protected
   void onOpen(DanmakuSocketSession session) {
-    session.ready();
+    session.send(StripchatDanmakuProtocol.connectFrame(args.token));
+    session.send(StripchatDanmakuProtocol.subscribeFrame(args.modelId));
   }
 
   @override
   @protected
   void onData(DanmakuSocketSession session, Object? data) {
-    StripchatDanmakuProtocol.read(data).forEach(session.message);
+    final result = StripchatDanmakuProtocol.read(data);
+    // Echo {} keepalive.
+    if (result.respondEmpty) session.send('{}');
+    // Handle server ping: respond with pong.
+    final text = switch (data) {
+      final String t => t,
+      final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
+      _ => null,
+    };
+    if (text != null) {
+      final obj = StripchatDanmakuProtocol._object(text);
+      if (obj.containsKey('ping')) {
+        session.send(StripchatDanmakuProtocol.pongFrame(obj!['ping']));
+      }
+    }
+    // Parse and forward chat messages.
+    for (final msg in result.messages) {
+      session.message(msg);
+    }
   }
 
   @override
   @protected
-  Object? heartbeatFrame(DanmakuSocketSession session) => StripchatDanmakuProtocol.ping;
+  Object? heartbeatFrame(DanmakuSocketSession session) => null;
 }
