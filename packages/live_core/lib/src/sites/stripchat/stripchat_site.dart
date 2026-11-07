@@ -16,6 +16,10 @@ const _site = 'stripchat';
 /// Search reads suggestion matches. Room entry asks the user ID, then the
 /// cam detail and config (for CDN hosts and WebSocket), then downloads the
 /// HLS master playlist.
+///
+/// The platform answers from several mirror domains ([StripchatApi.apiHosts]);
+/// a first request races them all on the config endpoint and every API call
+/// afterwards is pinned to the fastest host that answered.
 final class StripchatSite extends LiveSite
     with LiveSiteLinks
     implements
@@ -25,11 +29,18 @@ final class StripchatSite extends LiveSite
         LivePlayRecoveryResolver,
         LiveSiteDirectoryPager,
         LiveCancellableSearch {
-  /// Creates the adapter.
-  new(this.http);
+  /// Creates the adapter; [hosts] are raced for the fastest, defaulting to
+  /// [StripchatApi.apiHosts].
+  new(this.http, [List<String>? hosts]) : _hosts = List.unmodifiable(hosts ?? StripchatApi.apiHosts);
 
   /// Transport.
   final LiveHttp http;
+
+  /// API hosts raced on the first request.
+  final List<String> _hosts;
+
+  /// The host picked by the config race, shared by concurrent callers.
+  Future<String>? _hostFuture;
 
   /// Cached config response (CDN hosts and WebSocket info).
   StripchatConfig? _cachedConfig;
@@ -49,6 +60,30 @@ final class StripchatSite extends LiveSite
       if (failure.reason == TransportReason.cancelled) rethrow;
       throw NetworkFailure(_site, failure.toString());
     }
+  }
+
+  /// Build [path] against [host].
+  Uri _api(String host, String path, [Map<String, String>? query]) => Uri.https(host, path, query);
+
+  /// The API host in use, resolved by racing the config endpoint over
+  /// [_hosts]; every later call reuses the winner. Concurrent callers share
+  /// one race.
+  Future<String> _host() => _hostFuture ??= _resolveHost();
+
+  Future<String> _resolveHost() async {
+    final winner = await raceFirst<({String host, StripchatConfig config})>(
+      [for (final host in _hosts) StripchatApi.configUrl(host)],
+      (url, cancel) async {
+        final response = await _get(url, cancel: cancel);
+        // A bad body fails this host's lane; another host may still answer.
+        final config = StripchatApi.config(response.text, status: response.status);
+        return (host: url.host, config: config);
+      },
+      timeout: const Duration(seconds: 20),
+    );
+    if (winner == null) throw const NetworkFailure(_site, 'no API host answered the config race');
+    _cachedConfig = winner.config;
+    return winner.host;
   }
 
   // Catalog -------------------------------------------------------------------
@@ -90,8 +125,9 @@ final class StripchatSite extends LiveSite
     final extra = _sortQuery[sort] ?? const {};
     const limit = StripchatApi.pageSize;
     final offset = (number - 1) * limit;
+    final host = await _host();
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/models', {
+      _api(host, '/api/front/models', {
         'limit': '$limit',
         'offset': '$offset',
         'primaryTag': extra['primaryTag'] ?? 'girls',
@@ -120,8 +156,9 @@ final class StripchatSite extends LiveSite
   Future<List<LiveRoom>> getRecommendRooms({int page = 1, int pageSize = 30}) async {
     final limit = pageSize.clamp(1, StripchatApi.pageSize);
     final offset = (page - 1) * limit;
+    final host = await _host();
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/models', {
+      _api(host, '/api/front/models', {
         'limit': '$limit',
         'primaryTag': 'girls',
         'filterGroupTags': '[["tagLanguageChinese"]]',
@@ -160,8 +197,9 @@ final class StripchatSite extends LiveSite
     if (text.isEmpty) return const [];
     final limit = pageSize.clamp(1, StripchatApi.pageSize);
     final offset = (page - 1) * limit;
+    final host = await _host();
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/v4/models/search/suggestion', {
+      _api(host, '/api/front/v4/models/search/suggestion', {
         'query': text.length > StripchatApi.maxKeywordLength
             ? text.substring(0, StripchatApi.maxKeywordLength)
             : text,
@@ -182,7 +220,8 @@ final class StripchatSite extends LiveSite
 
   /// Resolve [username] to its numeric id via `/api/front/users/user-ids/<username>`.
   Future<int> _resolveModelId(String username) async {
-    final response = await _get(Uri.https(StripchatApi.apiHost, '/api/front/users/user-ids/$username'));
+    final host = await _host();
+    final response = await _get(_api(host, '/api/front/users/user-ids/$username'));
     if (response.status == 404) throw NotFound(_site, 'user-ids: no id for "$username"');
     final root = _checked(response.text, status: response.status, what: 'user-ids');
     final id = jsonInt(root['id']);
@@ -192,8 +231,9 @@ final class StripchatSite extends LiveSite
 
   /// Get the cam detail (stream info and card fields).
   Future<StripchatCam> _getCam(int modelId) async {
+    final host = await _host();
     final response = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/v2/models/$modelId/cam', {
+      _api(host, '/api/front/v2/models/$modelId/cam', {
         'timezoneOffset': '-480',
         'triggerRequest': 'loadCam',
         'withRecentShow': '1',
@@ -202,13 +242,13 @@ final class StripchatSite extends LiveSite
     return StripchatApi.camDetail(response.text, modelId: modelId, status: response.status);
   }
 
-  /// Get the config (CDN hosts and WebSocket info). Cached after first fetch.
+  /// Get the config (CDN hosts and WebSocket info). Resolved with the active
+  /// host on the first call, cached after.
   Future<StripchatConfig> _getConfig() async {
-    if (_cachedConfig != null) return _cachedConfig!;
-    final response = await _get(Uri.https(StripchatApi.apiHost, '/api/front/v3/config/initial'));
-    final config = StripchatApi.config(response.text, status: response.status);
-    _cachedConfig = config;
-    return config;
+    final cached = _cachedConfig;
+    if (cached != null) return cached;
+    await _host();
+    return _cachedConfig!;
   }
 
   /// The room with its stream (when live).
@@ -228,8 +268,9 @@ final class StripchatSite extends LiveSite
       notice: cam.notice.isEmpty ? null : cam.notice,
     );
     // Fetch member total when live.
+    final host = await _host();
     final membersResponse = await _get(
-      Uri.https(StripchatApi.apiHost, '/api/front/v2/models/$modelId/members'),
+      _api(host, '/api/front/v2/models/$modelId/members'),
     );
     final membersTotal = StripchatApi.membersCount(membersResponse.text, status: membersResponse.status);
     if (membersTotal > 0) {
@@ -383,8 +424,7 @@ final class StripchatSite extends LiveSite
   String? roomIdFromUrl(String url) {
     final uri = Uri.tryParse(url.trim());
     if (uri == null) return null;
-    final host = uri.host.toLowerCase();
-    if (host != StripchatApi.apiHost && !host.endsWith('.${StripchatApi.apiHost}')) return null;
+    if (!StripchatApi.isApiHost(uri.host)) return null;
     final segments = uri.path.split('/');
     if (segments.length < 2 || segments[1].isEmpty) return null;
     final id = segments[1];
