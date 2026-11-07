@@ -333,27 +333,27 @@ void main() {
           ),
         );
 
-    test('the all-10-domain race pins the first host that answers the config', () async {
+    test('the all-domain race pins the first host that answers the config', () async {
       final models = ReplaySample.load('$_root/S01-recommend');
       final http = ReplayHttp([
-        configFor('zh.stripchat.webcam', wsUrl: 'wss://websocket-v6.sc-apps.com/connection/websocket'),
+        configFor('zh.xhamsterlive.com', wsUrl: 'wss://websocket-v6.sc-apps.com/connection/websocket'),
         _synthetic(
-          'https://zh.stripchat.webcam/api/front/models?limit=30&primaryTag=girls&filterGroupTags=%5B%5B%22tagLanguageChinese%22%5D%5D&offset=0',
+          'https://zh.xhamsterlive.com/api/front/models?limit=30&primaryTag=girls&filterGroupTags=%5B%5B%22tagLanguageChinese%22%5D%5D&offset=0',
           utf8.decode(models.bytes, allowMalformed: true),
         ),
       ]);
       final site = StripchatSite(http, StripchatApi.apiHosts);
-      // Only the second host (zh.stripchat.webcam) answers the config; the
+      // Only the second host (zh.xhamsterlive.com) answers the config; the
       // others are raced and dropped. The winner is pinned for the call.
       final rooms = await site.getRecommendRooms();
       expect(rooms, isNotEmpty);
       // The directory request went to the winner, not to the canonical host.
       final directory = http.requests.singleWhere((r) => r.url.path == '/api/front/models');
-      expect(directory.url.host, 'zh.stripchat.webcam');
-      // The config request was raced on the winner among the ten hosts.
+      expect(directory.url.host, 'zh.xhamsterlive.com');
+      // The config request was raced on the winner among the hosts.
       final configResponses =
           http.requests.where((r) => r.url.path == '/api/front/v3/config/initial').toList();
-      expect(configResponses.map((r) => r.url.host), contains('zh.stripchat.webcam'));
+      expect(configResponses.map((r) => r.url.host), contains('zh.xhamsterlive.com'));
     });
 
     test('a failed host is skipped and the next one is pinned', () async {
