@@ -43,20 +43,31 @@ void main() {
     test('lists live models including groupShow, filters private and offline', () async {
       final setup = _setup(['S01-guest']);
       final rooms = await setup.site.getRecommendRooms();
-      // Only public + groupShow + live models
-      expect(rooms, hasLength(1));
+      // All models are returned; each card reflects its own live status.
+      expect(rooms, hasLength(3));
+      expect(rooms.map((r) => r.roomId), containsAll([
+        'prettygirl',
+        'cutegirl99',
+        'privatemodel',
+      ]));
       expect(rooms[0].roomId, 'prettygirl');
       expect(rooms[0].isLiveNow, isTrue);
       expect(rooms[0].totalViewers, '1523');
       expect(rooms[0].audienceMetricType, AudienceMetricType.totalViewers);
       expect(rooms[0].title, '按摩');
       expect(rooms[0].startedAt, DateTime.utc(2026, 11, 06, 11, 28, 39));
+      // cutegirl99 is not live: isLive false in the fixture.
+      expect(rooms[1].roomId, 'cutegirl99');
+      expect(rooms[1].isLiveNow, isFalse);
+      // privatemodel is live but private: status 'private'.
+      expect(rooms[2].roomId, 'privatemodel');
+      expect(rooms[2].isLiveNow, isFalse);
     });
 
     test('directory page respects category sort', () async {
       final setup = _setup(['S01-directory']);
       final page = await setup.site.getDirectoryPage();
-      expect(page.rooms, hasLength(1));
+      expect(page.rooms, hasLength(3));
       expect(page.hasMore, isFalse);
     });
   });
@@ -147,11 +158,17 @@ void main() {
     test('search returns matching live models', () async {
       final setup = _setup(['S07-search']);
       final rooms = await setup.site.searchRooms('search');
-      expect(rooms, hasLength(1));
+      expect(rooms, hasLength(2));
+      expect(rooms.map((r) => r.roomId), containsAll([
+        'searchgirl',
+        'offlineuser',
+      ]));
       expect(rooms[0].roomId, 'searchgirl');
       expect(rooms[0].isLiveNow, isTrue);
       expect(rooms[0].title, 'searchgirl room');
       expect(rooms[0].totalViewers, '342');
+      expect(rooms[1].roomId, 'offlineuser');
+      expect(rooms[1].isLiveNow, isFalse);
     });
 
     test('blank keyword returns empty without request', () async {
