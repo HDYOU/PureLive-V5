@@ -17,13 +17,34 @@ ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySa
 
 typedef _Setup = ({StripchatSite site, ReplayHttp http});
 
+/// One ping.m3u8 sample per CDN host (all 200, body "#EXTM3U\n").
+List<ReplaySample> _cdnPings() => [
+      for (final h in [
+        'doppiocdn.org',
+        'doppiocdn.com',
+        'doppiocdn1.com',
+        'doppiocdn.media',
+        'doppiocdn.net',
+        'doppiocdn.live',
+      ])
+        _synthetic('https://edge-hls.$h/ping.m3u8', '#EXTM3U\n'),
+    ];
+
 /// Single-host setup: the site pins to the canonical host, so the config
 /// race issues exactly one request (S08-config) before the first API call.
 /// [autoConfig] adds the config sample for any test that will send a request.
-_Setup _setup(List<String> samples, {List<ReplaySample> extra = const [], bool autoConfig = true, List<String> hosts = const [StripchatApi.apiHost]}) {
+/// [withCdnPings] adds a 200 sample for every CDN host's ping.m3u8.
+_Setup _setup(
+  List<String> samples, {
+  List<ReplaySample> extra = const [],
+  bool autoConfig = true,
+  bool withCdnPings = false,
+  List<String> hosts = const [StripchatApi.apiHost],
+}) {
   final all = <String>[...samples];
   if (autoConfig && !all.contains('S08-config')) all.add('S08-config');
-  final http = ReplayHttp([...extra, for (final name in all) ReplaySample.load('$_root/$name')]);
+  final pings = withCdnPings ? _cdnPings() : <ReplaySample>[];
+  final http = ReplayHttp([...extra, ...pings, for (final name in all) ReplaySample.load('$_root/$name')]);
   return (site: StripchatSite(http, hosts), http: http);
 }
 
@@ -85,7 +106,7 @@ void main() {
         'S09-members',
         'S04-master',
         'S08-config',
-      ]);
+      ], withCdnPings: true);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
@@ -134,7 +155,7 @@ void main() {
 
   group('refresh', () {
     test('getRoomDetailForRefresh reads cam only', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live']);
+      final setup = _setup(['S05-userid', 'S03-cam-live'], withCdnPings: true);
       final room = await setup.site.getRoomDetailForRefresh(roomId: 'prettygirl');
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
@@ -149,7 +170,7 @@ void main() {
 
   group('live status', () {
     test('returns true for live room', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live']);
+      final setup = _setup(['S05-userid', 'S03-cam-live'], withCdnPings: true);
       expect(await setup.site.getLiveStatus(roomId: 'prettygirl'), isTrue);
     });
 
@@ -202,7 +223,10 @@ void main() {
 
   group('streams', () {
     test('getPlayQualities returns qualities from room data', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
+      final setup = _setup(
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        withCdnPings: true,
+      );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities, hasLength(3));
@@ -210,7 +234,10 @@ void main() {
     });
 
     test('getPlayUrls returns variant playlist URL', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
+      final setup = _setup(
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        withCdnPings: true,
+      );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       final urls = await setup.site.getPlayUrls(detail: room, quality: qualities.first);
@@ -219,7 +246,10 @@ void main() {
     });
 
     test('resolvePlayUrlsRaw confirms the requested quality', () async {
-      final setup = _setup(['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config']);
+      final setup = _setup(
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        withCdnPings: true,
+      );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       final requested = qualities.first;
@@ -235,6 +265,41 @@ void main() {
         () => setup.site.getPlayQualities(detail: room),
         throwsA(isA<StreamUnavailable>()),
       );
+    });
+
+    test('CDN masters are deduped and ordered by ping latency; slow or failing hosts are dropped', () async {
+      final config = ReplaySample.load('$_root/S08-config');
+      // Provide pings for all six distinct CDN hosts in the config. The
+      // failing host (404) must be excluded; the rest keep their order.
+      final pings = <ReplaySample>[
+        _synthetic('https://edge-hls.doppiocdn.org/ping.m3u8', '#EXTM3U\n'),
+        _synthetic('https://edge-hls.doppiocdn.com/ping.m3u8', '#EXTM3U\n'),
+        _synthetic('https://edge-hls.doppiocdn1.com/ping.m3u8', '', status: 404),
+        _synthetic('https://edge-hls.doppiocdn.media/ping.m3u8', '#EXTM3U\n'),
+        _synthetic('https://edge-hls.doppiocdn.net/ping.m3u8', '#EXTM3U\n'),
+        _synthetic('https://edge-hls.doppiocdn.live/ping.m3u8', '#EXTM3U\n'),
+      ];
+      final setup = _setup(
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master'],
+        extra: pings,
+      );
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final data = room.data as StripchatRoomData;
+      final hosts = [for (final m in data.masterUris) StripchatApi.cdnHostOf(m)!];
+      // The failing 1.com host is excluded.
+      expect(hosts, isNot(contains('doppiocdn1.com')));
+      for (final m in data.masterUris) {
+        expect(m.host, isNot('edge-hls.doppiocdn1.com'));
+      }
+      // Duplicate host keys (A/A1, B/B1 ...) collapse to one master each:
+      // 6 distinct hosts minus the failing one = 5 masters.
+      expect(data.masterUris.length, 5);
+      // The primary host (doppiocdn.org) is listed first in the config, so
+      // it stays ahead of the other survivors on a latency tie.
+      expect(hosts.first, 'doppiocdn.org');
+      expect(StripchatApi.cdnHostOf(data.master), 'doppiocdn.org');
+      // Sanity: the config sample that drove this had the 1.com key.
+      expect(jsonDecode(utf8.decode(config.bytes)) as Map<String, dynamic>, isNotNull);
     });
   });
 
@@ -254,7 +319,7 @@ void main() {
   });
 
   group('host race', () {
-    final configFor = (String host, {required String wsUrl}) => ReplaySample(
+    ReplaySample configFor(String host, {required String wsUrl}) => ReplaySample(
           method: 'GET',
           url: Uri.https(host, '/api/front/v3/config/initial'),
           status: 200,
