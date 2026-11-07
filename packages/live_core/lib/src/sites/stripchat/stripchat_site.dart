@@ -346,14 +346,14 @@ final class StripchatSite extends LiveSite
       );
     }
     if (lines.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
-    return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.data);
+    return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.selectionId);
   }
 
   @override
   Future<LivePlayUrlResolution> resolvePlayUrlsForRecoveryRaw({
     required LiveRoom detail,
     required LivePlayQuality quality,
-  }) async =>
+  }) =>
       resolvePlayUrlsRaw(detail: detail, quality: quality);
 
   // Helpers -------------------------------------------------------------------
