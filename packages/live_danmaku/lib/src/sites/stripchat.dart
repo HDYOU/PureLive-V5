@@ -85,13 +85,13 @@ abstract final class StripchatDanmakuProtocol {
 
   static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
     final messages = <LiveMessage>[];
-    final push = _object(obj['push']) ?? _object(obj['event']) ?? const <String, Object?>{};
-    final pub = _object(push['pub']) ?? const <String, Object?>{};
-    final data = _object(pub['data']) ?? pub;
+    final push = _object(obj['push']) ?? _object(obj['event']);
+    final pub = _object(push['pub']);
+    final data = _object(pub['data']) ?? push;
     if (data.isEmpty) return const [];
     final type = _text(data['type']) ?? '';
-    final userData = _object(data['userData']) ?? _object(data['user']) ?? const <String, Object?>{};
-    final details = _object(data['details']) ?? const <String, Object?>{};
+    final userData = _object(data['userData']) ?? _object(data['user']);
+    final details = _object(data['details']);
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     switch (type) {
       case 'text':
@@ -127,9 +127,9 @@ abstract final class StripchatDanmakuProtocol {
           color: _color(userData),
         ));
       case 'lovense':
-        final lovense = _object(details['lovenseDetails']) ?? const <String, Object?>{};
-        final detail = _object(lovense['detail']) ?? const <String, Object?>{};
-        final clientInfo = _object(lovense['clientUserInfo']) ?? const <String, Object?>{};
+        final lovense = _object(details['lovenseDetails']);
+        final detail = _object(lovense['detail']);
+        final clientInfo = _object(lovense['clientUserInfo']);
         final clientName = _text(clientInfo['username']) ?? _text(clientInfo['name']) ?? name;
         final power = _text(detail['power']) ?? 'low';
         final time = _text(detail['time']) ?? '0';
