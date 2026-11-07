@@ -297,20 +297,12 @@ abstract final class StripchatApi {
   /// Web origin.
   static const String origin = _web;
 
-  /// Every API host: the platform is served from several mirror domains,
+  /// Every API host: the platform is served from these mirror domains,
   /// all of which answer the same endpoints. The first is canonical (room
   /// links, origin and referer headers).
   static const List<String> apiHosts = [
     'zh.virtualtaboo.live',
-    'zh.stripchat.webcam',
-    'zh.mywebcamroom.com',
-    'zh.topcams.tv',
-    'zh.stripchatgirls.com',
-    'zh.stripchat.com',
     'zh.xhamsterlive.com',
-    'zh.hotzcam.com',
-    'zh.tklivechat.com',
-    'zh.spankbanglive.com',
   ];
 
   /// Canonical API host; the one all generated links point at.
