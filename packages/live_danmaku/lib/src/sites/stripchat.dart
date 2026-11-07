@@ -56,8 +56,10 @@ abstract final class StripchatDanmakuProtocol {
 
   /// Reads one text frame; returns parsed messages and control actions.
   /// A frame may contain several JSON objects separated by newlines; each is
-  /// parsed in order.
-  static StripchatFrameResult read(Object? data) {
+  /// parsed in order. [modelId] is the room's own model id; when the
+  /// sender's user id equals it the streamer is posting to their own chat,
+  /// so the line gets the "streamer" fan badge and a light-red colour.
+  static StripchatFrameResult read(Object? data, [int modelId = 0]) {
     final text = switch (data) {
       final String text => text,
       final List<int> bytes => utf8.decode(bytes, allowMalformed: true),
@@ -91,12 +93,15 @@ abstract final class StripchatDanmakuProtocol {
         pingValue = obj['ping'];
         continue;
       }
-      messages.addAll(_parsePush(obj));
+      messages.addAll(_parsePush(obj, modelId: modelId));
     }
     return StripchatFrameResult(messages: messages, respondEmpty: respondEmpty, pingValue: pingValue);
   }
 
-  static List<LiveMessage> _parsePush(Map<String, Object?> obj) {
+  /// The light-red colour given to the streamer's own chat lines.
+  static const LiveMessageColor streamerColor = LiveMessageColor(0xFF, 0x99, 0x99);
+
+  static List<LiveMessage> _parsePush(Map<String, Object?> obj, {required int modelId}) {
     final messages = <LiveMessage>[];
     final push = _object(obj['push']);
     final pub = _object(push['pub']);
@@ -112,6 +117,9 @@ abstract final class StripchatDanmakuProtocol {
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
     final userRanking = _object(userData['userRanking']);
     final level = _int(userRanking['level']);
+    // The streamer posting to their own room: user id equals the model id.
+    final modelIdText = modelId > 0 ? '$modelId' : '';
+    final isStreamer = modelIdText.isNotEmpty && _id(userData['id']) == modelIdText;
     switch (type) {
       case 'text':
         final body = _text(details['body']) ?? '';
@@ -119,13 +127,14 @@ abstract final class StripchatDanmakuProtocol {
           messages.add(LiveMessage(
             type: LiveMessageType.chat,
             userName: name,
-            userId: _text(userData['id']) ?? '',
+            userId: _id(userData['id']),
             message: body,
             messageId: _id(container['id']),
             sentAt: _time(container['createdAt']),
-            color: _color(userData),
+            color: isStreamer ? streamerColor : _color(userData),
             userLevel: level?.toString() ?? '',
             userLevelValue: level,
+            fansName: isStreamer ? '主播本人' : '',
           ));
         }
       case 'tip':
@@ -133,7 +142,7 @@ abstract final class StripchatDanmakuProtocol {
         messages.add(LiveMessage(
           type: LiveMessageType.gift,
           userName: name,
-          userId: _text(userData['id']) ?? '',
+          userId: _id(userData['id']),
           message: '$name 已支付 $amount 代币',
           data: LiveGift(
             name: '代币',
@@ -144,9 +153,10 @@ abstract final class StripchatDanmakuProtocol {
           ),
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
-          color: _color(userData),
+          color: isStreamer ? streamerColor : _color(userData),
           userLevel: level?.toString() ?? '',
           userLevelValue: level,
+          fansName: isStreamer ? '主播本人' : '',
         ));
       case 'lovense':
         final lovense = _object(details['lovenseDetails']);
@@ -156,16 +166,18 @@ abstract final class StripchatDanmakuProtocol {
         final power = _text(detail['power']) ?? 'low';
         final time = _int(detail['time']) ?? 0;
         final powerText = power == 'high' ? '高' : power == 'medium' ? '中' : '低';
+        final clientIsStreamer = modelIdText.isNotEmpty && _id(clientInfo['id']) == modelIdText;
         messages.add(LiveMessage(
           type: LiveMessageType.notice,
           userName: clientName,
-          userId: _text(clientInfo['id']) ?? '',
+          userId: _id(clientInfo['id']),
           message: '$clientName: $powerText强度 · $time秒',
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
-          color: _color(clientInfo),
+          color: clientIsStreamer ? streamerColor : _color(clientInfo),
           userLevel: level?.toString() ?? '',
           userLevelValue: level,
+          fansName: clientIsStreamer ? '主播本人' : '',
         ));
       default:
         break;
@@ -236,7 +248,7 @@ final class StripchatDanmakuConnection extends DanmakuSocketConnection<Stripchat
   @override
   @protected
   void onData(DanmakuSocketSession session, Object? data) {
-    final result = StripchatDanmakuProtocol.read(data);
+    final result = StripchatDanmakuProtocol.read(data, _modelId);
     if (result.respondEmpty) session.send('{}');
     final pingValue = result.pingValue;
     if (pingValue != null) session.send(StripchatDanmakuProtocol.pongFrame(pingValue));
