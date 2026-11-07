@@ -274,6 +274,42 @@ void main() {
       expect(msg.color, const lc.LiveMessageColor(0x00, 0x00, 0xFF));
     });
 
+    test('the streamer posting to their own room gets the streamer badge and light-red colour', () {
+      // A chat line from the room's own model id.
+      final chat = StripchatDanmakuProtocol
+          .read(_chatPush(userId: '$_modelId', username: 'prettygirl', color: '#00AA00'), _modelId)
+          .messages
+          .single;
+      expect(chat.fansName, '主播本人');
+      expect(chat.color, StripchatDanmakuProtocol.streamerColor);
+      // A normal viewer is untouched.
+      final viewer = StripchatDanmakuProtocol
+          .read(_chatPush(userId: 'u001', color: '#FF0000'), _modelId)
+          .messages
+          .single;
+      expect(viewer.fansName, '');
+      expect(viewer.color, const lc.LiveMessageColor(0xFF, 0x00, 0x00));
+      // Tip and lovense from the streamer get the badge too.
+      final tip = StripchatDanmakuProtocol
+          .read(_tipPush(userId: '$_modelId', username: 'prettygirl'), _modelId)
+          .messages
+          .single;
+      expect(tip.fansName, '主播本人');
+      expect(tip.color, StripchatDanmakuProtocol.streamerColor);
+      final lovense = StripchatDanmakuProtocol
+          .read(_lovensePush(userId: '$_modelId', username: 'prettygirl'), _modelId)
+          .messages
+          .single;
+      expect(lovense.fansName, '主播本人');
+      expect(lovense.color, StripchatDanmakuProtocol.streamerColor);
+      // No model id (default 0) means nobody is recognised as the streamer.
+      final noModel = StripchatDanmakuProtocol
+          .read(_chatPush(userId: '1', username: 'prettygirl'))
+          .messages
+          .single;
+      expect(noModel.fansName, '');
+    });
+
     test('lovense with medium / low power', () {
       final m = StripchatDanmakuProtocol.read(_lovensePush(power: 'medium')).messages.single;
       expect(m.message, 'toy_user: 中强度 · 15秒');
