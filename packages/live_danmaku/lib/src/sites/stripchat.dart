@@ -108,6 +108,8 @@ abstract final class StripchatDanmakuProtocol {
     final userData = _object(container['userData']);
     final details = _object(container['details']);
     final name = _text(userData['username']) ?? _text(userData['name']) ?? '';
+    final userRanking = _object(userData['userRanking']);
+    final level = _int(userRanking['level']);
     switch (type) {
       case 'text':
         final body = _text(details['body']) ?? '';
@@ -120,6 +122,8 @@ abstract final class StripchatDanmakuProtocol {
             messageId: _id(container['id']),
             sentAt: _time(container['createdAt']),
             color: _color(userData),
+            userLevel: level?.toString() ?? '',
+            userLevelValue: level,
           ));
         }
       case 'tip':
@@ -139,6 +143,8 @@ abstract final class StripchatDanmakuProtocol {
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
           color: _color(userData),
+          userLevel: level?.toString() ?? '',
+          userLevelValue: level,
         ));
       case 'lovense':
         final lovense = _object(details['lovenseDetails']);
@@ -156,6 +162,8 @@ abstract final class StripchatDanmakuProtocol {
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
           color: _color(clientInfo),
+          userLevel: level?.toString() ?? '',
+          userLevelValue: level,
         ));
       default:
         break;
