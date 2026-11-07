@@ -15,7 +15,7 @@ const _web = 'https://zh.virtualtaboo.live';
 @immutable
 final class StripchatDanmakuArgs {
   /// Creates the arguments.
-  const new({required this.websocketUrl, required this.token, required this.modelId});
+  const new({required this.websocketUrl, required this.token, required this.modelId, required this.apiHost});
 
   /// The WebSocket endpoint URL.
   final String websocketUrl;
@@ -26,15 +26,22 @@ final class StripchatDanmakuArgs {
   /// The model's numeric id.
   final int modelId;
 
+  /// The API host that served the config, used for origin/referer headers.
+  final String apiHost;
+
   @override
   bool operator ==(Object other) =>
-      other is StripchatDanmakuArgs && other.websocketUrl == websocketUrl && other.token == token && other.modelId == modelId;
+      other is StripchatDanmakuArgs &&
+      other.websocketUrl == websocketUrl &&
+      other.token == token &&
+      other.modelId == modelId &&
+      other.apiHost == apiHost;
 
   @override
-  int get hashCode => Object.hash(websocketUrl, token, modelId);
+  int get hashCode => Object.hash(websocketUrl, token, modelId, apiHost);
 
   @override
-  String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId)';
+  String toString() => 'StripchatDanmakuArgs($websocketUrl, model $modelId, host $apiHost)';
 }
 
 /// A model's live stream data from the cam endpoint.
@@ -50,6 +57,7 @@ final class StripchatRoomData {
     required this.isLive,
     required List<LivePlayQuality> qualities,
     required List<StripchatVariant> variants,
+    required this.apiHost,
   })  : qualities = List.unmodifiable(qualities),
         variants = List.unmodifiable(variants);
 
@@ -76,6 +84,9 @@ final class StripchatRoomData {
 
   /// All parsed variant entries from the primary master.
   final List<StripchatVariant> variants;
+
+  /// The API host that served the config, used for origin/referer headers.
+  final String apiHost;
 }
 
 /// A model card from the models list endpoint.

@@ -12,9 +12,10 @@ import 'package:test/test.dart';
 const _websocketUrl = 'wss://websocket-v6.sc-apps.com/connection/websocket';
 const _modelId = 278721362;
 const _token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.test';
+const _apiHost = 'zh.virtualtaboo.live';
 
 final lc.StripchatDanmakuArgs _args =
-    lc.StripchatDanmakuArgs(websocketUrl: _websocketUrl, token: _token, modelId: _modelId);
+    lc.StripchatDanmakuArgs(websocketUrl: _websocketUrl, token: _token, modelId: _modelId, apiHost: _apiHost);
 
 /// A fake WebSocket channel that records sent frames and queues incoming ones.
 final class _Channel implements SocketChannel {
@@ -206,9 +207,10 @@ void main() {
   group('protocol', () {
     test('headers, heartbeat interval, and frame shapes', () {
       expect(
-        StripchatDanmakuProtocol.headers,
+        StripchatDanmakuProtocol.headersFor(_apiHost),
         {
-          'origin': 'https://zh.virtualtaboo.live',
+          'origin': 'https://$_apiHost',
+          'referer': 'https://$_apiHost/',
           'user-agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
         },
@@ -385,7 +387,7 @@ void main() {
       final events = _record(connection);
       await connection.connect(_args);
       expect(connector.endpoints, [Uri.parse(_websocketUrl)]);
-      expect(connector.headers.single, StripchatDanmakuProtocol.headers);
+      expect(connector.headers.single, StripchatDanmakuProtocol.headersFor(_apiHost));
       expect(connector.routes.single, const DirectRoute());
       expect(events, [const DanmakuReady()]);
       expect(connection.isConnected, isTrue);
@@ -452,7 +454,7 @@ void main() {
       final connection = StripchatDanmakuConnection(connector: connector.call);
       final events = _record(connection);
       await connection.connect(
-        lc.StripchatDanmakuArgs(websocketUrl: '', token: _token, modelId: _modelId),
+        lc.StripchatDanmakuArgs(websocketUrl: '', token: _token, modelId: _modelId, apiHost: _apiHost),
       );
       expect(
           events,
@@ -567,6 +569,7 @@ void main() {
         websocketUrl: _websocketUrl,
         token: 'other-token',
         modelId: 999999,
+        apiHost: _apiHost,
       );
       await connection.connect(other);
       expect(connector.endpoints, hasLength(2));
@@ -605,7 +608,7 @@ void main() {
         StripchatDanmakuProtocol.connectFrame(_token),
         StripchatDanmakuProtocol.subscribeFrame(_modelId),
       ]);
-      expect(connector.headers.single['origin'], 'https://zh.virtualtaboo.live');
+      expect(connector.headers.single['origin'], 'https://$_apiHost');
       await channel.receive(jsonEncode({'subscribed': true}));
       expect(events.first, const DanmakuReady());
       await channel.receive(_chatPush(body: 'local test'));
