@@ -130,7 +130,7 @@ String _chatPush({
 String _tipPush({
   String username = 'patron',
   String userId = 'u002',
-  String amount = '50',
+  int amount = 50,
   String messageId = 'msg-002',
   int createdAt = 1790536500000,
   String color = '#00FF00',
@@ -161,7 +161,7 @@ String _lovensePush({
   String username = 'toy_user',
   String userId = 'u003',
   String power = 'high',
-  String time = '15',
+  int time = 15,
   String messageId = 'msg-003',
   int createdAt = 1790536510000,
   String color = '#0000FF',
@@ -389,8 +389,8 @@ void main() {
       // mixed: chat + keepalive in sequence
       await channel.receive('{}');
       await channel.receive(_chatPush(body: 'second'));
-      await channel.receive(_tipPush(amount: '100'));
-      await channel.receive(_lovensePush(power: 'high', time: '30'));
+      await channel.receive(_tipPush(amount: 100));
+      await channel.receive(_lovensePush(power: 'high', time: 30));
       final msgs = _messages(events);
       expect(msgs, hasLength(4));
       expect(msgs[1].message, 'second');
@@ -409,7 +409,7 @@ void main() {
       final batch = [
         _chatPush(body: 'first', messageId: 'm1'),
         _chatPush(body: 'second', messageId: 'm2'),
-        _tipPush(amount: '10', messageId: 'm3'),
+        _tipPush(amount: 10, messageId: 'm3'),
       ].join('\n');
       await channel.receive(batch);
       final msgs = _messages(events);
