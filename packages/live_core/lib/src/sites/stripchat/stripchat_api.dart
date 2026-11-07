@@ -531,14 +531,19 @@ abstract final class StripchatApi {
     final avatar = normalizeImageUrl(user['avatarUrl'] ?? '');
     final snapshotTs = jsonInt(user['snapshotTimestamp']) ?? jsonInt(user['popularSnapshotTimestamp']) ?? 0;
     final startedAt = _parseStartedAt(user['statusChangedAt']);
-    final title = (jsonString(cam['topic']) ?? '').isNotEmpty
+    final topicFallback = (jsonString(cam['topic']) ?? '').isNotEmpty
         ? jsonString(cam['topic'])!
         : (jsonString(user['topic']) ?? '');
-    final description = decodeHtmlEntities(jsonString(user['description']) ?? '');
+    final description0 = decodeHtmlEntities(jsonString(user['description']) ?? '');
     final userFanClub = _object(cam['userFanClub']) ?? _object(user['userFanClub']) ?? {};
     final introduction = decodeHtmlEntities(jsonString(userFanClub['description']) ?? '');
     final goal = _object(cam['goal']) ?? {};
-    final notice = decodeHtmlEntities(jsonString(goal['description']) ?? '');
+    final goalText = decodeHtmlEntities(jsonString(goal['description']) ?? '');
+    final offlineStatus = jsonString(user['offlineStatus']) ?? '';
+    final title = goalText.isNotEmpty ? goalText : topicFallback;
+    // Join parts with a line break; drop blanks so no stray separators.
+    final description = <String>[topicFallback, description0].where((part) => part.isNotEmpty).join('\n');
+    final notice = <String>[goalText, offlineStatus].where((part) => part.isNotEmpty).join('\n');
     final streamName = jsonString(cam['streamName']) ?? '';
     final hlsLines = [
       for (final raw in _list(cam['hlsLines']))

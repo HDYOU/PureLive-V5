@@ -86,7 +86,7 @@ void main() {
       expect(room.isLiveNow, isTrue);
       expect(room.totalViewers, '215');
       expect(room.audienceMetricType, AudienceMetricType.totalViewers);
-      expect(room.title, 'prettygirl live');
+      expect(room.title, 'Reach 2000 viewers!');
       expect(room.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
       expect(room.introduction, 'VIP fan club description');
       expect(room.notice, 'Reach 2000 viewers!');
@@ -134,7 +134,7 @@ void main() {
       expect(room.roomId, 'prettygirl');
       expect(room.isLiveNow, isTrue);
       expect(room.data, isNull);
-      expect(room.title, 'prettygirl live');
+      expect(room.title, 'Reach 2000 viewers!');
       expect(room.introduction, 'VIP fan club description');
       expect(room.notice, 'Reach 2000 viewers!');
       // Only two requests: user-ids and cam (no master, no members)

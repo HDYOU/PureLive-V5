@@ -73,8 +73,8 @@ void main() {
       expect(cam.status, 'public');
       expect(cam.viewersCount, 0);
       expect(cam.startedAt, DateTime.utc(2026, 11, 06, 11, 43, 20));
-      expect(cam.title, 'prettygirl live');
-      expect(cam.description, 'Welcome to my stream!');
+      expect(cam.title, 'Reach 2000 viewers!');
+      expect(cam.description, 'prettygirl live\nWelcome to my stream!');
       expect(cam.introduction, 'VIP fan club description');
       expect(cam.notice, 'Reach 2000 viewers!');
     });
