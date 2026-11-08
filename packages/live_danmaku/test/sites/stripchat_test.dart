@@ -258,6 +258,7 @@ void main() {
       expect(data.count, 50);
       expect(data.kind, lc.LiveGiftKind.tip);
       expect(data.unitPrice, 1);
+      expect(data.unit, lc.LiveGiftUnit.yuan);
       expect(data.totalValue, 50);
     });
 

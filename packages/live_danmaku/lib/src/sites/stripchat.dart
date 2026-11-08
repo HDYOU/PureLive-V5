@@ -150,6 +150,7 @@ abstract final class StripchatDanmakuProtocol {
             kind: LiveGiftKind.tip,
             unitPrice: 1,
             totalValue: amount,
+            unit: LiveGiftUnit.yuan,
           ),
           messageId: _id(container['id']),
           sentAt: _time(container['createdAt']),
