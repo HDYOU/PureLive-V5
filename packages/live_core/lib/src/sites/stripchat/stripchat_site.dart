@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
@@ -251,54 +250,16 @@ final class StripchatSite extends LiveSite
     return _cachedConfig!;
   }
 
-  /// Liveness/latency probe of every CDN host in [masters] in parallel:
-  /// `https://edge-hls.{host}/ping.m3u8`, 10 s timeout each. Hosts that
-  /// time out or answer non-2xx are dropped; survivors keep the original
-  /// relative order when latencies tie, and the result is the deduped
-  /// master list re-ordered fastest first.
-  Future<List<Uri>> _orderedMasters(List<Uri> masters) async {
-    final byHost = <String, Uri>{};
-    for (final m in masters) {
-      final host = StripchatApi.cdnHostOf(m);
-      if (host != null && !byHost.containsKey(host)) byHost[host] = m;
-    }
-    if (byHost.length <= 1) return masters;
-    final sw = Stopwatch()..start();
-    final probeResults = await Future.wait(
-      byHost.keys.map(
-        (host) async {
-          try {
-            final opened = await http.open(
-              LiveRequest(
-                site: _site,
-                url: StripchatApi.cdnPingUri(host),
-                headers: StripchatApi.headers,
-                timeout: const Duration(seconds: 10),
-              ),
-            );
-            await opened.discard();
-            if (!opened.isSuccess) return null;
-            return sw.elapsed;
-          } on TransportFailure {
-            return null;
-          }
-        },
-      ),
-    );
-    // Pair hosts with their timings (null = excluded), keep the original
-    // index so ties fall back to the config order (primary first).
-    final timed = [
-      for (var i = 0; i < byHost.keys.length; i++)
-        (host: byHost.keys.elementAt(i), index: i, elapsed: probeResults[i]),
-    ];
-    final ranked = timed.where((t) => t.elapsed != null).toList()
-      ..sort((a, b) {
-        final cmp = a.elapsed!.compareTo(b.elapsed!);
-        if (cmp != 0) return cmp;
-        return a.index - b.index;
-      });
-    if (ranked.isEmpty) return masters;
-    return [for (final t in ranked) byHost[t.host]!];
+  /// Liveness/latency probe of every CDN host in the config (via
+  /// [StripchatApi.probed]): all `https://edge-hls.{host}/ping.m3u8` pings
+  /// run in parallel with a 10 s timeout each, the surviving hosts carry
+  /// their response times and the missed ones fall back to the common CDN
+  /// list, so a stream line always survives even when every probe fails.
+  Future<StripchatConfig> _probedConfig() async {
+    final config = await _getConfig();
+    final probed = await StripchatApi.probed(http, config);
+    _cachedConfig = probed;
+    return probed;
   }
 
   /// The room with its stream (when live).
@@ -309,7 +270,6 @@ final class StripchatSite extends LiveSite
     if (!StripchatApi.isUsername(username)) throw NotFound(_site, 'room id "$username" is not a valid username');
     final modelId = parsed.userId ?? await _resolveModelId(username);
     final cam = await _getCam(modelId);
-    final config = await _getConfig();
     final isLive = cam.isLive && StripchatApi.isLiveStatus(cam.status);
     LiveRoom room = _card(cam.toModel(), isLive: isLive);
     if (!isLive) return room;
@@ -327,11 +287,12 @@ final class StripchatSite extends LiveSite
     if (membersTotal > 0) {
       room = room.copyWith(totalViewers: '$membersTotal');
     }
-    // Build HLS master URIs from CDN hosts (multi-CDN support), then order
-    // them by latency: probe each host's ping.m3u8 in parallel, drop the
-    // ones that time out (10 s) or answer with an error, and keep the
-    // fastest-first result for the quality lines.
-    final masters = await _orderedMasters(StripchatApi.masterUris(cam.streamName, config.hlsStreamHosts));
+    // Build the HLS master URIs: probe each edge-hls CDN in parallel
+    // (`StripchatApi.probed`), keep the response times on the config, fall
+    // back to the common CDN list for the misses, and order the quality
+    // lines fastest-first (`StripchatApi.masterUris`).
+    final probedConfig = await _probedConfig();
+    final masters = StripchatApi.masterUris(cam.streamName, probedConfig);
     if (masters.isEmpty || cam.streamName.isEmpty) return room;
     // Fetch the primary master for initial quality listing.
     final master = masters.first;
@@ -351,8 +312,8 @@ final class StripchatSite extends LiveSite
         apiHost: host,
       ),
       danmakuData: StripchatDanmakuArgs(
-        websocketUrl: config.websocketUrl,
-        token: config.websocketToken,
+        websocketUrl: probedConfig.websocketUrl,
+        token: probedConfig.websocketToken,
         modelId: cam.modelId,
         apiHost: host,
       ),
