@@ -33,6 +33,62 @@ jobs:
     steps:
       - name: 签出代码
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 需要完整历史才能 merge 其他分支
+        
+        # ====================== 合并其他所有分支（失败跳过，不中断） ======================
+      - name: 合并其他所有分支
+        continue-on-error: true
+        shell: bash
+        run: |
+            set +e   # 显式忽略任何命令失败，保证脚本继续
+            CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+            echo "当前分支: $CURRENT_BRANCH"
+        
+            # 获取所有远端分支（去掉 origin/ 前缀，排除 HEAD 指针）
+            BRANCHES=$(git branch -r \
+              | sed 's/^[[:space:]]*//' \
+              | grep -v '\->' \
+              | grep -v "^origin/${CURRENT_BRANCH}$" \
+              | sed 's|^origin/||' \
+              | sort -u)
+        
+            if [ -z "$BRANCHES" ]; then
+              echo "⚠️ 未发现其他远端分支，跳过"
+              exit 0
+            fi
+        
+            FAILED=()
+            SUCCESS=()
+        
+            for BRANCH in $BRANCHES; do
+              echo "=============================================="
+              echo "尝试合并分支: $BRANCH"
+              if git merge --no-edit "origin/${BRANCH}" -m "chore: merge origin/${BRANCH} into ${CURRENT_BRANCH}"; then
+                echo "✅ 合并成功: $BRANCH"
+                SUCCESS+=("$BRANCH")
+              else
+                echo "❌ 合并失败: $BRANCH"
+                FAILED+=("$BRANCH")
+                # 放弃冲突状态，继续下一个分支
+                git merge --abort 2>/dev/null || true
+                git reset --hard HEAD 2>/dev/null || true
+              fi
+            done
+        
+            echo "=============================================="
+            echo "合并结果汇总:"
+            if [ ${#SUCCESS[@]} -gt 0 ]; then
+              echo "✅ 成功合并的分支:"
+              for b in "${SUCCESS[@]}"; do echo "   - $b"; done
+            fi
+            if [ ${#FAILED[@]} -gt 0 ]; then
+              echo "❌ 失败的分支:"
+              for b in "${FAILED[@]}"; do echo "   - $b"; done
+            fi
+        
+            exit 0
+     
 
       - name: 下载 Android keystore
         id: android_keystore
