@@ -2,13 +2,150 @@
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
+import 'package:live_net/testing.dart';
 import 'package:test/test.dart';
 
 import 'fixture.dart';
 
 Fixture _sample(String name) => Fixture.load('stripchat', name);
 
+StripchatConfig _config() {
+  final fixture = _sample('S08-config');
+  return StripchatApi.config(fixture.body, status: fixture.status);
+}
+
 void main() {
+  group('S08 config', () {
+    test('parses CDN hosts and websocket config', () {
+      final config = _config();
+      expect(config.hlsStreamHosts['primary'], 'doppiocdn.org');
+      expect(config.hlsStreamHosts['A'], 'doppiocdn.com');
+      expect(config.websocketUrl, 'wss://websocket-v6.sc-apps.com/connection/websocket');
+      expect(config.websocketToken, isNotEmpty);
+    });
+  });
+
+  group('hls stream ordering', () {
+    test('masterUris orders by response time, ties keep the config key order', () {
+      const config = StripchatConfig(
+        hlsStreamHosts: {
+          'primary': 'doppiocdn.org',
+          'A': 'doppiocdn.com',
+          'B': 'doppiocdn1.com',
+        },
+        hlsStreamHostTimes: {
+          'doppiocdn.org': 120,
+          'doppiocdn.com': 120,
+          'doppiocdn1.com': 30,
+        },
+        websocketUrl: 'wss://x.example/ws',
+        websocketToken: 'tok',
+      );
+      final hosts = [for (final master in StripchatApi.masterUris('s', config)) StripchatApi.cdnHostOf(master)!];
+      // Fastest first; the two 120 ms hosts tie, so the config key decides:
+      // primary comes before A.
+      expect(hosts, ['doppiocdn1.com', 'doppiocdn.org', 'doppiocdn.com']);
+    });
+
+    test('hosts without a measured time rank last, config key order among them', () {
+      const config = StripchatConfig(
+        hlsStreamHosts: {
+          'primary': 'doppiocdn.org',
+          'A': 'doppiocdn.com',
+          'B': 'unknown.example',
+        },
+        hlsStreamHostTimes: {
+          'doppiocdn.org': 40,
+          'doppiocdn.com': 90,
+        },
+        websocketUrl: 'wss://x.example/ws',
+        websocketToken: 'tok',
+      );
+      final hosts = [for (final master in StripchatApi.masterUris('s', config)) StripchatApi.cdnHostOf(master)!];
+      expect(hosts, ['doppiocdn.org', 'doppiocdn.com', 'unknown.example']);
+    });
+
+    test('duplicate host keys collapse to one master', () {
+      const config = StripchatConfig(
+        hlsStreamHosts: {
+          'primary': 'doppiocdn.org',
+          'E': 'doppiocdn.org',
+          'A': 'doppiocdn.com',
+          'A1': 'doppiocdn.com',
+        },
+        hlsStreamHostTimes: {'doppiocdn.org': 10, 'doppiocdn.com': 10},
+        websocketUrl: 'wss://x.example/ws',
+        websocketToken: 'tok',
+      );
+      final hosts = [for (final master in StripchatApi.masterUris('s', config)) StripchatApi.cdnHostOf(master)!];
+      expect(hosts, hasLength(2));
+      expect(hosts, containsAll(['doppiocdn.org', 'doppiocdn.com']));
+    });
+
+    test('withFallbackCdnHosts fills missed hosts from the common CDN list', () {
+      const config = StripchatConfig(
+        hlsStreamHosts: {
+          'primary': 'cdn-new.example',
+        },
+        websocketUrl: 'wss://x.example/ws',
+        websocketToken: 'tok',
+      );
+      final merged = StripchatApi.withFallbackCdnHosts(config);
+      // The config host is not in the common list and its probe missed, so
+      // every common host (0 ms) ranks ahead of it and it stays last.
+      final hosts = [for (final m in StripchatApi.masterUris('s', merged)) StripchatApi.cdnHostOf(m)!];
+      expect(hosts.first, 'doppiocdn.org');
+      expect(hosts.last, 'cdn-new.example');
+    });
+
+    test('probed measures every distinct config host and marks the misses last', () async {
+      final config = _config();
+      // Five hosts answer the ping; B / doppiocdn1.com answers 404, so it
+      // keeps the missed marker and sorts after the five.
+      final pings = [
+        for (final host in [
+          'doppiocdn.org',
+          'doppiocdn.com',
+          'doppiocdn.media',
+          'doppiocdn.net',
+          'doppiocdn.live',
+        ])
+          ReplaySample(
+            method: 'GET',
+            url: Uri.https('edge-hls.$host', '/ping.m3u8'),
+            status: 200,
+            bytes: utf8.encode('#EXTM3U\n'),
+          ),
+        ReplaySample(
+          method: 'GET',
+          url: Uri.https('edge-hls.doppiocdn1.com', '/ping.m3u8'),
+          status: 404,
+          bytes: const [],
+        ),
+      ];
+      final http = ReplayHttp(pings);
+      final probed = await StripchatApi.probed(http, config);
+      // Every config host carries a time (the probed answers plus the
+      // fallback fill); the 404 one is marked missed.
+      expect(probed.hlsStreamHostTimes, hasLength(6));
+      expect(probed.hlsStreamHostTimes['doppiocdn1.com'], StripchatApi.probedHostMissed);
+      for (final host in [
+        'doppiocdn.org',
+        'doppiocdn.com',
+        'doppiocdn.media',
+        'doppiocdn.net',
+        'doppiocdn.live',
+      ]) {
+        expect(probed.hlsStreamHostTimes[host], greaterThanOrEqualTo(0));
+      }
+      // The missed host is still a line, ranked last.
+      final hosts = [for (final m in StripchatApi.masterUris('s', probed)) StripchatApi.cdnHostOf(m)!];
+      expect(hosts, hasLength(6));
+      expect(hosts.last, 'doppiocdn1.com');
+      // The probes were actually sent.
+      expect(http.requests, hasLength(6));
+    });
+  });
   group('S01 models list', () {
     test('parses live and private models, skips invalid usernames', () {
       final fixture = _sample('S01-guest');

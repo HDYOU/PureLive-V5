@@ -284,10 +284,11 @@ void main() {
       );
     });
 
-    test('CDN masters are deduped and ordered by ping latency; slow or failing hosts are dropped', () async {
+    test('CDN masters are deduped, ordered by response time with a fallback for missed hosts', () async {
       final config = ReplaySample.load('$_root/S08-config');
       // Provide pings for all six distinct CDN hosts in the config. The
-      // failing host (404) must be excluded; the rest keep their order.
+      // failing host (404) keeps a fallback time instead of being dropped;
+      // the config keys (primary, then A, B, C...) give the tie-break order.
       final pings = <ReplaySample>[
         _synthetic('https://edge-hls.doppiocdn.org/ping.m3u8', '#EXTM3U\n'),
         _synthetic('https://edge-hls.doppiocdn.com/ping.m3u8', '#EXTM3U\n'),
@@ -303,18 +304,23 @@ void main() {
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final data = room.data as StripchatRoomData;
       final hosts = [for (final m in data.masterUris) StripchatApi.cdnHostOf(m)!];
-      // The failing 1.com host is excluded.
-      expect(hosts, isNot(contains('doppiocdn1.com')));
-      for (final m in data.masterUris) {
-        expect(m.host, isNot('edge-hls.doppiocdn1.com'));
-      }
       // Duplicate host keys (A/A1, B/B1 ...) collapse to one master each:
-      // 6 distinct hosts minus the failing one = 5 masters.
-      expect(data.masterUris.length, 5);
-      // The primary host (doppiocdn.org) is listed first in the config, so
-      // it stays ahead of the other survivors on a latency tie.
+      // 6 distinct hosts, all kept (the 404 host falls back, it is not dropped).
+      expect(data.masterUris.length, 6);
+      // The primary host (doppiocdn.org) is listed first in the config, so it
+      // stays ahead of the other hosts on a latency tie.
       expect(hosts.first, 'doppiocdn.org');
       expect(StripchatApi.cdnHostOf(data.master), 'doppiocdn.org');
+      // Every config host survives (missed probes fall back to the common
+      // CDN list), so the 404 host still produces a line.
+      expect(hosts, containsAll([
+        'doppiocdn.org',
+        'doppiocdn.com',
+        'doppiocdn1.com',
+        'doppiocdn.media',
+        'doppiocdn.net',
+        'doppiocdn.live',
+      ]));
       // Sanity: the config sample that drove this had the 1.com key.
       expect(jsonDecode(utf8.decode(config.bytes)) as Map<String, dynamic>, isNotNull);
     });

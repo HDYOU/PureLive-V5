@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/src/hls_master.dart';
@@ -6,6 +7,7 @@ import 'package:live_core/src/live_area.dart';
 import 'package:live_core/src/live_room.dart';
 import 'package:live_core/src/play_line.dart';
 import 'package:live_core/src/site_error.dart';
+import 'package:live_net/live_net.dart';
 import 'package:meta/meta.dart';
 
 const _site = 'stripchat';
@@ -227,10 +229,17 @@ final class StripchatConfig {
     required this.hlsStreamHosts,
     required this.websocketUrl,
     required this.websocketToken,
+    this.hlsStreamHostTimes = const {},
   });
 
-  /// CDN hosts keyed by letter (A, B, C, …).
+  /// CDN hosts keyed by letter (A, B, C, …) or `primary`.
   final Map<String, String> hlsStreamHosts;
+
+  /// Measured ping.m3u8 response times of the CDN hosts in [hlsStreamHosts],
+  /// in milliseconds (host name, not key). A missed probe (timeout, transport
+  /// failure or a non-2xx answer) is marked [StripchatApi.probedHostMissed]
+  /// so the host sorts after every measured one in [StripchatApi.masterUris].
+  final Map<String, int> hlsStreamHostTimes;
 
   /// WebSocket URL for danmaku.
   final String websocketUrl;
@@ -242,7 +251,8 @@ final class StripchatConfig {
 /// One video variant entry from a Stripchat HLS master playlist.
 @immutable
 final class StripchatVariant {
-  new({
+  /// Creates the variant.
+  const new({
     required this.height,
     required this.bandwidth,
     required this.frameRate,
@@ -314,8 +324,8 @@ abstract final class StripchatApi {
 
   /// Whether [host] is one of the API hosts (exact match or a subdomain).
   static bool isApiHost(String host) {
-    host = host.toLowerCase();
-    return apiHosts.any((h) => host == h || host.endsWith('.$h'));
+    final lower = host.toLowerCase();
+    return apiHosts.any((h) => lower == h || lower.endsWith('.$h'));
   }
 
   /// Headers of every API request.
@@ -448,6 +458,39 @@ abstract final class StripchatApi {
       websocketUrl: websocketUrl,
       websocketToken: websocketToken,
     );
+  }
+
+  /// Probe the distinct hosts of [hosts] in parallel over [http] and return
+  /// the response time in milliseconds of each host that answered 2xx; a
+  /// host that times out (10 s), fails on the transport or answers
+  /// non-2xx is marked [probedHostMissed] so [masterUris] keeps it last.
+  static Future<Map<String, int>> hlsStreamHostTimes(LiveHttp http, Map<String, String> hosts) async {
+    final distinct = <String, bool>{};
+    for (final host in hosts.values) {
+      if (host.isNotEmpty) distinct[host] = true;
+    }
+    Future<(String, int)> probe(String host) async {
+      final sw = Stopwatch()..start();
+      try {
+        final opened = await http.open(
+          LiveRequest(
+            site: _site,
+            url: cdnPingUri(host),
+            headers: headers,
+            timeout: const Duration(seconds: 10),
+          ),
+        );
+        await opened.discard();
+        sw.stop();
+        if (opened.isSuccess) return (host, sw.elapsedMilliseconds);
+      } on Exception {
+        // A failed probe keeps the host playable, ranked last.
+      }
+      return (host, probedHostMissed);
+    }
+
+    final results = await Future.wait([for (final host in distinct.keys) probe(host)]);
+    return {for (final result in results) result.$1: result.$2};
   }
 
   // Catalog -------------------------------------------------------------------
@@ -779,20 +822,111 @@ abstract final class StripchatApi {
     return h.substring('edge-hls.'.length);
   }
 
-   /// Build all CDN HLS master URIs from stream name and config hosts,
-   /// with the primary host (key "primary") first, then the rest sorted by key.
-   static List<Uri> masterUris(String streamName, Map<String, String> hlsStreamHosts) {
-     final ordered = <String>[];
-     if (hlsStreamHosts.containsKey('primary')) ordered.add('primary');
-     for (final key in hlsStreamHosts.keys.where((k) => k != 'primary').toList()..sort()) {
-       ordered.add(key);
-     }
-     return [
-       for (final key in ordered)
-         if (hlsStreamHosts[key] case final host? when host.isNotEmpty)
-           masterUri(streamName, host),
-     ];
-   }
+  /// Fallback CDN hosts when the probe missed every config host (or the
+  /// config gives no usable host), so a stream line always survives.
+  static const List<String> fallbackCdnHosts = [
+    'doppiocdn.org',
+    'doppiocdn.com',
+    'doppiocdn1.com',
+    'doppiocdn.media',
+    'doppiocdn.net',
+    'doppiocdn.live',
+  ];
+
+  /// A host that answered the ping probe. 0 ms (instant) is the fastest;
+  /// a higher value is slower.
+  static const int probedHostInstant = 0;
+
+  /// A host whose probe was missed (timeout, transport failure or a
+  /// non-2xx answer); it sorts after every measured host in
+  /// [StripchatConfig.hlsStreamHostTimes].
+  static const int probedHostMissed = -1;
+
+  /// The config with its [StripchatConfig.hlsStreamHostTimes] measured:
+  /// every distinct host in [config].hlsStreamHosts is probed with
+  /// [cdnPingUri] in parallel, the probed times are carried on the answer and
+  /// every missed host falls back to [fallbackCdnHosts].
+  static Future<StripchatConfig> probed(LiveHttp http, StripchatConfig config) async {
+    final times = await hlsStreamHostTimes(http, config.hlsStreamHosts);
+    return withFallbackCdnHosts(config, times: times);
+  }
+
+  /// The config hosts with every distinct host [times] missed filled with
+  /// the fallback [fallback] CDNs, so an all-failed probe still yields
+  /// playable lines.
+  static StripchatConfig withFallbackCdnHosts(
+    StripchatConfig config, {
+    List<String> fallback = fallbackCdnHosts,
+    Map<String, int> times = const {},
+  }) {
+    final configHosts = <String, bool>{};
+    config.hlsStreamHosts.values.where((host) => host.isNotEmpty).forEach((host) => configHosts[host] = true);
+    final hostTimes = <String, int>{...config.hlsStreamHostTimes, ...times};
+    final missing = [for (final host in configHosts.keys) if (!hostTimes.containsKey(host)) host];
+    final merged = <String, int>{...hostTimes, ...times};
+    // The config hosts keep their probed times; missed ones fall back to
+    // their entry in [fallback], when any.
+    for (final host in missing) {
+      if (fallback.contains(host)) merged[host] = times[host] ?? probedHostMissed;
+    }
+    // The config hosts, plus the fallback CDNs that no config host or probe
+    // covered, keep the stream playable when the probe missed the config
+    // hosts; the unmeasured ones carry [probedHostInstant] so they still
+    // rank before a missed one.
+    final mergedHosts = <String, String>{...config.hlsStreamHosts};
+    var fallbackOrder = mergedHosts.length;
+    for (final host in fallback) {
+      if (mergedHosts.containsKey(host) || hostTimes.containsKey(host)) continue;
+      mergedHosts['fallback$fallbackOrder'] = host;
+      fallbackOrder++;
+      merged.putIfAbsent(host, () => times[host] ?? probedHostInstant);
+    }
+    return StripchatConfig(
+      hlsStreamHosts: mergedHosts,
+      hlsStreamHostTimes: Map.unmodifiable(merged),
+      websocketUrl: config.websocketUrl,
+      websocketToken: config.websocketToken,
+    );
+  }
+
+  /// Build all CDN HLS master URIs from the stream name and the probed config
+  /// hosts, ordered by measured response time: fastest first, a tie keeps the
+  /// config order (primary, then the remaining keys), and a missed probe
+  /// ranks last.
+  static List<Uri> masterUris(String streamName, StripchatConfig config) {
+    final entries = <(String host, String key, int time)>[];
+    final index = <String, int>{};
+    var order = 0;
+    for (final entry in config.hlsStreamHosts.entries) {
+      if (entry.value.isEmpty) continue;
+      final time = config.hlsStreamHostTimes[entry.value] ?? probedHostMissed;
+      if (!index.containsKey(entry.value)) index[entry.value] = order++;
+      entries.add((entry.value, entry.key, time));
+    }
+    // Collapse duplicate hosts, keeping the first config key per host.
+    final byHost = <String, (String key, int time)>{};
+    for (final entry in entries) {
+      byHost.putIfAbsent(entry.$1, () => (entry.$2, entry.$3));
+    }
+    final collapsed = [for (final entry in byHost.entries) (entry.key, entry.value.$1, entry.value.$2)];
+    collapsed.sort((a, b) {
+      final at = a.$3;
+      final bt = b.$3;
+      final aMissed = at == probedHostMissed;
+      final bMissed = bt == probedHostMissed;
+      if (aMissed != bMissed) return aMissed ? 1 : -1;
+      if (!aMissed) {
+        final cmp = at.compareTo(bt);
+        if (cmp != 0) return cmp;
+      }
+      // Ties keep the config order: primary, then the keys sorted.
+      final ai = index[a.$1]!;
+      final bi = index[b.$1]!;
+      if (ai != bi) return ai.compareTo(bi);
+      return a.$2.compareTo(b.$2);
+    });
+    return [for (final entry in collapsed) masterUri(streamName, entry.$1)];
+  }
 
   /// Thumbnail URL for a model.
   static String thumbnailUrl(int snapshotTimestamp, String modelId) =>
