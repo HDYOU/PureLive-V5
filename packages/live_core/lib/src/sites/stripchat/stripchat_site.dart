@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
@@ -42,8 +43,9 @@ final class StripchatSite extends LiveSite
   /// The host picked by the config race, shared by concurrent callers.
   Future<String>? _hostFuture;
 
-  /// Cached config response (CDN hosts and WebSocket info).
-  StripchatConfig? _cachedConfig;
+  /// The probed config (CDN hosts with measured response times), resolved
+  /// once and shared by every later room entry.
+  Future<StripchatConfig>? _probedFuture;
 
   @override
   String get id => _site;
@@ -84,6 +86,18 @@ final class StripchatSite extends LiveSite
     if (winner == null) throw const NetworkFailure(_site, 'no API host answered the config race');
     _cachedConfig = winner.config;
     return winner.host;
+  }
+
+  /// The raw config, resolved with the active host on the first call and
+  /// cached after.
+  StripchatConfig? _cachedConfig;
+
+  /// The raw config body (no CDN probe), from the active host's config race.
+  Future<StripchatConfig> _rawConfig() async {
+    final cached = _cachedConfig;
+    if (cached != null) return cached;
+    await _host();
+    return _cachedConfig!;
   }
 
   // Catalog -------------------------------------------------------------------
@@ -242,27 +256,6 @@ final class StripchatSite extends LiveSite
     return StripchatApi.camDetail(response.text, modelId: modelId, status: response.status);
   }
 
-  /// Get the config (CDN hosts and WebSocket info). Resolved with the active
-  /// host on the first call, cached after.
-  Future<StripchatConfig> _getConfig() async {
-    final cached = _cachedConfig;
-    if (cached != null) return cached;
-    await _host();
-    return _cachedConfig!;
-  }
-
-  /// Liveness/latency probe of every CDN host in the config (via
-  /// [StripchatApi.probed]): all `https://edge-hls.{host}/ping.m3u8` pings
-  /// run in parallel with a 10 s timeout each, the surviving hosts carry
-  /// their response times and the missed ones fall back to the common CDN
-  /// list, so a stream line always survives even when every probe fails.
-  Future<StripchatConfig> _probedConfig() async {
-    final config = await _getConfig();
-    final probed = await StripchatApi.probed(http, config);
-    _cachedConfig = probed;
-    return probed;
-  }
-
   /// The room with its stream (when live).
   @override
   Future<LiveRoom> getRoomDetail({required String roomId}) async {
@@ -365,6 +358,15 @@ final class StripchatSite extends LiveSite
       ),
     );
     return confirmed;
+  }
+
+  /// The probed config (CDN hosts with measured response times), resolved
+  /// once and shared by every later room entry.
+  Future<StripchatConfig> _probedConfig() => _probedFuture ??= _probeOnce();
+
+  Future<StripchatConfig> _probeOnce() async {
+    final config = await _rawConfig();
+    return StripchatApi.probed(http, config);
   }
 
   /// Recording: detail with stream, same as room entry.
