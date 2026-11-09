@@ -532,59 +532,77 @@ abstract final class StripchatApi {
     if (rows.isEmpty) return const [];
     final models = <String, StripchatModel>{};
     for (final raw in rows) {
-      final m = _object(raw);
-      if (m == null) continue;
-      final username = jsonString(m['username'])?.trim();
-      if (username == null || username.isEmpty || !isUsername(username)) continue;
-      final id = jsonInt(m['id']);
-      if (id == null || id <= 0) continue;
-      final isLive = m['isLive'] == true;
-      final statusStr = jsonString(m['status']) ?? 'public';
-      final viewers = jsonInt(m['viewersCount']) ?? 0;
-      final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
-      final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
-      final startedAt = _parseStartedAt(m['statusChangedAt'] ?? m['startTime']);
-      final title = (jsonString(m['groupShowTopic']) ?? '').isNotEmpty
-          ? jsonString(m['groupShowTopic'])!
-          : (jsonString(m['topic']) ?? '');
-      final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
-      models[username.toLowerCase()] = StripchatModel(
-        username: username,
-        modelId: id,
-        isLive: isLive,
-        status: statusStr,
-        viewersCount: viewers,
-        avatarUrl: avatar,
-        popularSnapshotTimestamp: snapshotTs,
-        startedAt: startedAt,
-        title: title,
-        description: description,
-      );
+      if (_modelRow(raw) case final model?) {
+        models[model.username.toLowerCase()] = model;
+      }
     }
     return List.unmodifiable(models.values);
   }
 
-  /// A single model card from the models endpoint.
-  static StripchatModel modelCard(String body, {int status = 200}) {
-    final root = _root(body, what: 'model-card', status: status);
-    final row = _object(root['model']);
-    if (row == null) throw ApiChanged(_site, 'model-card: no model (${_snippet(body)})');
-    final username = jsonString(row['username'])?.trim();
-    if (username == null || username.isEmpty || !isUsername(username)) {
-      throw ApiChanged(_site, 'model-card: invalid username (${_snippet(body)})');
+  /// The `/api/front/guests/watch-history` endpoint: batch model cards keyed
+  /// by numeric id, one list per batch of up to [watchHistoryBatchSize].
+  static Uri watchHistoryUrl(String host, List<int> modelIds) {
+    final query = <String, String>{
+      for (var i = 0; i < modelIds.length; i++) 'modelsIds[$i]': '${modelIds[i]}',
+      'keepSorting': '1',
+      'limit': '${watchHistoryBatchSize}',
+      'offset': '0',
+    };
+    return Uri.https(host, '/api/front/guests/watch-history', query);
+  }
+
+  /// Maximum models per watch-history batch request.
+  static const int watchHistoryBatchSize = 60;
+
+  /// Split [modelIds] into batches of at most [watchHistoryBatchSize].
+  static List<List<int>> watchHistoryBatches(List<int> modelIds) {
+    final ids = modelIds.toSet().toList();
+    final batches = <List<int>>[];
+    for (var i = 0; i < ids.length; i += watchHistoryBatchSize) {
+      batches.add(ids.sublist(i, i + watchHistoryBatchSize > ids.length ? ids.length : i + watchHistoryBatchSize));
     }
-    final id = jsonInt(row['id']);
-    if (id == null || id <= 0) throw ApiChanged(_site, 'model-card: no id (${_snippet(body)})');
-    final isLive = row['isLive'] == true;
-    final statusStr = jsonString(row['status']) ?? 'public';
-    final viewers = jsonInt(row['viewersCount']) ?? 0;
-    final avatar = normalizeImageUrl(row['avatarUrl'] ?? '');
-    final snapshotTs = jsonInt(row['popularSnapshotTimestamp']) ?? 0;
-    final startedAt = _parseStartedAt(row['statusChangedAt'] ?? row['startTime']);
-    final title = (jsonString(row['groupShowTopic']) ?? '').isNotEmpty
-        ? jsonString(row['groupShowTopic'])!
-        : (jsonString(row['topic']) ?? '');
-    final description = decodeHtmlEntities(jsonString(row['description']) ?? '');
+    return batches;
+  }
+
+  /// Parse one `/api/front/guests/watch-history` answer into model cards.
+  /// Same row shape as [modelsList]; returns an empty list on a bad answer so
+  /// one batch failing never wipes the confirmed rooms of the other batches.
+  static List<StripchatModel> modelsWatchHistory(String body, {int status = 200}) {
+    if (status < 200 || status >= 300) return const [];
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return const [];
+    }
+    if (decoded is! Map<String, dynamic>) return const [];
+    final rows = _list(decoded['models']);
+    if (rows.isEmpty) return const [];
+    return [
+      for (final row in rows)
+        if (_modelRow(row) case final model?) model,
+    ];
+  }
+
+  /// One model row from a model-listing endpoint, or null when the row is
+  /// not a usable model card (bad username or id).
+  static StripchatModel? _modelRow(Object? raw) {
+    final m = _object(raw);
+    if (m == null) return null;
+    final username = jsonString(m['username'])?.trim();
+    if (username == null || username.isEmpty || !isUsername(username)) return null;
+    final id = jsonInt(m['id']);
+    if (id == null || id <= 0) return null;
+    final isLive = m['isLive'] == true;
+    final statusStr = jsonString(m['status']) ?? 'public';
+    final viewers = jsonInt(m['viewersCount']) ?? 0;
+    final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
+    final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
+    final startedAt = _parseStartedAt(m['statusChangedAt'] ?? m['startTime']);
+    final title = (jsonString(m['groupShowTopic']) ?? '').isNotEmpty
+        ? jsonString(m['groupShowTopic'])!
+        : (jsonString(m['topic']) ?? '');
+    final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
     return StripchatModel(
       username: username,
       modelId: id,
@@ -597,6 +615,15 @@ abstract final class StripchatApi {
       title: title,
       description: description,
     );
+  }
+
+  /// A single model card from the models endpoint.
+  static StripchatModel modelCard(String body, {int status = 200}) {
+    final root = _root(body, what: 'model-card', status: status);
+    final row = _object(root['model']);
+    final model = _modelRow(row);
+    if (model == null) throw ApiChanged(_site, 'model-card: no model (${_snippet(body)})');
+    return model;
   }
 
   // Cam detail ----------------------------------------------------------------
@@ -678,34 +705,25 @@ abstract final class StripchatApi {
     if (rows.isEmpty) return const [];
     final models = <String, StripchatModel>{};
     for (final raw in rows) {
-      final m = _object(raw);
-      if (m == null) continue;
-      final username = jsonString(m['username'])?.trim();
-      if (username == null || username.isEmpty || !isUsername(username)) continue;
-      final id = jsonInt(m['id']);
-      if (id == null || id <= 0) continue;
-      final isLive = m['isLive'] == true;
-      final statusStr = jsonString(m['status']) ?? 'public';
-      final viewers = jsonInt(m['viewersCount']) ?? 0;
-      final avatar = normalizeImageUrl(m['avatarUrl'] ?? '');
-      final snapshotTs = jsonInt(m['popularSnapshotTimestamp']) ?? 0;
-      final startedAt = _parseStartedAt(m['statusChangedAt'] ?? m['startTime']);
-      final title = (jsonString(m['topic']) ?? '').isNotEmpty
-          ? jsonString(m['topic'])!
-          : (jsonString(m['groupShowTopic']) ?? '');
-      final description = decodeHtmlEntities(jsonString(m['description']) ?? '');
-      models[username.toLowerCase()] = StripchatModel(
-        username: username,
-        modelId: id,
-        isLive: isLive,
-        status: statusStr,
-        viewersCount: viewers,
-        avatarUrl: avatar,
-        popularSnapshotTimestamp: snapshotTs,
-        startedAt: startedAt,
-        title: title,
-        description: description,
-      );
+      // Search rows prefer `topic` for the title, the listing helpers use
+      // `groupShowTopic`; parse via the shared row then override the title.
+      if (_modelRow(raw) case final model?) {
+        final topic = jsonString(_object(raw)?['topic']);
+        models[model.username.toLowerCase()] = topic != null && topic.isNotEmpty
+            ? StripchatModel(
+                username: model.username,
+                modelId: model.modelId,
+                isLive: model.isLive,
+                status: model.status,
+                viewersCount: model.viewersCount,
+                avatarUrl: model.avatarUrl,
+                popularSnapshotTimestamp: model.popularSnapshotTimestamp,
+                startedAt: model.startedAt,
+                title: topic,
+                description: model.description,
+              )
+            : model;
+      }
     }
     return List.unmodifiable(models.values);
   }
