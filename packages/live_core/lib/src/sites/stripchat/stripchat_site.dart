@@ -14,8 +14,9 @@ const _site = 'stripchat';
 /// them). The catalog has one category with sort-area children. Lists come
 /// from `/api/front/v2/models` (recommendations) or filtered by sort tag.
 /// Search reads suggestion matches. Room entry asks the user ID, then the
-/// cam detail and config (for CDN hosts and WebSocket), then downloads the
-/// HLS master playlist.
+/// cam detail and config (for CDN hosts and WebSocket); stream qualities and
+/// playback lines are resolved on demand, fetching every CDN master in
+/// parallel rather than one at a time.
 ///
 /// The platform answers from several mirror domains ([StripchatApi.apiHosts]);
 /// a first request races them all on the config endpoint and every API call
@@ -288,21 +289,17 @@ final class StripchatSite extends LiveSite
     final probedConfig = await _probedConfig();
     final masters = StripchatApi.masterUris(cam.streamName, probedConfig);
     if (masters.isEmpty || cam.streamName.isEmpty) return room;
-    // Fetch the primary master for initial quality listing.
-    final master = masters.first;
-    final response = await _get(master);
-    final variants = StripchatApi.parseVariants(response.text, master: master, status: response.status);
-    final qualities = StripchatApi.qualitiesFromVariants(variants, username: cam.username);
+    // Qualities and variants are resolved on demand in `getPlayQualities`
+    // and `resolvePlayUrlsRaw`, which fetch every CDN master in parallel
+    // rather than one at a time.
     return room.copyWith(
       data: StripchatRoomData(
         modelId: cam.modelId,
         username: cam.username,
         streamName: cam.streamName,
-        master: master,
+        master: masters.first,
         masterUris: masters,
         isLive: true,
-        qualities: qualities,
-        variants: variants,
         apiHost: host,
       ),
       danmakuData: StripchatDanmakuArgs(
@@ -382,11 +379,62 @@ final class StripchatSite extends LiveSite
 
   // Streams -------------------------------------------------------------------
 
+  /// Fetch every CDN master in parallel and return the per-CDN variants
+  /// lists plus the highest height across all of them.
+  Future<(List<List<StripchatVariant>>, int)> _allVariants(
+    StripchatRoomData data,
+  ) async {
+    Future<List<StripchatVariant>> fetch(Uri master) async {
+      try {
+        final r = await _get(master);
+        return StripchatApi.parseVariants(r.text, master: master, status: r.status);
+      } catch (_) {
+        // A CDN that fails leaves no line for that host.
+        return const <StripchatVariant>[];
+      }
+    }
+
+    final allVariants = await Future.wait([for (final m in data.masterUris) fetch(m)]);
+    var maxHeight = 0;
+    for (final list in allVariants) {
+      for (final v in list) {
+        if (v.height > maxHeight) maxHeight = v.height;
+      }
+    }
+    return (allVariants, maxHeight);
+  }
+
+  /// Build the quality tiers from the per-CDN variant lists: one tier per
+  /// distinct height, ordered from the highest to the lowest.
+  static List<LivePlayQuality> _qualitiesFrom(List<List<StripchatVariant>> allVariants) {
+    final heights = <int>{};
+    for (final list in allVariants) {
+      for (final v in list) {
+        if (v.height > 0) heights.add(v.height);
+      }
+    }
+    final tiers = heights.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final height in tiers)
+        LivePlayQuality(
+          quality: '${height}p',
+          id: '$height',
+          data: height,
+          sort: height * 10000000,
+        ),
+    ];
+  }
+
   @override
   Future<List<LivePlayQuality>> getPlayQualities({required LiveRoom detail}) async {
     final data = detail.data as StripchatRoomData?;
     if (data == null) throw const StreamUnavailable(_site, 'no stream data');
-    return data.qualities;
+    if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
+    // Fetch every CDN master in true parallel, list the distinct tiers
+    // (heights) across all CDNs.
+    final (allVariants, _) = await _allVariants(data);
+    if (allVariants.every((list) => list.isEmpty)) throw const StreamUnavailable(_site, 'no variant');
+    return _qualitiesFrom(allVariants);
   }
 
   @override
@@ -401,42 +449,32 @@ final class StripchatSite extends LiveSite
     final data = detail.data as StripchatRoomData?;
     if (data == null) throw const StreamUnavailable(_site, 'no stream data');
     if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
-    // Fetch all CDN masters in parallel, collect variants per height.
-    final allVariants = <int, List<StripchatVariant>>{};
-    await Future.forEach(data.masterUris, (master) async {
-      try {
-        final r = await _get(master);
-        final variants = StripchatApi.parseVariants(r.text, master: master, status: r.status);
-        for (final v in variants) {
-          allVariants.putIfAbsent(v.height, () => []).add(v);
-        }
-      } catch (_) {
-        // Skip CDN that fails.
-      }
-    });
-    // For the requested quality height, pick best variant per CDN URL.
-    final height = int.tryParse('${quality.id}') ?? 0;
+    // Fetch all CDN masters in true parallel, pick the variant at the
+    // requested quality height from each CDN.
+    final (allVariants, _) = await _allVariants(data);
+    final height = quality.data is int ? quality.data as int : int.tryParse('${quality.id}') ?? 0;
     if (height <= 0) throw StreamUnavailable(_site, 'invalid quality id $quality.id');
-    final variants = allVariants[height];
-    if (variants == null || variants.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
-    final seen = <String>{};
     final lines = <LivePlayLine>[];
-    for (var i = 0; i < variants.length; i++) {
-      final url = variants[i].url;
-      if (!seen.add(url)) continue;
-      lines.add(
-        LivePlayLine(
-          url,
-          headers: {
-            'user-agent': StripchatApi.headers['user-agent']!,
-            'origin': 'https://${data.apiHost}',
-            'referer': 'https://${data.apiHost}/${data.username}/',
-          },
-          format: StreamFormat.hls,
-          codec: variants[i].codec,
-          lineId: '${data.streamName}-cdn$i',
-        ),
-      );
+    var i = 0;
+    for (final variants in allVariants) {
+      for (final v in variants) {
+        if (v.height != height) continue;
+        lines.add(
+          LivePlayLine(
+            v.url,
+            headers: {
+              'user-agent': StripchatApi.headers['user-agent']!,
+              'origin': 'https://${data.apiHost}',
+              'referer': 'https://${data.apiHost}/${data.username}/',
+            },
+            format: StreamFormat.hls,
+            codec: v.codec,
+            lineId: '${data.streamName}-cdn$i',
+          ),
+        );
+        break;
+      }
+      i++;
     }
     if (lines.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
     return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.selectionId);

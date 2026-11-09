@@ -1,8 +1,10 @@
 // StripchatSite over the recorded responses (ReplayHttp): catalog, directory,
 // room entry, streams, search and links.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:live_core/live_core.dart';
+import 'package:live_net/live_net.dart';
 import 'package:live_net/testing.dart';
 import 'package:test/test.dart';
 
@@ -15,6 +17,48 @@ ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySa
       status: status,
       bytes: utf8.encode(body is String ? body : jsonEncode(body)),
     );
+
+/// A [LiveHttp] that counts the peak number of in-flight `send` calls and the
+/// number of CDN master requests seen.
+final class _ConcurrentCounter implements LiveHttp {
+  new(this.inner);
+
+  final LiveHttp inner;
+
+  int _inFlight = 0;
+  int peak = 0;
+  int cdnMasters = 0;
+
+  static bool _isCdnMaster(Uri url) =>
+      url.path.startsWith('/hls/') && url.path.endsWith('_auto.m3u8');
+
+  @override
+  Future<LiveResponse> send(LiveRequest request) async {
+    _inFlight++;
+    peak = peak > _inFlight ? peak : _inFlight;
+    if (_isCdnMaster(request.url)) cdnMasters++;
+    try {
+      return await inner.send(request);
+    } finally {
+      _inFlight--;
+    }
+  }
+
+  @override
+  Future<LiveStreamedResponse> open(LiveRequest request) async {
+    _inFlight++;
+    peak = peak > _inFlight ? peak : _inFlight;
+    if (_isCdnMaster(request.url)) cdnMasters++;
+    try {
+      return await inner.open(request);
+    } finally {
+      _inFlight--;
+    }
+  }
+
+  @override
+  void close() => inner.close();
+}
 
 typedef _Setup = ({StripchatSite site, ReplayHttp http});
 
@@ -106,7 +150,6 @@ void main() {
         'S05-userid',
         'S03-cam-live',
         'S09-members',
-        'S04-master',
         'S08-config',
       ], withCdnPings: true);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
@@ -122,7 +165,7 @@ void main() {
       expect(data.modelId, 12345678);
       expect(data.streamName, 'prettygirl-webcam');
       expect(data.isLive, isTrue);
-      expect(data.qualities, hasLength(3));
+      expect(data.masterUris, isNotEmpty);
     });
 
     test('offline room: no stream data', () async {
@@ -142,7 +185,6 @@ void main() {
         'S05-userid',
         'S03-cam-live',
         'S09-members',
-        'S04-master',
         'S08-config',
       ], withCdnPings: true);
       // Two room entries on one adapter: the probe is done only on the
@@ -308,32 +350,91 @@ void main() {
   });
 
   group('streams', () {
-    test('getPlayQualities returns qualities from room data', () async {
+    /// Six CDN master samples so a parallel fetch of every CDN has an answer
+    /// for each of the six hosts in the S08 config.
+    List<ReplaySample> _masterForAllCdns() => [
+          for (final h in [
+            'doppiocdn.org',
+            'doppiocdn.com',
+            'doppiocdn1.com',
+            'doppiocdn.media',
+            'doppiocdn.net',
+            'doppiocdn.live',
+          ])
+            _synthetic(
+              'https://edge-hls.$h/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8?preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX',
+              '#EXTM3U\n'
+                  '#EXT-X-STREAM-INF:BANDWIDTH=4500000,RESOLUTION=1920x1080,FRAME-RATE=30\n'
+                  '1080p.m3u8\n'
+                  '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720,FRAME-RATE=30\n'
+                  '720p.m3u8\n'
+                  '#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480,FRAME-RATE=30\n'
+                  '480p.m3u8\n',
+            ),
+        ];
+
+    test('getPlayQualities returns the distinct tiers across all CDNs', () async {
       final setup = _setup(
-        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S08-config'],
+        extra: [ReplaySample.load('$_root/S04-master'), ..._masterForAllCdns()],
         withCdnPings: true,
       );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
-      expect(qualities, hasLength(3));
-      expect(qualities[0].quality, '1080p');
+      expect(qualities.map((q) => q.quality), ['1080p', '720p', '480p']);
+      // Every CDN answered, so the top tier carries a line per CDN.
+      final lines = await setup.site.getPlayUrls(detail: room, quality: qualities.first);
+      expect(lines, hasLength(6));
     });
 
-    test('getPlayUrls returns variant playlist URL', () async {
+    test('getPlayUrls returns one line per answering CDN', () async {
       final setup = _setup(
-        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S08-config'],
+        extra: [ReplaySample.load('$_root/S04-master'), ..._masterForAllCdns()],
         withCdnPings: true,
       );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
       final qualities = await setup.site.getPlayQualities(detail: room);
       final urls = await setup.site.getPlayUrls(detail: room, quality: qualities.first);
-      expect(urls, hasLength(1));
-      expect(urls[0], contains('edge-hls.doppiocdn.org'));
+      // Six CDNs each contribute a 1080p line.
+      expect(urls, hasLength(6));
+      for (final h in [
+        'doppiocdn.org',
+        'doppiocdn.com',
+        'doppiocdn1.com',
+        'doppiocdn.media',
+        'doppiocdn.net',
+        'doppiocdn.live',
+      ]) {
+        expect(urls, anyElement(contains('edge-hls.$h')));
+      }
+    });
+
+    test('a failed CDN drops out of the lines', () async {
+      final failing = _synthetic(
+        'https://edge-hls.doppiocdn1.com/hls/prettygirl-webcam/master/prettygirl-webcam_auto.m3u8?preferredVideoCodec=av1&psch=v2&pkey=bXorqTB5ZhP5FcpX',
+        '',
+        status: 404,
+      );
+      // The 404 sample comes first so it wins the match for doppiocdn1.com;
+      // the rest of the CDNs answer with the all-CDN masters.
+      final setup = _setup(
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S08-config'],
+        extra: [failing, ..._masterForAllCdns(), ReplaySample.load('$_root/S04-master')],
+        withCdnPings: true,
+      );
+      final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final qualities = await setup.site.getPlayQualities(detail: room);
+      final urls = await setup.site.getPlayUrls(detail: room, quality: qualities.first);
+      // The 404 CDN is skipped, so five lines instead of six.
+      expect(urls, hasLength(5));
+      expect(urls, everyElement(isNot(contains('edge-hls.doppiocdn1.com'))));
     });
 
     test('resolvePlayUrlsRaw confirms the requested quality', () async {
       final setup = _setup(
-        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master', 'S08-config'],
+        ['S05-userid', 'S03-cam-live', 'S09-members', 'S08-config'],
+        extra: [ReplaySample.load('$_root/S04-master'), ..._masterForAllCdns()],
         withCdnPings: true,
       );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
@@ -353,6 +454,26 @@ void main() {
       );
     });
 
+    test('the six CDN masters are fetched in true parallel', () async {
+      final counter = _ConcurrentCounter(
+        ReplayHttp([
+          ..._masterForAllCdns(),
+          ..._cdnPings(),
+          ReplaySample.load('$_root/S05-userid'),
+          ReplaySample.load('$_root/S03-cam-live'),
+          ReplaySample.load('$_root/S09-members'),
+          ReplaySample.load('$_root/S08-config'),
+        ]),
+      );
+      final site = StripchatSite(counter, [StripchatApi.apiHost]);
+      final room = await site.getRoomDetail(roomId: 'prettygirl');
+      await site.getPlayQualities(detail: room);
+      // All six CDN masters were requested and at least six were in flight
+      // at once (not one after another).
+      expect(counter.cdnMasters, 6);
+      expect(counter.peak, greaterThanOrEqualTo(6));
+    });
+
     test('CDN masters are deduped, ordered by response time with a fallback for missed hosts', () async {
       final config = ReplaySample.load('$_root/S08-config');
       // Provide pings for all six distinct CDN hosts in the config. The
@@ -367,7 +488,7 @@ void main() {
         _synthetic('https://edge-hls.doppiocdn.live/ping.m3u8', '#EXTM3U\n'),
       ];
       final setup = _setup(
-        ['S05-userid', 'S03-cam-live', 'S09-members', 'S04-master'],
+        ['S05-userid', 'S03-cam-live', 'S09-members'],
         extra: pings,
       );
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
