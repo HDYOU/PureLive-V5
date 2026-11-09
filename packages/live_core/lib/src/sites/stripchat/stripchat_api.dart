@@ -662,7 +662,7 @@ abstract final class StripchatApi {
   // Search --------------------------------------------------------------------
 
   /// `/api/front/v4/models/search/suggestion`: matching models.
-  /// The response is a JSON array of models (not wrapped in an object).
+  /// The response wraps the list in an object: `{"models": [...]}`.
   static List<StripchatModel> searchModels(String body, {int status = 200}) {
     if (status < 200 || status >= 300) throw ApiChanged(_site, 'search: HTTP $status');
     Object? decoded;
@@ -671,7 +671,10 @@ abstract final class StripchatApi {
     } on FormatException {
       decoded = null;
     }
-    final rows = decoded is List ? decoded : (decoded is Map ? _list(decoded) : const <dynamic>[]);
+    if (decoded is Map) {
+      decoded = decoded['models'];
+    }
+    final rows = decoded is List ? decoded : const <dynamic>[];
     if (rows.isEmpty) return const [];
     final models = <String, StripchatModel>{};
     for (final raw in rows) {

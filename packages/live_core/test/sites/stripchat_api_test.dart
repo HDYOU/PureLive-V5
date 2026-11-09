@@ -281,6 +281,17 @@ void main() {
     test('empty response returns empty list', () {
       expect(StripchatApi.searchModels('[]'), isEmpty);
     });
+
+    test('parses the wrapped models object', () {
+      final models = StripchatApi.searchModels(jsonEncode({
+        'models': [
+          {'id': 123, 'username': 'winter11', 'isLive': false, 'status': 'public', 'topic': 'winter room'},
+        ],
+      }));
+      expect(models, hasLength(1));
+      expect(models[0].username, 'winter11');
+      expect(models[0].title, 'winter room');
+    });
   });
 
   group('S09 members', () {
