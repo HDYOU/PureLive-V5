@@ -57,11 +57,8 @@ final class StripchatRoomData {
     required this.master,
     required this.masterUris,
     required this.isLive,
-    required List<LivePlayQuality> qualities,
-    required List<StripchatVariant> variants,
     required this.apiHost,
-  })  : qualities = List.unmodifiable(qualities),
-        variants = List.unmodifiable(variants);
+  });
 
   /// The model's numeric id.
   final int modelId;
@@ -72,20 +69,14 @@ final class StripchatRoomData {
   /// The stream name used in the HLS path.
   final String streamName;
 
-  /// The primary HLS master playlist URI (first CDN).
+  /// The primary HLS master playlist URI (fastest CDN).
   final Uri master;
 
-  /// All CDN master URIs, first is primary.
+  /// All CDN master URIs, ordered fastest first.
   final List<Uri> masterUris;
 
   /// Whether the model is currently live.
   final bool isLive;
-
-  /// Qualities of [master], best first.
-  final List<LivePlayQuality> qualities;
-
-  /// All parsed variant entries from the primary master.
-  final List<StripchatVariant> variants;
 
   /// The API host that served the config, used for origin/referer headers.
   final String apiHost;
