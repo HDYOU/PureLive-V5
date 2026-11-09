@@ -313,6 +313,56 @@ void main() {
     });
   });
 
+  group('watch-history batch', () {
+    test('watchHistoryUrl builds the indexed ids query', () {
+      final url = StripchatApi.watchHistoryUrl('zh.virtualtaboo.live', [228785160, 222064808]);
+      expect(url.host, 'zh.virtualtaboo.live');
+      expect(url.path, '/api/front/guests/watch-history');
+      expect(url.queryParameters['modelsIds[0]'], '228785160');
+      expect(url.queryParameters['modelsIds[1]'], '222064808');
+      expect(url.queryParameters['keepSorting'], '1');
+      expect(url.queryParameters['limit'], '${StripchatApi.watchHistoryBatchSize}');
+      expect(url.queryParameters['offset'], '0');
+    });
+
+    test('watchHistoryBatches chunks 60 at a time, deduped', () {
+      final ids = [for (var i = 0; i < 129; i++) i + 1, 1];
+      final batches = StripchatApi.watchHistoryBatches(ids);
+      expect(batches.map((b) => b.length), [60, 60, 9]);
+      expect(batches.expand((b) => b).toSet(), ids.toSet());
+    });
+
+    test('modelsWatchHistory parses the wrapped models list', () {
+      final models = StripchatApi.modelsWatchHistory(jsonEncode({
+        'models': [
+          {
+            'id': 228785160,
+            'username': 'DDOKOK',
+            'isLive': true,
+            'status': 'public',
+            'viewersCount': 7,
+            'avatarUrl': '',
+            'popularSnapshotTimestamp': 1794186105,
+            'topic': '',
+          },
+          {'id': 222064808, 'username': 'xiaowan_xx', 'isLive': false, 'status': 'off', 'viewersCount': 0},
+        ],
+        'totalCount': 2,
+      }));
+      expect(models, hasLength(2));
+      expect(models[0].username, 'DDOKOK');
+      expect(models[0].isLive, isTrue);
+      expect(models[1].username, 'xiaowan_xx');
+      expect(models[1].status, 'off');
+    });
+
+    test('modelsWatchHistory is tolerant of a bad answer', () {
+      expect(StripchatApi.modelsWatchHistory('<html>'), isEmpty);
+      expect(StripchatApi.modelsWatchHistory('{}'), isEmpty);
+      expect(StripchatApi.modelsWatchHistory('{"models":[]}', status: 404), isEmpty);
+    });
+  });
+
   group('helpers', () {
     test('isUsername validates user names', () {
       expect(StripchatApi.isUsername('prettygirl'), isTrue);

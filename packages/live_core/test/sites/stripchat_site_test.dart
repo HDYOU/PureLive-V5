@@ -7,6 +7,7 @@ import 'package:live_net/testing.dart';
 import 'package:test/test.dart';
 
 const _root = '../../fixtures/stripchat';
+const _site = 'stripchat';
 
 ReplaySample _synthetic(String url, Object body, {int status = 200}) => ReplaySample(
       method: 'GET',
@@ -182,6 +183,55 @@ void main() {
         setup.http.requests.map((r) => r.url.path),
         isNot(contains('/api/front/users/user-ids/prettygirl')),
       );
+    });
+  });
+
+  group('batch refresh', () {
+    test('single room: no request, empty result', () async {
+      final setup = _setup([], autoConfig: false);
+      final room = LiveRoom(platform: _site, roomId: 'prettygirl?uid=12345678', userId: '12345678');
+      expect(await setup.site.refreshFollowBatch([room]), isEmpty);
+      expect(setup.http.requests, isEmpty);
+    });
+
+    test('two rooms: one watch-history request confirms both', () async {
+      final setup = _setup([], extra: [
+        _synthetic(
+          'https://zh.virtualtaboo.live/api/front/guests/watch-history?modelsIds%5B0%5D=12345678&modelsIds%5B1%5D=87654321&keepSorting=1&limit=60&offset=0',
+          {
+            'models': [
+              {'id': 12345678, 'username': 'prettygirl', 'isLive': true, 'status': 'public', 'viewersCount': 12},
+              {'id': 87654321, 'username': 'cutegirl99', 'isLive': false, 'status': 'off', 'viewersCount': 0},
+            ],
+            'totalCount': 2,
+          },
+        ),
+      ]);
+      final a = LiveRoom(platform: _site, roomId: 'prettygirl?uid=12345678', userId: '12345678');
+      final b = LiveRoom(platform: _site, roomId: 'cutegirl99?uid=87654321', userId: '87654321');
+      final result = await setup.site.refreshFollowBatch([a, b]);
+      expect(result.keys, {a.identityKey, b.identityKey});
+      expect(result[a.identityKey]?.isLiveNow, isTrue);
+      expect(result[a.identityKey]?.totalViewers, '12');
+      expect(result[b.identityKey]?.isLiveNow, isFalse);
+      // The config race plus one batch request.
+      final batch = setup.http.requests.singleWhere((r) => r.url.path == '/api/front/guests/watch-history');
+      expect(batch.url.queryParameters['modelsIds[0]'], '12345678');
+      expect(batch.url.queryParameters['modelsIds[1]'], '87654321');
+    });
+
+    test('unconfirmed rooms are left for the individual refresh', () async {
+      final setup = _setup([], extra: [
+        _synthetic(
+          'https://zh.virtualtaboo.live/api/front/guests/watch-history?modelsIds%5B0%5D=12345678&modelsIds%5B1%5D=87654321&keepSorting=1&limit=60&offset=0',
+          {'models': [{'id': 12345678, 'username': 'prettygirl', 'isLive': true, 'status': 'public'}], 'totalCount': 1},
+        ),
+      ]);
+      final a = LiveRoom(platform: _site, roomId: 'prettygirl?uid=12345678', userId: '12345678');
+      final b = LiveRoom(platform: _site, roomId: 'cutegirl99?uid=87654321', userId: '87654321');
+      final result = await setup.site.refreshFollowBatch([a, b]);
+      // Only the confirmed room comes back.
+      expect(result.keys, {a.identityKey});
     });
   });
 

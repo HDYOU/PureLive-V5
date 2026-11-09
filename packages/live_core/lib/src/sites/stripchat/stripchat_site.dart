@@ -23,6 +23,7 @@ final class StripchatSite extends LiveSite
     with LiveSiteLinks
     implements
         LiveSiteRoomRefresher,
+        LiveSiteFollowBatchRefresher,
         LiveSiteRecordRoomResolver,
         LivePlayUrlResolver,
         LivePlayRecoveryResolver,
@@ -333,6 +334,37 @@ final class StripchatSite extends LiveSite
     if (cam.introduction.isNotEmpty) room = room.copyWith(introduction: cam.introduction);
     if (cam.notice.isNotEmpty) room = room.copyWith(notice: cam.notice);
     return room;
+  }
+
+  /// Batch follow-card refresh: every requested room's status in one
+  /// `/api/front/guests/watch-history` call per batch of up to 60 ids, the
+  /// batches run in parallel. Rooms the answer does not confirm are left for
+  /// the caller to refresh individually.
+  @override
+  Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
+    final byId = <int, LiveRoom>{};
+    for (final room in rooms) {
+      final parsed = StripchatApi.parseRoomId(room.roomId);
+      final id = parsed.userId ?? int.tryParse(room.userId ?? '');
+      if (id != null && id > 0 && !byId.containsKey(id)) byId[id] = room;
+    }
+    if (byId.length < 2) return const {};
+    final host = await _host();
+    final batches = StripchatApi.watchHistoryBatches(byId.keys.toList());
+    final confirmed = <String, LiveRoom>{};
+    await Future.wait(
+      batches.map(
+        (ids) async {
+          final response = await _get(StripchatApi.watchHistoryUrl(host, ids));
+          for (final m in StripchatApi.modelsWatchHistory(response.text, status: response.status)) {
+            final room = byId[m.modelId];
+            if (room == null) continue;
+            confirmed[room.identityKey] = _card(m, isLive: m.isLive && StripchatApi.isLiveStatus(m.status));
+          }
+        },
+      ),
+    );
+    return confirmed;
   }
 
   /// Recording: detail with stream, same as room entry.
