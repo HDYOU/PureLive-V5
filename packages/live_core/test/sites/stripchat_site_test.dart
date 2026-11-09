@@ -137,6 +137,25 @@ void main() {
       expect(room.data, isNull);
     });
 
+    test('CDN ping runs once, shared by every later room entry', () async {
+      final setup = _setup([
+        'S05-userid',
+        'S03-cam-live',
+        'S09-members',
+        'S04-master',
+        'S08-config',
+      ], withCdnPings: true);
+      // Two room entries on one adapter: the probe is done only on the
+      // first, the second reuses the cached probed config.
+      await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final firstPingCount = setup.http.requests.where((r) => r.url.path == '/ping.m3u8').length;
+      expect(firstPingCount, 6);
+      await setup.site.getRoomDetail(roomId: 'prettygirl');
+      final secondPingCount = setup.http.requests.where((r) => r.url.path == '/ping.m3u8').length;
+      // No new pings on the second entry.
+      expect(secondPingCount, firstPingCount);
+    });
+
     test('missing model is NotFound', () async {
       final setup = _setup(['S06-notfound']);
       await expectLater(
