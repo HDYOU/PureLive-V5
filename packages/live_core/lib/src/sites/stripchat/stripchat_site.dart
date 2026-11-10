@@ -379,11 +379,12 @@ final class StripchatSite extends LiveSite
 
   // Streams -------------------------------------------------------------------
 
-  /// Fetch every CDN master in parallel and return the per-CDN variants
-  /// lists plus the highest height across all of them.
-  Future<(List<List<StripchatVariant>>, int)> _allVariants(
-    StripchatRoomData data,
-  ) async {
+  /// Fetch every CDN master in parallel and return the per-CDN variant lists.
+  /// Each host's variants are kept separate (one list per [data.masterUris]
+  /// entry) so a height tier can collect its line from every CDN that has
+  /// one. A host that fails contributes an empty list, it does not drag the
+  /// others down.
+  Future<List<List<StripchatVariant>>> _allVariants(StripchatRoomData data) async {
     Future<List<StripchatVariant>> fetch(Uri master) async {
       try {
         final r = await _get(master);
@@ -394,66 +395,13 @@ final class StripchatSite extends LiveSite
       }
     }
 
-    final allVariants = await Future.wait([for (final m in data.masterUris) fetch(m)]);
-    var maxHeight = 0;
-    for (final list in allVariants) {
-      for (final v in list) {
-        if (v.height > maxHeight) maxHeight = v.height;
-      }
-    }
-    return (allVariants, maxHeight);
+    return await Future.wait([for (final m in data.masterUris) fetch(m)]);
   }
 
-  /// Build the quality tiers from the per-CDN variant lists: one tier per
-  /// distinct height, ordered from the highest to the lowest.
-  static List<LivePlayQuality> _qualitiesFrom(List<List<StripchatVariant>> allVariants) {
-    final heights = <int>{};
-    for (final list in allVariants) {
-      for (final v in list) {
-        if (v.height > 0) heights.add(v.height);
-      }
-    }
-    final tiers = heights.toList()..sort((a, b) => b.compareTo(a));
-    return [
-      for (final height in tiers)
-        LivePlayQuality(
-          quality: '${height}p',
-          id: '$height',
-          data: height,
-          sort: height * 10000000,
-        ),
-    ];
-  }
-
-  @override
-  Future<List<LivePlayQuality>> getPlayQualities({required LiveRoom detail}) async {
-    final data = detail.data as StripchatRoomData?;
-    if (data == null) throw const StreamUnavailable(_site, 'no stream data');
-    if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
-    // Fetch every CDN master in true parallel, list the distinct tiers
-    // (heights) across all CDNs.
-    final (allVariants, _) = await _allVariants(data);
-    if (allVariants.every((list) => list.isEmpty)) throw const StreamUnavailable(_site, 'no variant');
-    return _qualitiesFrom(allVariants);
-  }
-
-  @override
-  Future<List<String>> getPlayUrls({required LiveRoom detail, required LivePlayQuality quality}) async =>
-      (await resolvePlayUrlsRaw(detail: detail, quality: quality)).urls;
-
-  @override
-  Future<LivePlayUrlResolution> resolvePlayUrlsRaw({
-    required LiveRoom detail,
-    required LivePlayQuality quality,
-  }) async {
-    final data = detail.data as StripchatRoomData?;
-    if (data == null) throw const StreamUnavailable(_site, 'no stream data');
-    if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
-    // Fetch all CDN masters in true parallel, pick the variant at the
-    // requested quality height from each CDN.
-    final (allVariants, _) = await _allVariants(data);
-    final height = quality.data is int ? quality.data as int : int.tryParse('${quality.id}') ?? 0;
-    if (height <= 0) throw StreamUnavailable(_site, 'invalid quality id $quality.id');
+  /// One line per answering CDN for a quality's [height] (the [LivePlayLine]
+  /// of each [data.masterUris] host that offers that height, in master order,
+  /// which is fastest-CDN order from the config probe).
+  static List<LivePlayLine> _linesFor(int height, List<List<StripchatVariant>> allVariants, StripchatRoomData data) {
     final lines = <LivePlayLine>[];
     var i = 0;
     for (final variants in allVariants) {
@@ -476,7 +424,70 @@ final class StripchatSite extends LiveSite
       }
       i++;
     }
-    if (lines.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
+    return lines;
+  }
+
+  /// Build the quality tiers from the per-CDN variant lists: one tier per
+  /// distinct height, ordered from the highest to the lowest. Each tier's
+  /// [LivePlayQuality.data] carries the [List<LivePlayLine>] of that height
+  /// across every CDN that answers, so the playback-line fetch reads it
+  /// instead of requesting the masters again.
+  static List<LivePlayQuality> _qualitiesFrom(List<List<StripchatVariant>> allVariants, StripchatRoomData data) {
+    final byHeight = <int, List<LivePlayLine>>{};
+    for (final list in allVariants) {
+      for (final v in list) {
+        if (v.height <= 0) continue;
+        byHeight.putIfAbsent(v.height, () => <LivePlayLine>[]).add(
+          LivePlayLine(
+            v.url,
+            headers: {
+              'user-agent': StripchatApi.headers['user-agent']!,
+              'origin': 'https://${data.apiHost}',
+              'referer': 'https://${data.apiHost}/${data.username}/',
+            },
+            format: StreamFormat.hls,
+            codec: v.codec,
+            lineId: '${data.streamName}-cdn${byHeight[v.height]!.length}',
+          ),
+        );
+      }
+    }
+    final tiers = byHeight.keys.toList()..sort((a, b) => b.compareTo(a));
+    return [
+      for (final height in tiers)
+        LivePlayQuality(
+          quality: '${height}p',
+          id: '$height',
+          data: List<LivePlayLine>.unmodifiable(byHeight[height]!),
+          sort: height * 10000000,
+        ),
+    ];
+  }
+
+  @override
+  Future<List<LivePlayQuality>> getPlayQualities({required LiveRoom detail}) async {
+    final data = detail.data as StripchatRoomData?;
+    if (data == null) throw const StreamUnavailable(_site, 'no stream data');
+    if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
+    // Fetch every CDN master in true parallel; the tier list below carries
+    // each height's lines, so this is the only request for the masters.
+    final allVariants = await _allVariants(data);
+    if (allVariants.every((list) => list.isEmpty)) throw const StreamUnavailable(_site, 'no variant');
+    return _qualitiesFrom(allVariants, data);
+  }
+
+  @override
+  Future<List<String>> getPlayUrls({required LiveRoom detail, required LivePlayQuality quality}) async =>
+      (await resolvePlayUrlsRaw(detail: detail, quality: quality)).urls;
+
+  @override
+  Future<LivePlayUrlResolution> resolvePlayUrlsRaw({
+    required LiveRoom detail,
+    required LivePlayQuality quality,
+  }) async {
+    final lines = quality.data is List<LivePlayLine> ? quality.data as List<LivePlayLine> : const <LivePlayLine>[];
+    if (lines.isEmpty) throw const StreamUnavailable(_site, 'quality carries no lines');
+    // No master request: the tiers already hold this height's CDN lines.
     return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.selectionId);
   }
 
@@ -484,8 +495,19 @@ final class StripchatSite extends LiveSite
   Future<LivePlayUrlResolution> resolvePlayUrlsForRecoveryRaw({
     required LiveRoom detail,
     required LivePlayQuality quality,
-  }) =>
-      resolvePlayUrlsRaw(detail: detail, quality: quality);
+  }) async {
+    // Recovery re-reads the masters so a CDN whose answer had gone stale gets
+    // a fresh one; the result is re-attached to the tiers that follow.
+    final data = detail.data as StripchatRoomData?;
+    if (data == null) throw const StreamUnavailable(_site, 'no stream data');
+    if (data.masterUris.isEmpty) throw const StreamUnavailable(_site, 'no master uri');
+    final allVariants = await _allVariants(data);
+    final height = quality.id is int ? quality.id as int : int.tryParse('${quality.id}') ?? 0;
+    if (height <= 0) throw StreamUnavailable(_site, 'invalid quality id $quality.id');
+    final lines = _linesFor(height, allVariants, data);
+    if (lines.isEmpty) throw StreamUnavailable(_site, 'no url for quality $quality.id');
+    return LivePlayUrlResolution.lines(lines, appliedQualityData: quality.selectionId);
+  }
 
   // Helpers -------------------------------------------------------------------
 
