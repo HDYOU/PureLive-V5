@@ -445,6 +445,30 @@ void main() {
       expect(resolution.lines, isNotEmpty);
     });
 
+    test('the line fetch reuses the quality data, not a second master request', () async {
+      final counter = _ConcurrentCounter(
+        ReplayHttp([
+          ..._masterForAllCdns(),
+          ..._cdnPings(),
+          ReplaySample.load('$_root/S05-userid'),
+          ReplaySample.load('$_root/S03-cam-live'),
+          ReplaySample.load('$_root/S09-members'),
+          ReplaySample.load('$_root/S08-config'),
+        ]),
+      );
+      final site = StripchatSite(counter, [StripchatApi.apiHost]);
+      final room = await site.getRoomDetail(roomId: 'prettygirl');
+      // One quality pass, six masters in flight at once.
+      final qualities = await site.getPlayQualities(detail: room);
+      expect(counter.cdnMasters, 6);
+      expect(counter.peak, greaterThanOrEqualTo(6));
+      final before = counter.cdnMasters;
+      // The line fetch reads quality.data, so no further master request.
+      final resolution = await site.resolvePlayUrlsRaw(detail: room, quality: qualities.first);
+      expect(resolution.lines, hasLength(6));
+      expect(counter.cdnMasters, before);
+    });
+
     test('room without stream throws StreamUnavailable', () async {
       final setup = _setup(['S05-userid', 'S03-cam-offline', 'S08-config']);
       final room = await setup.site.getRoomDetail(roomId: 'prettygirl');
