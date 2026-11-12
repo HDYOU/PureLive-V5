@@ -29,14 +29,18 @@ final class IoLiveHttp implements LiveHttp {
 
   HttpClient _client(ProxyRoute route) => _clients.putIfAbsent(
     route,
-    () => HttpClient()
-      ..connectionTimeout = connectTimeout
-      ..idleTimeout = const Duration(seconds: 30)
-      ..autoUncompress = true
-      // dart:io's own User-Agent stays for requests that set none, as under
-      // 3.x's Dio; a request's User-Agent replaces it (headers are `set`).
-      // Without any, Huya's search answers 403 (M4.D).
-      ..findProxy = (_) => route.directive,
+    () {
+      final client = HttpClient()
+        ..connectionTimeout = connectTimeout
+        ..idleTimeout = const Duration(seconds: 30)
+        ..autoUncompress = true
+        // dart:io's own User-Agent stays for requests that set none, as under
+        // 3.x's Dio; a request's User-Agent replaces it (headers are `set`).
+        // Without any, Huya's search answers 403 (M4.D).
+        ..findProxy = (_) => route.directive;
+      client.badCertificateCallback = (_, _, _) => true;
+      return client;
+    },
   );
 
   @override

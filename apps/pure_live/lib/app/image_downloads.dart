@@ -58,6 +58,7 @@ final class IsolateImageFileService extends FileService {
     final client = HttpClient()
       ..connectionTimeout = connectTimeout
       ..findProxy = (_) => directive;
+    client.badCertificateCallback = (_, _, _) => true;
     try {
       final reply = await _download(client, uri, headers).timeout(timeout);
       final bytes = reply.bytes.materialize().asUint8List();
@@ -157,6 +158,7 @@ final class _Worker {
         ..idleTimeout = const Duration(seconds: 30)
         ..connectionTimeout = connectTimeout
         ..findProxy = (_) => directive;
+      client.badCertificateCallback = (_, _, _) => true;
       try {
         final result = await _download(client, Uri.parse(url), headers);
         reply.send((id, result.status, result.headers, result.bytes));
