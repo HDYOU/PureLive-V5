@@ -1265,6 +1265,20 @@ abstract final class Settings {
     resetOutOfRange: true,
   );
 
+  /// Covers, avatars and emoticons are fetched through a CDN front (3.x
+  /// `networkImageProxy`), so they reach the image hosts from an address the
+  /// local network can open; off loads them direct.
+  static const enableImageCdnProxy = BoolSetting('enableImageCdnProxy', section: 'proxy', defaultValue: true);
+
+  /// Platform ids whose images load direct even with [enableImageCdnProxy]
+  /// (3.x `networkImageProxyExcludeList`): an empty list proxies everything.
+  static const imageCdnProxyExcludeList = StringListSetting(
+    'imageCdnProxyExcludeList',
+    section: 'proxy',
+    defaultValue: [],
+    tidy: true,
+  );
+
   // ---- window, exit, startup (window_size_controller.dart, exit_settings_controller.dart, startup_controller.dart) ----
 
   /// Restore the main window's last normal bounds and maximized state.
@@ -2278,6 +2292,8 @@ abstract final class Settings {
     enableAppProxy,
     appProxyHost,
     appProxyPort,
+    enableImageCdnProxy,
+    imageCdnProxyExcludeList,
     rememberWindowGeometry,
     windowWidth,
     windowHeight,

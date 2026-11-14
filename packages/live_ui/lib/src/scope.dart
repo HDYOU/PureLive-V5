@@ -217,6 +217,10 @@ final class LiveUiStrings {
 /// image hosts refuse requests without the platform's Referer).
 typedef ImageHeadersResolver = Map<String, String>? Function(String url);
 
+/// The address an image picture loads from instead of [url] (the app's CDN
+/// front, 3.x `networkImageProxy`): null keeps the address as is.
+typedef ImageUrlResolver = String? Function(String url);
+
 /// What the app tells the shared widgets (3.x read these from the settings
 /// singleton): words, the loading style, and how network images load.
 @immutable
@@ -228,6 +232,7 @@ final class LiveUiConfig {
     this.loadingColor,
     this.imageCacheManager,
     this.imageHeaders,
+    this.imageUrl,
     this.imageCacheEpoch = 0,
   });
 
@@ -249,13 +254,26 @@ final class LiveUiConfig {
   /// Request headers per image address.
   final ImageHeadersResolver? imageHeaders;
 
+  /// Loads the image at `url` through the address it returns, when it
+  /// answers; null keeps the address (the app's CDN front, 3.x
+  /// `networkImageProxy`).
+  final ImageUrlResolver? imageUrl;
+
   /// Bumped when the user clears the image cache, so cached entries are
   /// fetched again under a new key (`imageCacheEpoch`).
   final int imageCacheEpoch;
 
   /// The cache key of [url]: the address itself, plus `#epoch` once the
   /// cache has been cleared.
-  String imageCacheKey(String url) => imageCacheEpoch == 0 ? url : '$url#$imageCacheEpoch';
+  String imageCacheKey(String url) {
+    final rewritten = imageUrl?.call(url);
+    return imageCacheEpoch == 0 ? rewritten ?? url : '$url#$imageCacheEpoch';
+  }
+
+  /// The address an image picture loads `url` through: the result of
+  /// `imageUrl`, or `url` without one (for the cache manager of the danmaku
+  /// layer's emoticons, which caches under the picture's own address).
+  String imageDownloadUrl(String url) => imageUrl?.call(url) ?? url;
 
   /// A copy with the given fields replaced.
   LiveUiConfig copyWith({
@@ -264,6 +282,7 @@ final class LiveUiConfig {
     Color? loadingColor,
     BaseCacheManager? imageCacheManager,
     ImageHeadersResolver? imageHeaders,
+    ImageUrlResolver? imageUrl,
     int? imageCacheEpoch,
   }) => LiveUiConfig(
     strings: strings ?? this.strings,
@@ -271,6 +290,7 @@ final class LiveUiConfig {
     loadingColor: loadingColor ?? this.loadingColor,
     imageCacheManager: imageCacheManager ?? this.imageCacheManager,
     imageHeaders: imageHeaders ?? this.imageHeaders,
+    imageUrl: imageUrl ?? this.imageUrl,
     imageCacheEpoch: imageCacheEpoch ?? this.imageCacheEpoch,
   );
 
@@ -282,11 +302,12 @@ final class LiveUiConfig {
       other.loadingColor == loadingColor &&
       other.imageCacheManager == imageCacheManager &&
       other.imageHeaders == imageHeaders &&
+      other.imageUrl == imageUrl &&
       other.imageCacheEpoch == imageCacheEpoch;
 
   @override
   int get hashCode =>
-      Object.hash(strings, loadingStyle, loadingColor, imageCacheManager, imageHeaders, imageCacheEpoch);
+      Object.hash(strings, loadingStyle, loadingColor, imageCacheManager, imageHeaders, imageUrl, imageCacheEpoch);
 }
 
 /// Hands a [LiveUiConfig] to the shared widgets below it; put it once above
