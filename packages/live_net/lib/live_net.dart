@@ -2,6 +2,7 @@
 /// adapters and the app (docs/Q-网络和代理/Q01-请求和编码/Q01.1-网络/record.md).
 library;
 
+export 'src/api_proxy_http.dart';
 export 'src/calls.dart';
 export 'src/codec/brotli.dart';
 export 'src/cookies.dart';

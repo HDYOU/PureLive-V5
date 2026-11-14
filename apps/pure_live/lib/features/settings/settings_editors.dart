@@ -452,6 +452,201 @@ class ImageCdnProxyTile extends ConsumerWidget {
   }
 }
 
+/// The platforms whose API requests go through the forward proxy
+/// (3.x `networkApiProxy`): a dialog of chips, one per platform; nothing
+/// picked means no proxying.
+class ApiProxySitesTile extends ConsumerWidget {
+  /// Creates the row.
+  const new({required this.entry, super.key});
+
+  /// The entry drawn.
+  final SettingsEntry entry;
+
+  /// A platform id in lowercase letters.
+  static String _id(String id) => id.trim().toLowerCase();
+
+  /// A supported platform id in lowercase letters.
+  static bool _supported(String id) => SiteIds.isSupported(id);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final chosen = watchSetting(ref, Settings.apiProxySites);
+    final shown = chosen.map(_id).where(_supported).toList();
+    return SettingsLinkRow(
+      key: entry.rowKey,
+      icon: AppIcons.settingsApiProxy,
+      title: entry.titleText,
+      subtitle: entry.descriptionText,
+      value: shown.isEmpty ? i18n('api_proxy_sites_none') : shown.map(platformName).join('、'),
+      onTap: () async {
+        final picked = await showAppDialog<List<String>>(
+          context: context,
+          builder: (context) => _ApiProxySitesDialog(initial: shown),
+        );
+        if (picked != null && context.mounted) writeSetting(ref, Settings.apiProxySites, picked);
+      },
+    );
+  }
+}
+
+class _ApiProxySitesDialog extends StatefulWidget {
+  const new({required this.initial});
+
+  final List<String> initial;
+
+  @override
+  State<_ApiProxySitesDialog> createState() => _ApiProxySitesDialogState();
+}
+
+class _ApiProxySitesDialogState extends State<_ApiProxySitesDialog> {
+  late final List<String> _selected = List.of(widget.initial);
+
+  @override
+  Widget build(BuildContext context) => SettingsDialogFrame(
+    title: i18n('api_proxy_sites'),
+    actions: [
+      const DialogCancelButton(),
+      DialogActionButton(
+        key: const ValueKey('settings-api-proxy-sites-save'),
+        label: i18n('save'),
+        onPressed: () => Navigator.of(context).pop(_selected),
+      ),
+    ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(i18n('api_proxy_sites_hint'), style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                key: const ValueKey('settings-api-proxy-sites-none'),
+                avatar: const Icon(AppIcons.selected, size: 18),
+                label: Text(i18n('api_proxy_sites_none')),
+                onPressed: () => setState(_selected.clear),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final id in SiteIds.supported)
+                FilterChip(
+                  key: ValueKey('settings-api-proxy-sites-$id'),
+                  label: Text(platformName(id)),
+                  selected: _selected.contains(id),
+                  onSelected: (on) => setState(() => on ? _selected.add(id) : _selected.remove(id)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The forward proxy host and port (3.x `proxy.moonchan.xyz`): a single row
+/// with the current value and an inline editor.
+class ApiProxyHostTile extends ConsumerWidget {
+  /// Creates the row.
+  const new({required this.entry, super.key});
+
+  /// The entry drawn.
+  final SettingsEntry entry;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final host = watchSetting(ref, Settings.apiProxyHost);
+    final port = watchSetting(ref, Settings.apiProxyPort);
+    return SettingsLinkRow(
+      key: entry.rowKey,
+      icon: AppIcons.settingsApiProxyHost,
+      title: entry.titleText,
+      subtitle: entry.descriptionText,
+      value: host.isEmpty ? i18n('api_proxy_host_default') : '$host:$port',
+      onTap: () async {
+        final result = await showAppDialog<List<String>>(
+          context: context,
+          builder: (context) => _ApiProxyHostDialog(initialHost: host, initialPort: port),
+        );
+        if (result != null && context.mounted) {
+          writeSetting(ref, Settings.apiProxyHost, result[0]);
+          writeSetting(ref, Settings.apiProxyPort, int.tryParse(result[1]) ?? 443);
+        }
+      },
+    );
+  }
+}
+
+class _ApiProxyHostDialog extends StatefulWidget {
+  const new({required this.initialHost, required this.initialPort});
+
+  final String initialHost;
+  final int initialPort;
+
+  @override
+  State<_ApiProxyHostDialog> createState() => _ApiProxyHostDialogState();
+}
+
+class _ApiProxyHostDialogState extends State<_ApiProxyHostDialog> {
+  late final _hostController = TextEditingController(text: widget.initialHost);
+  late final _portController = TextEditingController(text: '${widget.initialPort}');
+
+  @override
+  void dispose() {
+    _hostController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SettingsDialogFrame(
+    title: i18n('api_proxy_host'),
+    actions: [
+      const DialogCancelButton(),
+      DialogActionButton(
+        key: const ValueKey('settings-api-proxy-host-save'),
+        label: i18n('save'),
+        onPressed: () {
+          final host = _hostController.text.trim();
+          final port = _portController.text.trim();
+          Navigator.of(context).pop([host, port]);
+        },
+      ),
+    ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(i18n('api_proxy_host_hint'), style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('settings-api-proxy-host-field'),
+            controller: _hostController,
+            decoration: InputDecoration(labelText: i18n('api_proxy_host'), border: const OutlineInputBorder()),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('settings-api-proxy-port-field'),
+            controller: _portController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: i18n('api_proxy_port'), border: const OutlineInputBorder()),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// The platforms whose images load direct even with the image CDN front on
 /// (3.x `networkImageProxyExcludeList`): a dialog of chips, one per
 /// platform; nothing picked means everything goes through the front.
