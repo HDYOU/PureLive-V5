@@ -1856,6 +1856,23 @@ List<SettingsEntry> _build() {
       settings: [Settings.imageCdnProxyExcludeList],
       keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN', '排除'],
     )
+    ..group = 'api_proxy_group_title'
+    ..add(
+      'api_proxy_sites',
+      'api_proxy_sites',
+      (context, entry) => ApiProxySitesTile(entry: entry),
+      desc: 'api_proxy_sites_desc',
+      settings: [Settings.apiProxySites],
+      keywords: ['API', '代理', 'proxy', '平台'],
+    )
+    ..add(
+      'api_proxy_host',
+      'api_proxy_host',
+      (context, entry) => ApiProxyHostTile(entry: entry),
+      desc: 'api_proxy_host_desc',
+      settings: [Settings.apiProxyHost, Settings.apiProxyPort],
+      keywords: ['API', '代理', 'proxy', '地址'],
+    )
     // The custom receiver page also participates in the settings search.
     ..section = SettingsSection.playbackRemote
     ..group = '_remote_control'

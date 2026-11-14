@@ -1380,6 +1380,12 @@ abstract final class AppIcons {
   static const IconData settingsImageCdnProxy = Remix.cloud_line;
 
   /// The platforms that skip the image CDN front.
+  /// API forward proxy: which platforms' requests go through it.
+  static const IconData settingsApiProxy = Remix.code_box_line;
+
+  /// API forward proxy: the host and port of the proxy server.
+  static const IconData settingsApiProxyHost = Remix.server_line;
+
   static const IconData settingsImageCdnProxyExclude = Remix.image_2_line;
 
   // ---- settings: data (3.x cache_data_settings_page.dart,

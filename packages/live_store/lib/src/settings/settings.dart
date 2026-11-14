@@ -1279,6 +1279,25 @@ abstract final class Settings {
     tidy: true,
   );
 
+  /// API requests for the listed platforms are sent through a forward proxy
+  /// (3.x `networkApiProxy`): the URL host is replaced by [apiProxyHost] and
+  /// `proxy_host` / `proxy_referer` are added as query parameters so the
+  /// proxy knows where to fetch.
+  static const apiProxySites = StringListSetting('apiProxySites', section: 'proxy', defaultValue: [], tidy: true);
+
+  /// Host of the API forward proxy (3.x: `proxy.moonchan.xyz`).
+  static const apiProxyHost = StringSetting('apiProxyHost', section: 'proxy', defaultValue: 'proxy.moonchan.xyz');
+
+  /// Port of the API forward proxy.
+  static const apiProxyPort = IntSetting(
+    'apiProxyPort',
+    section: 'proxy',
+    defaultValue: 443,
+    min: 1,
+    max: 65535,
+    resetOutOfRange: true,
+  );
+
   // ---- window, exit, startup (window_size_controller.dart, exit_settings_controller.dart, startup_controller.dart) ----
 
   /// Restore the main window's last normal bounds and maximized state.
@@ -2294,6 +2313,9 @@ abstract final class Settings {
     appProxyPort,
     enableImageCdnProxy,
     imageCdnProxyExcludeList,
+    apiProxySites,
+    apiProxyHost,
+    apiProxyPort,
     rememberWindowGeometry,
     windowWidth,
     windowHeight,

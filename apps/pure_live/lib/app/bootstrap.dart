@@ -313,10 +313,22 @@ abstract final class AppBootstrap {
     final proxy = SettingsProxyPolicy(store.settings);
     // Failed requests go to the app log as structure-only summaries (no
     // query strings, cookies or bodies; M12.4).
-    final client =
-        http ?? LoggingHttp(IoLiveHttp(proxy: proxy), onFailure: (summary) => AppLog.instance.warning('http', summary));
-    final cookies = StoreCookieVault(store.secrets);
     final settings = store.settings;
+    // API forward proxy (3.x networkApiProxy): platforms whose requests are
+    // listed in apiProxySites go through a forward proxy that rewrites the
+    // URL to the proxy host and adds proxy_host / proxy_referer query params.
+    final apiProxySites = settings.get(Settings.apiProxySites).toSet();
+    final apiProxyHost = settings.get(Settings.apiProxyHost);
+    final apiProxyPort = settings.get(Settings.apiProxyPort);
+    final apiProxyClient = ApiProxyHttp(
+      IoLiveHttp(proxy: proxy),
+      sites: apiProxySites,
+      host: apiProxyHost,
+      port: apiProxyPort,
+    );
+    final client =
+        http ?? LoggingHttp(apiProxyClient, onFailure: (summary) => AppLog.instance.warning('http', summary));
+    final cookies = StoreCookieVault(store.secrets);
     final library = iptvLibrary ?? StoreIptvLibrary(store);
     // Android's system TLS: Twitch's GraphQL fallback.
     final native = AndroidNativeHttp.isAvailable ? AndroidNativeHttp(proxy: proxy) : null;
