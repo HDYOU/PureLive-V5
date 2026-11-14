@@ -1017,7 +1017,7 @@ void main() {
     // The follow check starts after the first frame; the splash waits for it.
     expect(AppStartup.followCheck, isNotNull);
     final config = LiveUiScope.of(tester.element(find.text('欢迎使用')));
-    expect(config.imageHeaders?.call('https://i0.hdslb.com/a.jpg')?['Referer'], 'https://live.bilibili.com/');
+    expect(config.imageHeaders?.call('https://i0.hdslb.com/a.jpg')?.containsKey('Referer'), isFalse);
     expect(config.imageHeaders?.call('https://img.example.com/a.jpg')?.containsKey('Referer'), isFalse);
     final epoch = config.imageCacheEpoch;
     imageCacheEpoch.value++;
