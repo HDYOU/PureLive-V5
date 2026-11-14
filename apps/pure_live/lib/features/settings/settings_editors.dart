@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:live_core/live_core.dart';
 import 'package:live_store/live_store.dart';
 import 'package:live_ui/live_ui.dart';
 import 'package:pure_live/app/desktop/desktop_window.dart';
@@ -426,6 +427,131 @@ enum ProxySettings {
 
   /// The switch's icon (3.x `apps_line`, `video_line`).
   final IconData icon;
+}
+
+/// The switch of the image CDN front (3.x `networkImageProxy`): covers,
+/// avatars and emoticons load through it; off loads them direct.
+class ImageCdnProxyTile extends ConsumerWidget {
+  /// Creates the row.
+  const new({required this.entry, super.key});
+
+  /// The entry drawn.
+  final SettingsEntry entry;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = watchSetting(ref, Settings.enableImageCdnProxy);
+    return SettingsSwitchRow(
+      key: entry.rowKey,
+      icon: AppIcons.settingsImageCdnProxy,
+      title: entry.titleText,
+      subtitle: entry.descriptionText,
+      value: enabled,
+      onChanged: (on) => writeSetting(ref, Settings.enableImageCdnProxy, on),
+    );
+  }
+}
+
+/// The platforms whose images load direct even with the image CDN front on
+/// (3.x `networkImageProxyExcludeList`): a dialog of chips, one per
+/// platform; nothing picked means everything goes through the front.
+class ImageCdnProxyExcludeTile extends ConsumerWidget {
+  /// Creates the row.
+  const new({required this.entry, super.key});
+
+  /// The entry drawn.
+  final SettingsEntry entry;
+
+  /// A platform id in lowercase letters.
+  static String _id(String id) => id.trim().toLowerCase();
+
+  /// A supported platform id in lowercase letters.
+  static bool _supported(String id) => SiteIds.isSupported(id);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = watchSetting(ref, Settings.enableImageCdnProxy);
+    final excluded = watchSetting(ref, Settings.imageCdnProxyExcludeList);
+    final shown = excluded.map(_id).where(_supported).toList();
+    return SettingsLinkRow(
+      key: entry.rowKey,
+      icon: AppIcons.settingsImageCdnProxyExclude,
+      title: entry.titleText,
+      subtitle: entry.descriptionText,
+      enabled: enabled,
+      value: shown.isEmpty ? i18n('image_cdn_proxy_exclude_all') : shown.map(platformName).join('、'),
+      onTap: () async {
+        final picked = await showAppDialog<List<String>>(
+          context: context,
+          builder: (context) => _ImageCdnProxyExcludeDialog(initial: shown),
+        );
+        if (picked != null && context.mounted) writeSetting(ref, Settings.imageCdnProxyExcludeList, picked);
+      },
+    );
+  }
+}
+
+class _ImageCdnProxyExcludeDialog extends StatefulWidget {
+  const new({required this.initial});
+
+  final List<String> initial;
+
+  @override
+  State<_ImageCdnProxyExcludeDialog> createState() => _ImageCdnProxyExcludeDialogState();
+}
+
+class _ImageCdnProxyExcludeDialogState extends State<_ImageCdnProxyExcludeDialog> {
+  late final List<String> _selected = List.of(widget.initial);
+
+  @override
+  Widget build(BuildContext context) => SettingsDialogFrame(
+    title: i18n('image_cdn_proxy_exclude'),
+    actions: [
+      const DialogCancelButton(),
+      DialogActionButton(
+        key: const ValueKey('settings-image-cdn-proxy-exclude-save'),
+        label: i18n('save'),
+        onPressed: () => Navigator.of(context).pop(_selected),
+      ),
+    ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(i18n('image_cdn_proxy_exclude_hint'), style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                key: const ValueKey('settings-image-cdn-proxy-exclude-none'),
+                avatar: const Icon(AppIcons.selected, size: 18),
+                label: Text(i18n('image_cdn_proxy_exclude_all')),
+                onPressed: () => setState(_selected.clear),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final id in SiteIds.supported)
+                FilterChip(
+                  key: ValueKey('settings-image-cdn-proxy-exclude-$id'),
+                  label: Text(platformName(id)),
+                  selected: _selected.contains(id),
+                  onSelected: (on) => setState(() => on ? _selected.add(id) : _selected.remove(id)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// A proxy on the network page (3.x `NetworkProxySettingsPage`, U.6d d13):

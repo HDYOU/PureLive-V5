@@ -39,8 +39,11 @@ class LiveNetworkImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final config = LiveUiScope.of(context);
+    // The address it loads through (the CDN front, 3.x `networkImageProxy`);
+    // null keeps the picture's own.
+    final rewritten = config.imageUrl?.call(url);
     return CachedNetworkImage(
-      imageUrl: url,
+      imageUrl: rewritten ?? url,
       cacheKey: config.imageCacheKey(url),
       httpHeaders: config.imageHeaders?.call(url),
       cacheManager: config.imageCacheManager,

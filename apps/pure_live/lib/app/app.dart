@@ -271,6 +271,7 @@ class _PureLiveAppState extends ConsumerState<PureLiveApp> with WidgetsBindingOb
       loadingColor: parseThemeColorOrNull(watchSetting(ref, Settings.loadingStyleColorSwitch)),
       imageCacheManager: AppImageCache.manager,
       imageHeaders: networkImageHeaders,
+      imageUrl: (url) => imageCdnProxyUrl(settings, url),
       imageCacheEpoch: imageCacheEpoch.value,
     );
 

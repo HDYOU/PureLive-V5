@@ -13,6 +13,7 @@ import 'package:pure_live/app/image_cache.dart';
 import 'package:pure_live/app/image_downloads.dart';
 import 'package:pure_live/app/platforms.dart';
 import 'package:pure_live/app/services.dart';
+import 'package:pure_live/shared/images.dart';
 
 import 'support.dart';
 
@@ -170,6 +171,50 @@ void main() {
     expect(LiveUiScope.of(context).imageCacheManager, same(manager));
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(services.close);
+  });
+
+  test('imageCdnProxyUrl: the CDN front of covers and avatars (3.x networkImageProxy)', () async {
+    final store = await LiveStore.memory(cipher: FakeCipher());
+    addTearDown(store.close);
+    const image = 'https://static.example.com/cover.jpg';
+
+    expect(
+      imageCdnProxyUrl(store.settings, image),
+      'https://gimg0.baidu.com/gimg/src=${Uri.encodeComponent(image)}&app=2001&n=0&g=0n&q=80&fmt=webp',
+    );
+
+    await store.settings.set(Settings.enableImageCdnProxy, false);
+    expect(imageCdnProxyUrl(store.settings, image), image, reason: "off: the picture's own address");
+
+    await store.settings.set(Settings.enableImageCdnProxy, true);
+    await store.settings.set(Settings.imageCdnProxyExcludeList, ['twitch', 'bilibili']);
+    expect(imageCdnProxyUrl(store.settings, image, site: 'twitch'), image, reason: 'an excluded platform stays direct');
+    expect(imageCdnProxyUrl(store.settings, image, site: 'douyu'), isNot(image));
+    expect(imageCdnProxyUrl(store.settings, image), isNot(image), reason: 'without a site everything is proxied');
+  });
+
+  test('live_ui loads the picture through the CDN front, the cache under its own address', () {
+    String front(String url) => 'front:$url';
+    final config = LiveUiConfig(imageUrl: front);
+    expect(config.imageDownloadUrl('https://a.example/pic.png'), 'front:https://a.example/pic.png');
+    expect(config.imageCacheKey('https://a.example/pic.png'), 'front:https://a.example/pic.png');
+    expect(config.imageCacheKey('https://a.example/pic.png'), config.imageDownloadUrl('https://a.example/pic.png'));
+
+    final epoch = LiveUiConfig(imageUrl: front, imageCacheEpoch: 7);
+    expect(
+      epoch.imageCacheKey('https://a.example/pic.png'),
+      'https://a.example/pic.png#7',
+      reason: "the old key: the picture's own address plus the epoch",
+    );
+    expect(epoch.imageDownloadUrl('https://a.example/pic.png'), 'front:https://a.example/pic.png');
+
+    const direct = LiveUiConfig();
+    expect(
+      direct.imageDownloadUrl('https://a.example/pic.png'),
+      'https://a.example/pic.png',
+      reason: 'no front: the own address',
+    );
+    expect(direct.imageCacheKey('https://a.example/pic.png'), 'https://a.example/pic.png');
   });
 }
 

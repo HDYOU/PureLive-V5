@@ -1375,6 +1375,13 @@ abstract final class AppIcons {
   /// The player's proxy (on the network page).
   static const IconData settingsStreamProxy = Remix.video_line;
 
+  /// The image CDN front (3.x `networkImageProxy`): covers and avatars load
+  /// through a front that fetches them as webp.
+  static const IconData settingsImageCdnProxy = Remix.cloud_line;
+
+  /// The platforms that skip the image CDN front.
+  static const IconData settingsImageCdnProxyExclude = Remix.image_2_line;
+
   // ---- settings: data (3.x cache_data_settings_page.dart,
   // local_config_preveiw.dart; U.6e) ----
 

@@ -1839,6 +1839,23 @@ List<SettingsEntry> _build() {
       settings: [Settings.enableProxy, Settings.proxyHost, Settings.proxyPort],
       keywords: ['代理', 'proxy', 'HTTP'],
     )
+    ..group = 'image_cdn_proxy_group_title'
+    ..toggle(
+      'image_cdn_proxy',
+      'image_cdn_proxy',
+      Settings.enableImageCdnProxy,
+      AppIcons.settingsImageCdnProxy,
+      desc: 'image_cdn_proxy_desc',
+      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN'],
+    )
+    ..add(
+      'image_cdn_proxy_exclude',
+      'image_cdn_proxy_exclude',
+      (context, entry) => ImageCdnProxyExcludeTile(entry: entry),
+      desc: 'image_cdn_proxy_exclude_desc',
+      settings: [Settings.imageCdnProxyExcludeList],
+      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN', '排除'],
+    )
     // The custom receiver page also participates in the settings search.
     ..section = SettingsSection.playbackRemote
     ..group = '_remote_control'
