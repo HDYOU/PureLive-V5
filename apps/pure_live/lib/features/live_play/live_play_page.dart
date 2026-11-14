@@ -1539,8 +1539,15 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
 
   /// The strip, a divider and the chat with the details over it; with
   /// [composerCollapsed] the local composer is a star on the chat list
-  /// (the portrait room's panel, A07.17 c3).
-  Widget _chatColumn(LiveRoomController controller, {bool composerCollapsed = false, bool figuresBelowVideo = false}) =>
+  /// (the portrait room's panel, A07.17 c3). While [paused] the list stops
+  /// following the feed (the video is fullscreen or the right column is
+  /// hidden; on the way back its piled-up lines are dropped).
+  Widget _chatColumn(
+    LiveRoomController controller, {
+    bool composerCollapsed = false,
+    bool figuresBelowVideo = false,
+    bool paused = false,
+  }) =>
       ListenableSelector<bool>(
         listenable: controller,
         selector: () => controller.isArchive,
@@ -1556,6 +1563,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
                   detailsOpen: _details,
                   memory: _memory,
                   composerCollapsed: composerCollapsed,
+                  paused: paused,
                 ),
               ),
             ),
@@ -1685,9 +1693,14 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
     );
   }
 
-  /// A phone, a tablet held upright, a narrow window (U.2d change 2): the
-  /// 16:9 picture over the strip and the chat; panels cover everything under
-  /// the picture (U.2f), rising over it with the keyboard (A07.18).
+  /// The chat list's held-back state: while the video is fullscreen, or
+  /// on a wide room while the right column is hidden, the list stops
+  /// following the feed; on the way back its piled-up lines are dropped.
+  bool _chatPaused(_LayoutSettings settings) =>
+      _display == RoomDisplay.fullscreen ||
+      _display == RoomDisplay.portraitFullscreen ||
+      (settings.collapsed && _display == RoomDisplay.inline);
+
   Widget _phone(
     LiveRoomController controller,
     _LayoutSettings settings,
@@ -1706,7 +1719,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
               height: height,
               child: _player(controller, settings, arrangement: ControlsArrangement.inline),
             ),
-            Expanded(child: _coveredByPanel(_chatColumn(controller), keyboard: keyboard)),
+            Expanded(child: _coveredByPanel(_chatColumn(controller, paused: _chatPaused(settings)), keyboard: keyboard)),
           ],
         ),
         _panelUnderPicture(controller, top: height, keyboard: keyboard, key: const ValueKey('live-play-below-panel')),
@@ -1737,7 +1750,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
         ),
         stop: _memory.panelStop,
         onStop: (stop) => _memory.panelStop = stop,
-        content: _chatColumn(controller, composerCollapsed: true),
+        content: _chatColumn(controller, composerCollapsed: true, paused: _chatPaused(settings)),
         panels: _panelLayer(controller, portrait: true),
         keyboard: keyboard,
       );
@@ -1749,8 +1762,13 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
   /// line of chat). The strip folds into the picture's title, which opens
   /// the details over the list; the quality and line move to the bottom
   /// bar. Panels come in from the right as in the wide room.
-  Widget _phoneLandscape(LiveRoomController controller, _LayoutSettings settings, {required bool portrait}) {
+  Widget _phoneLandscape(
+    LiveRoomController controller,
+    _LayoutSettings settings, {
+    required bool portrait,
+  }) {
     final scheme = Theme.of(context).colorScheme;
+    final chatPaused = _chatPaused(settings);
     final player = _player(
       controller,
       settings,
@@ -1781,7 +1799,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
                   selector: () => controller.isArchive,
                   builder: (context, archive, _) => archive
                       ? RoomReplayLibrary(controller: controller)
-                      : ChatList(controller: controller, memory: _memory),
+                      : ChatList(controller: controller, memory: _memory, paused: chatPaused),
                 ),
               ),
             ),
@@ -1845,26 +1863,26 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
         // replay room never takes the bar: its strip belongs to the chat
         // column, so the archive listener stays.
         if (settings.wideFooter)
-          ListenableSelector<bool>(
+          ListenableBuilder(
             listenable: controller,
-            selector: () => controller.isArchive,
-            builder: (context, archive, _) => archive
-                ? const SizedBox.shrink()
-                : Material(
-                    key: const ValueKey('live-play-wide-footer'),
-                    color: Theme.of(context).colorScheme.surface,
-                    child: SafeArea(
-                      top: false,
-                      left: false,
-                      right: false,
-                      child: RoomInfoBar(
-                        controller: controller,
-                        detailsOpen: _details,
-                        onToggleDetails: _toggleDetails,
-                        showTitle: false,
-                      ),
-                    ),
+            builder: (context, _) {
+              if (controller.isArchive) return const SizedBox.shrink();
+              return Material(
+                key: const ValueKey('live-play-wide-footer'),
+                color: Theme.of(context).colorScheme.surface,
+                child: SafeArea(
+                  top: false,
+                  left: false,
+                  right: false,
+                  child: RoomInfoBar(
+                    controller: controller,
+                    detailsOpen: _details,
+                    onToggleDetails: _toggleDetails,
+                    showTitle: false,
                   ),
+                ),
+              );
+            },
           ),
       ],
     );
@@ -1887,7 +1905,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
                 decoration: BoxDecoration(
                   border: Border(left: BorderSide(color: scheme.outlineVariant)),
                 ),
-                child: _chatColumn(controller, figuresBelowVideo: settings.wideFooter),
+                child: _chatColumn(controller, figuresBelowVideo: settings.wideFooter, paused: _chatPaused(settings)),
               ),
             ),
           ),

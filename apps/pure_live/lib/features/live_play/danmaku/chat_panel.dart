@@ -27,6 +27,7 @@ class ChatPanel extends StatefulWidget {
     this.detailsOpen = false,
     this.memory,
     this.composerCollapsed = false,
+    this.paused = false,
     super.key,
   });
 
@@ -39,6 +40,10 @@ class ChatPanel extends StatefulWidget {
 
   /// Whether the room details cover the panel.
   final bool detailsOpen;
+
+  /// Whether the room's video is fullscreen or the right column is hidden:
+  /// the chat list then stops following the feed until it is false again.
+  final bool paused;
 
   /// The tab and the chat list's place, kept while the page builds the
   /// panel anew (leaving the fullscreen, B09 c4).
@@ -95,95 +100,99 @@ class _ChatPanelState extends State<ChatPanel> with TickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      TabBar(
-        key: const ValueKey('live-play-tabs'),
-        controller: _tabs,
-        isScrollable: _archiveMode,
-        tabAlignment: _archiveMode ? TabAlignment.start : TabAlignment.fill,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-        onTap: (index) {
-          if (index == (_archiveMode ? 1 : 0)) _seen();
-        },
-        // B09 c9: the app's tab labels (U.1c c12: the badge, the keyboard
-        // frame; a narrow column shrinks the tab instead of cutting it).
-        tabs: [
-          if (_archiveMode) TabLabel(label: i18n('archive_tab_label')),
-          ListenableSelector<int>(
-            // The feed tells of new lines at most once a frame (B08).
-            listenable: widget.controller.chat,
-            selector: () {
-              final from = _unreadFrom;
-              return from == null ? 0 : widget.controller.chat.added - from;
-            },
-            builder: (context, count, _) => _counted(
-              label: i18n('danmaku_list'),
-              count: count,
-              key: const ValueKey('live-play-unread-count'),
-              semantics: i18n('live_play_unread_count', args: {'count': '$count'}),
-            ),
-          ),
-          ListenableSelector<int>(
-            listenable: widget.controller,
-            selector: () => widget.controller.superChats.length,
-            builder: (context, count, _) =>
-                _counted(label: i18n('super_chat'), count: count, key: const ValueKey('live-play-super-chat-count')),
-          ),
-          TabLabel(label: i18n('danmaku_settings')),
-          TabLabel(label: i18n('block_list')),
-        ],
-      ),
-      Expanded(
-        child: TabBarView(
+  Widget build(BuildContext context) => RepaintBoundary(
+    key: const ValueKey('live-play-chat-panel-layer'),
+    child: Column(
+      children: [
+        TabBar(
+          key: const ValueKey('live-play-tabs'),
           controller: _tabs,
-          physics: const PureLivePageScrollPhysics(),
-          children: [
-            if (_archiveMode) RoomReplayLibrary(controller: widget.controller, withComposer: true),
-            // U.2k-a: the local danmaku composer under the list (while the
-            // local interaction is on).
-            LocalComposerBelow(
-              collapsed: widget.composerCollapsed,
-              child: _archiveMode && widget.controller.archive?.supportsDanmaku != true
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(i18n('archive_history_unavailable')),
-                      ),
-                    )
-                  : ChatList(
-                      controller: widget.controller,
-                      onTouched: _seen,
-                      memory: widget.memory,
-                      buttonInset: widget.composerCollapsed ? LocalComposerBelow.starInset : 0,
-                    ),
-            ),
-            // Rebuilt only when the super chats change; one clock inside
-            // moves the times on (U.2e c6).
-            SuperChatReadScope(
-              controller: widget.controller,
-              visible: _tabs.index == (_archiveMode ? 2 : 1) && !widget.detailsOpen,
-              child: ListenableSelector<List<LiveSuperChatMessage>>(
-                listenable: widget.controller,
-                selector: () => widget.controller.superChats,
-                builder: (context, messages, _) => SuperChatList(
-                  key: ObjectKey(widget.controller),
-                  messages: messages,
-                  history: widget.controller.superChatHistory,
-                  now: widget.controller.now,
-                  platformName: platformName(widget.controller.site.id, fallback: widget.controller.site.name),
-                  platformHasSuperChats: widget.controller.site.hasSuperChats,
-                ),
+          isScrollable: _archiveMode,
+          tabAlignment: _archiveMode ? TabAlignment.start : TabAlignment.fill,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+          onTap: (index) {
+            if (index == (_archiveMode ? 1 : 0)) _seen();
+          },
+          // B09 c9: the app's tab labels (U.1c c12: the badge, the keyboard
+          // frame; a narrow column shrinks the tab instead of cutting it).
+          tabs: [
+            if (_archiveMode) TabLabel(label: i18n('archive_tab_label')),
+            ListenableSelector<int>(
+              // The feed tells of new lines at most once a frame (B08).
+              listenable: widget.controller.chat,
+              selector: () {
+                final from = _unreadFrom;
+                return from == null ? 0 : widget.controller.chat.added - from;
+              },
+              builder: (context, count, _) => _counted(
+                label: i18n('danmaku_list'),
+                count: count,
+                key: const ValueKey('live-play-unread-count'),
+                semantics: i18n('live_play_unread_count', args: {'count': '$count'}),
               ),
             ),
-            // U.2e c8: the U.2f component, "改动立即生效" by the first title.
-            RoomDanmakuSettings(controller: widget.controller, inTab: true),
-            // U.2e c11-c16; the same component as the settings page's (E4).
-            DanmakuBlockManager(addKeyword: widget.controller.blockKeyword, blockedCount: widget.controller.blocked),
+            ListenableSelector<int>(
+              listenable: widget.controller,
+              selector: () => widget.controller.superChats.length,
+              builder: (context, count, _) =>
+                  _counted(label: i18n('super_chat'), count: count, key: const ValueKey('live-play-super-chat-count')),
+            ),
+            TabLabel(label: i18n('danmaku_settings')),
+            TabLabel(label: i18n('block_list')),
           ],
         ),
-      ),
-    ],
+        Expanded(
+          child: TabBarView(
+            controller: _tabs,
+            physics: const PureLivePageScrollPhysics(),
+            children: [
+              if (_archiveMode) RoomReplayLibrary(controller: widget.controller, withComposer: true),
+              // U.2k-a: the local danmaku composer under the list (while the
+              // local interaction is on).
+              LocalComposerBelow(
+                collapsed: widget.composerCollapsed,
+                child: _archiveMode && widget.controller.archive?.supportsDanmaku != true
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(i18n('archive_history_unavailable')),
+                        ),
+                      )
+                    : ChatList(
+                        controller: widget.controller,
+                        onTouched: _seen,
+                        memory: widget.memory,
+                        buttonInset: widget.composerCollapsed ? LocalComposerBelow.starInset : 0,
+                        paused: widget.paused,
+                      ),
+              ),
+              // Rebuilt only when the super chats change; one clock inside
+              // moves the times on (U.2e c6).
+              SuperChatReadScope(
+                controller: widget.controller,
+                visible: _tabs.index == (_archiveMode ? 2 : 1) && !widget.detailsOpen,
+                child: ListenableSelector<List<LiveSuperChatMessage>>(
+                  listenable: widget.controller,
+                  selector: () => widget.controller.superChats,
+                  builder: (context, messages, _) => SuperChatList(
+                    key: ObjectKey(widget.controller),
+                    messages: messages,
+                    history: widget.controller.superChatHistory,
+                    now: widget.controller.now,
+                    platformName: platformName(widget.controller.site.id, fallback: widget.controller.site.name),
+                    platformHasSuperChats: widget.controller.site.hasSuperChats,
+                  ),
+                ),
+              ),
+              // U.2e c8: the U.2f component, "改动立即生效" by the first title.
+              RoomDanmakuSettings(controller: widget.controller, inTab: true),
+              // U.2e c11-c16; the same component as the settings page's (E4).
+              DanmakuBlockManager(addKeyword: widget.controller.blockKeyword, blockedCount: widget.controller.blocked),
+            ],
+          ),
+        ),
+      ],
+    ),
   );
 }
 

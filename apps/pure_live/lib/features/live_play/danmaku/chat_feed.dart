@@ -109,10 +109,41 @@ final class ChatLine {
 /// Hands [flush] to the time the feed's listeners hear of its changes.
 typedef ChatFlushScheduler = void Function(VoidCallback flush);
 
-/// The app's [ChatFlushScheduler]: at the start of the next frame, so the
-/// list builds the new lines in that frame. Without a binding (plain unit
-/// tests) at once.
+/// The app's [ChatFlushScheduler] for the chat list: the listeners hear of
+/// its changes at most once every 100 ms, so a busy room's list settles
+/// instead of chasing every line; with no change waiting it triggers
+/// nothing at all. Without a binding (plain unit tests) at once.
 void scheduleChatFlushForNextFrame(VoidCallback flush) {
+  if (kDebugMode && BindingBase.debugBindingType() == null) {
+    flush();
+    return;
+  }
+  final now = _nowMs();
+  if (now - _lastChatFlushMs < 100 && _chatFlushScheduled) return;
+  _chatFlushScheduled = true;
+  _lastChatFlushMs = now;
+  SchedulerBinding.instance.scheduleFrameCallback((_) {
+    _chatFlushScheduled = false;
+    flush();
+  });
+  SchedulerBinding.instance.scheduleFrame();
+}
+
+int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+/// The last time the chat list's listeners were told of the feed's changes
+/// (the 100 ms throttle of [scheduleChatFlushForNextFrame]).
+int _lastChatFlushMs = 0;
+
+/// Whether a frame callback is already scheduled to deliver the pending
+/// batch: the throttle does not re-schedule for under 100 ms while one is
+/// on its way.
+bool _chatFlushScheduled = false;
+
+/// The [ChatFlushScheduler] for the portrait chat overlay: at the start of
+/// the next frame, so the overlay's rows build in that frame. Without a
+/// binding (plain unit tests) at once.
+void scheduleOverlayFlushForNextFrame(VoidCallback flush) {
   if (kDebugMode && BindingBase.debugBindingType() == null) {
     flush();
     return;

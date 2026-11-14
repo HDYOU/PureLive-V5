@@ -119,7 +119,14 @@ bool chatLineActionable(ChatLine line) =>
 /// when a scroll ends at the bottom or "N 条新弹幕" is pressed.
 class ChatList extends ConsumerStatefulWidget {
   /// Creates the list.
-  const new({required this.controller, this.onTouched, this.memory, this.buttonInset = 0, super.key});
+  const new({
+    required this.controller,
+    this.onTouched,
+    this.memory,
+    this.buttonInset = 0,
+    this.paused = false,
+    super.key,
+  });
 
   /// The room.
   final LiveRoomController controller;
@@ -135,6 +142,12 @@ class ChatList extends ConsumerStatefulWidget {
   /// builds it anew (leaving the fullscreen, B09 c4); null: it starts at
   /// the newest line.
   final RoomViewMemory? memory;
+
+  /// Whether the list is held back: while the video is fullscreen or the
+  /// right column is hidden the list stops following the feed (no auto
+  /// scroll, no new lines shown); on the way back the lines piled up while
+  /// it was held are dropped, not replayed.
+  final bool paused;
 
   @override
   ConsumerState<ChatList> createState() => _ChatListState();
@@ -198,7 +211,16 @@ class _ChatListState extends ConsumerState<ChatList> {
   @override
   void didUpdateWidget(ChatList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (identical(oldWidget.controller, widget.controller)) return;
+    if (identical(oldWidget.controller, widget.controller)) {
+      // The list came back out of being held back (fullscreen left, the
+      // right column unfolded): the lines piled up while it was held are
+      // dropped, not replayed; it follows from its newest line.
+      if (oldWidget.paused && !widget.paused) {
+        _follow();
+        _toBottom();
+      }
+      return;
+    }
     _detach(oldWidget.controller);
     _following = true;
     _attach(widget.controller);
@@ -257,9 +279,10 @@ class _ChatListState extends ConsumerState<ChatList> {
     if (facts != _facts) setState(() => _facts = facts);
   }
 
-  /// The feed changed (at most once a frame).
+  /// The feed changed (at most once every 100 ms while the list is live;
+  /// nothing at all while it is held back).
   void _onLines() {
-    if (!mounted) return;
+    if (!mounted || widget.paused) return;
     final feed = _feed;
     if (_following) {
       _shown.value = feed.lines;
@@ -367,7 +390,7 @@ class _ChatListState extends ConsumerState<ChatList> {
 
   void _toBottom() {
     _follow();
-    if (_scroll.hasClients) _scroll.jumpTo(0);
+    if (!widget.paused && _scroll.hasClients) _scroll.jumpTo(0);
   }
 
   ChatLineView _view(
@@ -466,7 +489,7 @@ class _ChatListState extends ConsumerState<ChatList> {
     // B06 c1: the hint stays above the lines (and the empty states); the
     // list keeps its place in the tree, so its scroll position, when the
     // hint comes or goes.
-    return Column(
+    final body = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ?hint,
@@ -479,6 +502,10 @@ class _ChatListState extends ConsumerState<ChatList> {
         ),
       ],
     );
+    // The list is its own layer: a new batch rebuilds only this subtree and
+    // never repaints the picture, the panels or the other columns beside
+    // it (D04.2 c2).
+    return RepaintBoundary(key: const ValueKey('live-play-chat-layer'), child: body);
   }
 
   Widget _content(
