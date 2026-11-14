@@ -2,9 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:live_store/live_store.dart';
 
 /// The request headers of a cover or avatar at [url] (3.x
-/// `networkImageHeaders`): Bilibili's image hosts (`hdslb.com`) check the
-/// Referer, so it is sent there only; every image is asked for with a
-/// desktop browser's User-Agent.
+/// `networkImageHeaders`): Bilibili's image hosts (`hdslb.com`) get a
+/// desktop browser's User-Agent; the CDN front strips the Referer, so
+/// only the direct download sends it.
 Map<String, String>? networkImageHeaders(String url) {
   final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
   if (host == 'hdslb.com' || host.endsWith('.hdslb.com')) return _bilibiliHeaders;
@@ -15,7 +15,7 @@ const String _browserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
     'Chrome/151.0.0.0 Safari/537.36';
 
-const Map<String, String> _bilibiliHeaders = {'Referer': 'https://live.bilibili.com/', 'User-Agent': _browserAgent};
+const Map<String, String> _bilibiliHeaders = {'User-Agent': _browserAgent};
 
 const Map<String, String> _browserHeaders = {'User-Agent': _browserAgent};
 
