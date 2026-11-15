@@ -248,6 +248,49 @@ abstract final class DouyuApi {
   /// Origin of the web player.
   static const String origin = 'https://www.douyu.com';
 
+  /// Partitions that produce no replay (时光机): the platform refuses audio
+  /// (voice-only) rooms and heavily reviews the borderline categories, so a
+  /// live room in one of them is a real stream, never a replay. The `cate2Id`
+  /// values come from `m.douyu.com/api/cate/list`.
+  static const Set<int> noReplayCate2 = {
+    // Voice-only (no picture): voice interaction and voice live.
+    910, // 唱歌
+    1221, // 交友
+    1556, // 心动FM
+    1575, // 一起玩
+    1015, // 娱乐开黑
+    // Borderline high-risk (星秀 / 颜值 / 户外 / 舞蹈, heavy review):
+    201, // 颜值
+    1008, // 星秀
+    124, // 户外
+    311, // 颜值（横屏）
+    4208, // 竖屏美女
+  };
+
+  /// The same partitions by name, as a fallback when the room's `cid2` is
+  /// missing (a follow answer only carries `c2name`).
+  static const Set<String> noReplayCate2Names = {
+    '唱歌',
+    '交友',
+    '心动FM',
+    '一起玩',
+    '娱乐开黑',
+    '颜值',
+    '星秀',
+    '户外',
+    '颜值（横屏）',
+    '竖屏美女',
+  };
+
+  /// Whether [cate2] (a room's `cid2` or its `c2name`) is one of the
+  /// no-replay partitions above.
+  static bool noReplayPartition(Object? cate2) {
+    final id = jsonInt(cate2);
+    if (id != null && noReplayCate2.contains(id)) return true;
+    final name = jsonString(cate2);
+    return name != null && noReplayCate2Names.contains(name);
+  }
+
   /// The only danmaku endpoint.
   static const String danmakuServer = 'wss://danmuproxy.douyu.com:8506';
 
@@ -455,17 +498,22 @@ abstract final class DouyuApi {
   /// answer has no `videoLoop`, so a live room and a loop (replay) room
   /// cannot be told apart; `show_status` is the only live signal here (1 = on,
   /// missing or 0 = off). [status] must be 2xx (the `error` envelope, like
-  /// every other Douyu call). Only the rooms that are not live are kept
-  /// (3.x's follow refresh only shows what can be played).
+  /// every other Douyu call).
+  ///
+  /// Only rooms that can be played are kept: the not-live ones, plus a live
+  /// room in a no-replay partition ([noReplayPartition]: with no replay such
+  /// a room is a real stream, so it counts as on). A live room anywhere else
+  /// may be a replay and is dropped.
   static Map<String, LiveRoom> followRoomList(String body, {int status = 200}) {
     final root = _checked(body, status: status, what: 'getFollowRoomListByRid');
     final rooms = <String, LiveRoom>{};
     for (final item in _list(_object(root['data'])?['list'])) {
       if (_object(item) case final entry? when jsonInt(entry['type']) == 1) {
         final on = jsonInt(entry['show_status']) == 1;
+        if (on && !noReplayPartition(entry['cid2']) && !noReplayPartition(entry['c2name'])) continue;
         final answer = _listRoom(entry);
-        if (answer != null && !on) {
-          rooms[answer.roomId] = answer.copyWith(liveStatus: LiveStatus.offline);
+        if (answer != null) {
+          rooms[answer.roomId] = answer.copyWith(liveStatus: on ? LiveStatus.live : LiveStatus.offline);
         }
       }
     }

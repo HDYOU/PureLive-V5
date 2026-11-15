@@ -1046,22 +1046,50 @@ void main() {
       final setup = _setup(
         [],
         extra: [
-          _followBatch(['1', '2', '3'], data: {
+          _followBatch(['1', '2', '3', '4'], data: {
             'error': 0,
-            'data': {'total': 3, 'list': [
+            'data': {'total': 4, 'list': [
               {'type': 1, 'rid': 1, 'rn': 'a', 'nn': 'A', 'av': '', 'rs16': '', 'c2name': '', 'ol': 5, 'uid': 100},
               {'type': 1, 'rid': 2, 'rn': 'b', 'nn': 'B', 'av': '', 'rs16': '', 'c2name': '', 'ol': 7, 'uid': 101, 'show_status': 1},
               {'type': 1, 'rid': 3, 'rn': 'c', 'nn': 'C', 'av': '', 'rs16': '', 'c2name': '', 'ol': 0, 'uid': 102},
+              {'type': 1, 'rid': 4, 'rn': 'd', 'nn': 'D', 'av': '', 'rs16': '', 'c2name': '', 'ol': 9, 'uid': 103, 'show_status': 1},
             ]},
           }),
         ],
       );
-      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2'), _room('3')]);
-      expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'room 2 is live (show_status 1), the rest are not');
+      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2'), _room('3'), _room('4')]);
+      expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'live rooms in ordinary partitions may be replays and are dropped');
       expect(updates['douyu:1']!.nick, 'A');
       expect(updates['douyu:3']!.liveStatus, LiveStatus.offline);
       expect(setup.http.requests.single.url.path, '/Livenc/UserRelation/getFollowRoomListByRid');
-      expect(_form(setup.http.requests.single), {'rids': '1,2,3'});
+      expect(_form(setup.http.requests.single), {'rids': '1,2,3,4'});
+    });
+
+    test('a live room in a no-replay partition counts as on; the partition is read from cid2 or c2name', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _followBatch(['1', '2', '3', '4', '5'], data: {
+            'error': 0,
+            'data': {'total': 5, 'list': [
+              // No replay by cid2 (颜值 201): live, kept.
+              {'type': 1, 'rid': 1, 'rn': 'a', 'nn': 'A', 'av': '', 'rs16': '', 'c2name': '', 'cid2': 201, 'ol': 9, 'uid': 1, 'show_status': 1},
+              // No replay by c2name (星秀, no cid2): live, kept.
+              {'type': 1, 'rid': 2, 'rn': 'b', 'nn': 'B', 'av': '', 'rs16': '', 'c2name': '星秀', 'ol': 9, 'uid': 2, 'show_status': 1},
+              // No replay by name: live, kept.
+              {'type': 1, 'rid': 3, 'rn': 'c', 'nn': 'C', 'av': '', 'rs16': '', 'c2name': '唱歌', 'cid2': 910, 'ol': 9, 'uid': 3, 'show_status': 1},
+              // Ordinary partition, live: dropped (may be a replay).
+              {'type': 1, 'rid': 4, 'rn': 'd', 'nn': 'D', 'av': '', 'rs16': '', 'c2name': '英雄联盟', 'cid2': 1, 'ol': 9, 'uid': 4, 'show_status': 1},
+              // Ordinary partition, not live: kept.
+              {'type': 1, 'rid': 5, 'rn': 'e', 'nn': 'E', 'av': '', 'rs16': '', 'c2name': '英雄联盟', 'cid2': 1, 'ol': 0, 'uid': 5},
+            ]},
+          }),
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2'), _room('3'), _room('4'), _room('5')]);
+      expect(updates.keys, {'douyu:1', 'douyu:2', 'douyu:3', 'douyu:5'}, reason: 'live rooms only kept in a no-replay partition');
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.live, reason: 'a live no-replay room is on');
+      expect(updates['douyu:5']!.liveStatus, LiveStatus.offline, reason: 'the not-live room stays offline');
     });
 
     test('more than 20 rooms: two chunks in one batch, merged; a failed chunk drops its rooms', () async {
