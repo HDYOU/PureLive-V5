@@ -130,6 +130,7 @@ void main() {
                 'online': 85,
                 'title': 'New',
                 'uname': 'Example',
+                'keyframe': 'https://i0.hdslb.com/bfs/live-key-frame/keyframe101.jpg',
                 'live_time': 1793782000,
                 'lock_till': '0000-00-00 00:00:00',
                 'hidden_till': '0000-00-00 00:00:00',
@@ -167,6 +168,7 @@ void main() {
     expect(result.keys, [first.identityKey]);
     expect(result[first.identityKey]?.title, 'New');
     expect(result[first.identityKey]?.isLiveNow, isTrue);
+    expect(result[first.identityKey]?.cover, 'https://i0.hdslb.com/bfs/live-key-frame/keyframe101.jpg');
   });
 
   group('anonymous session', () {

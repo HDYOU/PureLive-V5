@@ -234,7 +234,9 @@ abstract final class BilibiliApi {
       title: decodeHtmlEntities(jsonString(item['title']) ?? ''),
       nick: decodeHtmlEntities(jsonString(item['uname']) ?? ''),
       avatar: _image(item['face']),
-      cover: _image(item['cover'], '@400w.jpg').ifEmpty(() => _image(item['user_cover'], '@400w.jpg')),
+      // `system_cover` is the room's keyframe; the list also carries the
+      // streamer's cover (`cover`/`user_cover`) as a fallback.
+      cover: _image(item['system_cover'], '@400w.jpg').ifEmpty(() => _image(item['cover'], '@400w.jpg')),
       area: jsonString(item['area_v2_name']) ?? jsonString(item['area_name']) ?? jsonString(item['areaName']) ?? '',
       watching: online,
       popularity: online,

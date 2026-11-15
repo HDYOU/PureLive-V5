@@ -438,7 +438,7 @@ final class BilibiliSite extends LiveSite
         title: jsonString(row['title']) ?? '',
         nick: jsonString(row['uname']) ?? '',
         avatar: normalizeImageUrl(row['face']),
-        cover: normalizeImageUrl(row['cover_from_user']),
+        cover: normalizeImageUrl(row['keyframe']),
         area: jsonString(row['area_v2_name']),
         liveStatus: state == 1 ? LiveStatus.live : LiveStatus.offline,
         audienceMetricType: AudienceMetricType.popularity,

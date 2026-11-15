@@ -72,9 +72,11 @@ void main() {
         final legacy = (fixture.legacy as List).cast<Map<String, dynamic>>();
         expect(result.rooms.map((room) => room.roomId), legacy.map((room) => room['roomId']));
         for (final (index, room) in result.rooms.indexed) {
+          // cover: the keyframe (`system_cover`) instead of the streamer cover
+          // 3.x showed;
           // totalViewers: the "N人看过" count 3.x dropped (the capability table
           // already says Bilibili has cumulative viewers).
-          _expectParity(room.toJson(), legacy[index], changed: {'totalViewers'}, reason: '$name[$index]');
+          _expectParity(room.toJson(), legacy[index], changed: {'cover', 'totalViewers'}, reason: '$name[$index]');
           expect(room.onlineViewers, isEmpty, reason: '`online` is popularity, never a head count');
         }
         expect(result.hasMore, legacy.isNotEmpty, reason: 'neither endpoint reports an end');
