@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:live_iptv/live_iptv.dart';
 import 'package:live_store/live_store.dart';
+import 'package:pure_live/i18n/i18n.dart';
 import 'package:pure_live/app/iptv_library.dart';
 import 'package:pure_live/app/services.dart';
 import 'package:pure_live/features/multiview/logic/multiview_session.dart';
@@ -63,9 +64,10 @@ Future<void> restoreBackup(
   Map<String, Object?> json,
   BackupScope scope, {
   IptvLibrary? iptv,
+  FollowRestoreMode mode = FollowRestoreMode.overwrite,
 }) async {
-  if (scope == BackupScope.follows) return await service.restoreFollows(json);
-  await service.restoreAll(json);
+  if (scope == BackupScope.follows) return await service.restoreFollows(json, mode: mode);
+  await service.restoreAll(json, mode: mode);
   final words = searchWordsIn(json);
   if (words != null) await store.meta.set(SearchHistory.key, jsonEncode(words));
   if (iptvBackupIn(json) case final library?) await restoreIptvLibrary(iptv ?? StoreIptvLibrary(store), library);
@@ -161,10 +163,23 @@ enum RestorePartKind {
 /// How one part changes: counts now and after, entries added and removed.
 final class RestorePart {
   /// Creates the change.
-  const new({required this.kind, required this.current, required this.incoming, this.added = 0, this.removed = 0});
+  const new({
+    required this.kind,
+    required this.current,
+    required this.incoming,
+    this.added = 0,
+    this.removed = 0,
+    this.union = false,
+  });
 
   /// Compares the [current] entries with the [incoming] ones by [key].
-  static RestorePart compare<T>(RestorePartKind kind, List<T> current, List<T> incoming, String? Function(T) key) {
+  static RestorePart compare<T>(
+    RestorePartKind kind,
+    List<T> current,
+    List<T> incoming,
+    String? Function(T) key, {
+    bool union = false,
+  }) {
     final now = {for (final item in current) ?key(item)};
     final next = {for (final item in incoming) ?key(item)};
     return RestorePart(
@@ -173,6 +188,7 @@ final class RestorePart {
       incoming: incoming.length,
       added: next.difference(now).length,
       removed: now.difference(next).length,
+      union: union,
     );
   }
 
@@ -190,6 +206,9 @@ final class RestorePart {
 
   /// Entries the restore removes.
   final int removed;
+
+  /// Whether this part is a union (nothing already here is removed).
+  final bool union;
 
   /// Whether the restore leaves the part as it is.
   bool get unchanged => added == 0 && removed == 0 && current == incoming;
@@ -255,6 +274,7 @@ Future<RestorePreview> previewRestore(
   Map<String, Object?> json,
   BackupScope scope, {
   IptvLibrary? iptv,
+  FollowRestoreMode mode = FollowRestoreMode.overwrite,
 }) async {
   final snapshot = LegacySnapshot.fromBackup(json);
   final version = switch (json['backupVersion']) {
@@ -267,12 +287,28 @@ Future<RestorePreview> previewRestore(
   final kept = <RestorePartKind>[];
 
   if (snapshot.follows case final rooms?) {
-    parts.add(RestorePart.compare(RestorePartKind.follows, await store.follows.all(), rooms, (r) => r.identityKey));
+    final current = await store.follows.all();
+    final incoming = mode == FollowRestoreMode.merge ? uniqueRooms([...current, ...rooms]) : rooms;
+    parts.add(RestorePart.compare(
+      RestorePartKind.follows,
+      current,
+      incoming,
+      (r) => r.identityKey,
+      union: mode == FollowRestoreMode.merge,
+    ));
   } else {
     kept.add(RestorePartKind.follows);
   }
   if (snapshot.followAreas case final areas?) {
-    parts.add(RestorePart.compare(RestorePartKind.areas, await store.followAreas.all(), areas, (a) => a.identityKey));
+    final currentAreas = await store.followAreas.all();
+    final incomingAreas = mode == FollowRestoreMode.merge ? uniqueAreas([...currentAreas, ...areas]) : areas;
+    parts.add(RestorePart.compare(
+      RestorePartKind.areas,
+      currentAreas,
+      incomingAreas,
+      (a) => a.identityKey,
+      union: mode == FollowRestoreMode.merge,
+    ));
   } else {
     kept.add(RestorePartKind.areas);
   }
@@ -378,3 +414,35 @@ int accountEntriesIn(LegacySnapshot snapshot) {
   }
   return count;
 }
+
+
+/// Both previews a restore dialog offers: replacing the follow lists, or
+/// unioning them. A local decision only; never written into a backup.
+final class RestoreChoices {
+  const new(this.overwrite, this.merge);
+
+  final RestorePreview overwrite;
+  final RestorePreview merge;
+
+  RestorePreview forMode(FollowRestoreMode mode) =>
+      mode == FollowRestoreMode.merge ? merge : overwrite;
+
+  BackupScope get scope => overwrite.scope;
+}
+
+/// Computes both previews in one read; throws the same [FormatException].
+Future<RestoreChoices> previewRestorePair(
+  LiveStore store,
+  Map<String, Object?> json,
+  BackupScope scope, {
+  IptvLibrary? iptv,
+}) async => RestoreChoices(
+  await previewRestore(store, json, scope, iptv: iptv, mode: FollowRestoreMode.overwrite),
+  await previewRestore(store, json, scope, iptv: iptv, mode: FollowRestoreMode.merge),
+);
+
+/// The label of one restore mode.
+String restoreModeText(FollowRestoreMode mode) => switch (mode) {
+  FollowRestoreMode.overwrite => i18n('restore_mode_overwrite'),
+  FollowRestoreMode.merge => i18n('restore_mode_merge'),
+};

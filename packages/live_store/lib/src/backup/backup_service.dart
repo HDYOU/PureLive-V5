@@ -10,6 +10,10 @@ import 'package:live_store/src/settings/setting.dart';
 import 'package:live_store/src/settings/settings.dart';
 import 'package:live_store/src/webdav.dart';
 
+/// How a restore applies the follow rooms and areas. A decision of the
+/// receiving device only; never written into a backup or a sync packet.
+enum FollowRestoreMode { overwrite, merge }
+
 /// Backups in 3.x's file layout (backup_controller.dart at v3.2.11), so
 /// files move both ways between 3.x and v4.
 ///
@@ -103,15 +107,28 @@ final class BackupService {
   /// file has replaces the stored one. Parts the file does not have stay as
   /// they are (3.x reset them to defaults). A follows-only file is refused
   /// here, as in 3.x. One restore at a time ([StateError]).
-  Future<void> restoreAll(Map<String, Object?> json) => _exclusive(() async {
+  Future<void> restoreAll(Map<String, Object?> json,
+      {FollowRestoreMode mode = FollowRestoreMode.overwrite}) => _exclusive(() async {
     if (json['backupScope'] == 'favorites') {
       throw const FormatException('Favorites-only backup requires favorites restore');
     }
     final snapshot = LegacySnapshot.fromBackup(json);
     final store = _store;
     await store.settings.setAll(snapshot.settings);
-    if (snapshot.follows case final rooms?) await store.follows.replaceAll(rooms);
-    if (snapshot.followAreas case final areas?) await store.followAreas.replaceAll(areas);
+    if (snapshot.follows case final rooms?) {
+      if (mode == FollowRestoreMode.merge) {
+        await store.follows.merge(rooms);
+      } else {
+        await store.follows.replaceAll(rooms);
+      }
+    }
+    if (snapshot.followAreas case final areas?) {
+      if (mode == FollowRestoreMode.merge) {
+        await store.followAreas.merge(areas);
+      } else {
+        await store.followAreas.replaceAll(areas);
+      }
+    }
     if (snapshot.history case final rooms?) await store.history.replaceAll(rooms);
     if (snapshot.blockedKeywords case final values?) await store.blockLists.replaceAll(BlockKind.keyword, values);
     if (snapshot.blockedUsers case final values?) await store.blockLists.replaceAll(BlockKind.user, values);
@@ -136,7 +153,8 @@ final class BackupService {
   /// Restores only the followed rooms and areas the file has; everything
   /// else stays (3.x `restoreFavoriteSettings`). Accepts full and
   /// follows-only files.
-  Future<void> restoreFollows(Map<String, Object?> json) => _exclusive(() async {
+  Future<void> restoreFollows(Map<String, Object?> json,
+      {FollowRestoreMode mode = FollowRestoreMode.overwrite}) => _exclusive(() async {
     final version = json['backupVersion'];
     if (version != null && (version is! int || version < 1)) throw const FormatException('Invalid backup version');
     final favorite = version == null ? json : json['favorite'];
@@ -151,8 +169,20 @@ final class BackupService {
         if (favorite.containsKey('favoriteAreas')) 'favoriteAreas': favorite['favoriteAreas'],
       },
     });
-    if (snapshot.follows case final rooms?) await _store.follows.replaceAll(rooms);
-    if (snapshot.followAreas case final areas?) await _store.followAreas.replaceAll(areas);
+    if (snapshot.follows case final rooms?) {
+      if (mode == FollowRestoreMode.merge) {
+        await _store.follows.merge(rooms);
+      } else {
+        await _store.follows.replaceAll(rooms);
+      }
+    }
+    if (snapshot.followAreas case final areas?) {
+      if (mode == FollowRestoreMode.merge) {
+        await _store.followAreas.merge(areas);
+      } else {
+        await _store.followAreas.replaceAll(areas);
+      }
+    }
   });
 
   Future<void> _exclusive(Future<void> Function() action) async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:live_store/live_store.dart';
 import 'package:live_ui/live_ui.dart';
 import 'package:pure_live/app/services.dart';
 import 'package:pure_live/features/remote_receiver/remote_sync_protocol.dart';
@@ -146,7 +147,7 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
       return;
     }
     if (!mounted) return;
-    final parts = await showAppDialog<Set<SyncPart>>(
+    final decision = await showAppDialog<RemoteSyncImportDecision>(
       context: context,
       builder: (_) => _SyncPartsDialog(
         title: i18n('remote_sync_send'),
@@ -165,7 +166,8 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
         confirmKey: const ValueKey('remote-sync-confirm'),
       ),
     );
-    if (parts == null || !mounted) return;
+    if (decision == null || !mounted) return;
+    final parts = decision.parts;
     final pairing = code ?? await _askPairingCode(peer, action: i18n('remote_sync_send_action'));
     if (pairing == null) return;
     final ok = await _service.send(peer.ip, peer.port, pairing, parts: partial ? parts : null);
@@ -182,9 +184,9 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
       AppNavigator.toast(i18n('remote_sync_receive_failed'));
       return;
     }
-    final RestorePreview preview;
+    final RestoreChoices choices;
     try {
-      preview = await previewRestore(ref.read(storeProvider), settings, BackupScope.all);
+      choices = await previewRestorePair(ref.read(storeProvider), settings, BackupScope.all);
     } on FormatException {
       AppNavigator.toast(i18n('remote_sync_receive_failed'));
       return;
@@ -192,11 +194,11 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
     if (!mounted) return;
     final styles = context.textStyles;
     final colors = Theme.of(context).colorScheme;
-    final parts = await showAppDialog<Set<SyncPart>>(
+    final decision = await showAppDialog<RemoteSyncImportDecision>(
       context: context,
       builder: (_) => _previewDialog(
         settings,
-        preview,
+        choices,
         title: i18n('remote_sync_receive'),
         header: [
           Text(i18n('remote_sync_from', args: {'name': peer.name}), style: styles.t14SemiBold),
@@ -208,30 +210,30 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
         confirmKey: const ValueKey('remote-sync-receive-confirm'),
       ),
     );
-    if (parts == null || !mounted) return;
-    final ok = await _service.apply(settings, parts: parts);
+    if (decision == null || !mounted) return;
+    final ok = await _service.apply(settings, parts: decision.parts, mode: decision.mode);
     AppNavigator.toast(i18n(ok ? 'remote_sync_receive_success' : 'remote_sync_receive_failed'));
   }
 
   /// Another device sends its settings: who, what they change, each part
   /// ticked; "拒绝" / "允许" and no closing outside (c8; J05.1). Null
   /// refuses them.
-  Future<Set<SyncPart>?> _chooseIncoming(String remoteAddress, Map<String, Object?> settings) async {
+  Future<RemoteSyncImportDecision?> _chooseIncoming(String remoteAddress, Map<String, Object?> settings) async {
     if (!mounted) return null;
-    final RestorePreview preview;
+    final RestoreChoices choices;
     try {
-      preview = await previewRestore(ref.read(storeProvider), settings, BackupScope.all);
+      choices = await previewRestorePair(ref.read(storeProvider), settings, BackupScope.all);
     } on FormatException {
       return null;
     }
     if (!mounted) return null;
     final name = _service.nameOf(remoteAddress);
-    return await showAppDialog<Set<SyncPart>>(
+    return await showAppDialog<RemoteSyncImportDecision>(
       context: context,
       dismissible: false,
       builder: (_) => _previewDialog(
         settings,
-        preview,
+        choices,
         key: const ValueKey('remote-sync-incoming'),
         title: i18n('remote_sync'),
         message: i18n(
@@ -252,7 +254,7 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
   /// parts to pick and goes whole.
   Widget _previewDialog(
     Map<String, Object?> settings,
-    RestorePreview preview, {
+    RestoreChoices choices, {
     required String title,
     required List<Widget> header,
     required String confirmLabel,
@@ -263,6 +265,7 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
     Key? cancelKey,
   }) {
     final splittable = syncPartsSplittable(settings);
+    final preview = choices.overwrite;
     final held = splittable
         ? syncPartsIn(settings).toSet()
         : {
@@ -270,7 +273,7 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
             for (final part in preview.parts) ?SyncPart.of(part.kind),
             if (preview.accounts > 0) SyncPart.accounts,
           };
-    final rows = <_PartRow>[
+    List<_PartRow> rowsFor(RestorePreview preview) => <_PartRow>[
       if (preview.settingsInFile > 0 && held.contains(SyncPart.settings))
         (
           part: SyncPart.settings,
@@ -289,6 +292,7 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
               : i18n('remote_sync_preview_accounts_empty'),
         ),
     ];
+    final rows = rowsFor(choices.overwrite);
     return _SyncPartsDialog(
       key: key,
       title: title,
@@ -299,10 +303,12 @@ class _RemoteReceiverPageState extends ConsumerState<RemoteReceiverPage> {
         const SizedBox(height: 4),
       ],
       rows: rows,
+      mergeRows: rowsFor(choices.merge),
       always: held.difference({for (final row in rows) row.part}),
       lines: [if (!held.contains(SyncPart.accounts)) i18n('remote_sync_preview_no_accounts')],
       locked: !splittable,
       note: i18n('remote_sync_preview_warning'),
+      mergeNote: i18n('restore_mode_merge_hint'),
       contentKey: const ValueKey('remote-sync-preview'),
       cancelLabel: cancelLabel,
       cancelKey: cancelKey,
@@ -916,6 +922,8 @@ class _SyncPartsDialog extends StatefulWidget {
     this.always = const {},
     this.locked = false,
     this.note,
+    this.mergeRows,
+    this.mergeNote,
     this.contentKey,
     this.cancelLabel,
     this.cancelKey,
@@ -945,6 +953,11 @@ class _SyncPartsDialog extends StatefulWidget {
   /// A small line at the bottom.
   final String? note;
 
+  /// Rows and note for the merge mode; null when this dialog does not offer
+  /// the choice (a send).
+  final List<_PartRow>? mergeRows;
+  final String? mergeNote;
+
   final Key? contentKey;
   final String confirmLabel;
   final Key confirmKey;
@@ -956,6 +969,8 @@ class _SyncPartsDialog extends StatefulWidget {
 }
 
 class _SyncPartsDialogState extends State<_SyncPartsDialog> {
+  var _mode = FollowRestoreMode.merge;
+
   // D08.1 c4: an opt-in part starts unticked (a locked dialog sends all).
   late final Set<SyncPart> _chosen = {
     for (final row in widget.rows)
@@ -970,7 +985,9 @@ class _SyncPartsDialogState extends State<_SyncPartsDialog> {
   /// part left out does not hold them back.
   bool get _withAlways => widget.rows.every((row) => row.part.optIn || _chosen.contains(row.part));
 
-  void _done() => Navigator.of(context).pop(<SyncPart>{..._chosen, if (_withAlways) ...widget.always});
+  void _done() => Navigator.of(context).pop(
+    RemoteSyncImportDecision(<SyncPart>{..._chosen, if (_withAlways) ...widget.always}, mode: _mode),
+  );
 
   Widget _box({
     required Key key,
@@ -1012,6 +1029,10 @@ class _SyncPartsDialogState extends State<_SyncPartsDialog> {
     final colors = Theme.of(context).colorScheme;
     final locked = widget.locked;
     final none = _chosen.isEmpty;
+    final activeRows = widget.mergeRows != null && _mode == FollowRestoreMode.merge ? widget.mergeRows! : widget.rows;
+    final activeNote = widget.mergeRows != null && _mode == FollowRestoreMode.merge
+        ? (widget.mergeNote ?? widget.note)
+        : widget.note;
     return AppDialog(
       title: widget.title,
       message: widget.message,
@@ -1022,7 +1043,21 @@ class _SyncPartsDialogState extends State<_SyncPartsDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           ...widget.header,
-          if (widget.rows.length > 1 && !locked)
+          if (widget.mergeRows != null) ...[
+            Text(i18n('restore_mode_title'), style: styles.t13SemiBold),
+            const SizedBox(height: 6),
+            SegmentedButton<FollowRestoreMode>(
+              key: const ValueKey('remote-sync-restore-mode'),
+              segments: [
+                for (final value in FollowRestoreMode.values)
+                  ButtonSegment<FollowRestoreMode>(value: value, label: Text(restoreModeText(value))),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (selected) => setState(() => _mode = selected.first),
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (activeRows.length > 1 && !locked)
             _box(
               key: const ValueKey('remote-sync-part-all'),
               text: i18n('remote_sync_parts_all'),
@@ -1033,11 +1068,11 @@ class _SyncPartsDialogState extends State<_SyncPartsDialog> {
                 if (_all) {
                   _chosen.clear();
                 } else {
-                  _chosen.addAll([for (final row in widget.rows) row.part]);
+                  _chosen.addAll([for (final row in activeRows) row.part]);
                 }
               }),
             ),
-          for (final row in widget.rows)
+          for (final row in activeRows)
             _box(
               key: ValueKey('remote-sync-part-${row.part.name}'),
               text: row.text,
@@ -1049,7 +1084,7 @@ class _SyncPartsDialogState extends State<_SyncPartsDialog> {
               padding: const EdgeInsets.fromLTRB(4, 6, 0, 6),
               child: Text(line, style: styles.t14.copyWith(color: colors.onSurfaceVariant)),
             ),
-          if (widget.note case final note?) ...[
+          if (activeNote case final note?) ...[
             const SizedBox(height: 8),
             Text(
               note,

@@ -22,115 +22,144 @@ String restorePartText(RestorePart part) {
   final counts = i18n('backup_preview_count', args: {'current': '${part.current}', 'incoming': '${part.incoming}'});
   final detail = part.unchanged
       ? i18n('backup_preview_same')
-      : i18n('backup_preview_diff', args: {'added': '${part.added}', 'removed': '${part.removed}'});
+      : part.union
+          ? i18n('backup_preview_diff_merge', args: {'added': '${part.added}'})
+          : i18n('backup_preview_diff', args: {'added': '${part.added}', 'removed': '${part.removed}'});
   return i18n('backup_preview_part', args: {'part': i18n(part.kind.labelKey), 'counts': counts, 'detail': detail});
 }
 
-/// Shows what restoring [fileName] changes and asks to go on; true to
-/// restore.
-Future<bool> confirmRestore(BuildContext context, {required String fileName, required RestorePreview preview}) async {
-  final confirmed = await showAppDialog<bool>(
+/// Shows what restoring [fileName] changes, lets the user pick how the
+/// follow lists are applied, and returns that choice (null cancels). Merge
+/// is the default; it is a decision of this device only.
+Future<FollowRestoreMode?> confirmRestore(
+  BuildContext context, {
+  required String fileName,
+  required RestoreChoices choices,
+}) async {
+  return await showAppDialog<FollowRestoreMode>(
     context: context,
     builder: (dialogContext) {
       final styles = dialogContext.textStyles;
       final colors = Theme.of(dialogContext).colorScheme;
-      final follows = preview.scope == BackupScope.follows;
-      Widget line(String text, {Color? color, IconData icon = AppIcons.bullet, double iconSize = 6}) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 18,
-              height: 20,
-              child: Center(
-                child: Icon(icon, size: iconSize, color: color ?? colors.primary),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(text, style: styles.t13.copyWith(color: color)),
-            ),
-          ],
-        ),
-      );
-      return AppDialog(
-        title: i18n(follows ? 'recover_favorite_backup' : 'recover_backup'),
-        onEnter: () => Navigator.pop(dialogContext, true),
-        content: Column(
-          key: const ValueKey('backup-preview'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(fileName, style: styles.t14SemiBold, maxLines: 3, overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 2),
-            Text(backupSourceText(preview), style: styles.t12Muted),
-            if (preview.followsOnlyFile)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(i18n('backup_preview_follows_file'), style: styles.t13Primary),
-              ),
-            const SizedBox(height: 12),
-            Text(i18n('backup_preview_title'), style: styles.t13SemiBold),
-            const SizedBox(height: 4),
-            if (preview.settingsInFile > 0)
-              line(
-                i18n(
-                  'backup_preview_settings',
-                  args: {'count': '${preview.settingsInFile}', 'changed': '${preview.settingsChanged}'},
+      var mode = FollowRestoreMode.merge;
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final preview = choices.forMode(mode);
+          final follows = preview.scope == BackupScope.follows;
+          Widget line(String text, {Color? color, IconData icon = AppIcons.bullet, double iconSize = 6}) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 20,
+                  child: Center(
+                    child: Icon(icon, size: iconSize, color: color ?? colors.primary),
+                  ),
                 ),
-              ),
-            for (final part in preview.parts) line(restorePartText(part)),
-            if (preview.accounts > 0) line(i18n('backup_preview_accounts', args: {'count': '${preview.accounts}'})),
-            if (preview.kept.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              line(
-                i18n(
-                  'backup_preview_kept',
-                  args: {
-                    'parts': [for (final kind in preview.kept) i18n(kind.labelKey)].join('、'),
-                  },
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(text, style: styles.t13.copyWith(color: color)),
                 ),
-                color: colors.onSurfaceVariant,
-                icon: AppIcons.selected,
-                iconSize: 14,
+              ],
+            ),
+          );
+          return AppDialog(
+            title: i18n(follows ? 'recover_favorite_backup' : 'recover_backup'),
+            onEnter: () => Navigator.pop(dialogContext, mode),
+            content: Column(
+              key: const ValueKey('backup-preview'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(fileName, style: styles.t14SemiBold, maxLines: 3, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(backupSourceText(preview), style: styles.t12Muted),
+                if (preview.followsOnlyFile)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(i18n('backup_preview_follows_file'), style: styles.t13Primary),
+                  ),
+                const SizedBox(height: 12),
+                Text(i18n('restore_mode_title'), style: styles.t13SemiBold),
+                const SizedBox(height: 6),
+                SegmentedButton<FollowRestoreMode>(
+                  key: const ValueKey('restore-mode'),
+                  segments: [
+                    for (final value in FollowRestoreMode.values)
+                      ButtonSegment<FollowRestoreMode>(value: value, label: Text(restoreModeText(value))),
+                  ],
+                  selected: {mode},
+                  onSelectionChanged: (selected) => setState(() => mode = selected.first),
+                ),
+                const SizedBox(height: 12),
+                Text(i18n('backup_preview_title'), style: styles.t13SemiBold),
+                const SizedBox(height: 4),
+                if (preview.settingsInFile > 0)
+                  line(
+                    i18n(
+                      'backup_preview_settings',
+                      args: {'count': '${preview.settingsInFile}', 'changed': '${preview.settingsChanged}'},
+                    ),
+                  ),
+                for (final part in preview.parts) line(restorePartText(part)),
+                if (preview.accounts > 0) line(i18n('backup_preview_accounts', args: {'count': '${preview.accounts}'})),
+                if (preview.kept.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  line(
+                    i18n(
+                      'backup_preview_kept',
+                      args: {
+                        'parts': [for (final kind in preview.kept) i18n(kind.labelKey)].join('、'),
+                      },
+                    ),
+                    color: colors.onSurfaceVariant,
+                    icon: AppIcons.selected,
+                    iconSize: 14,
+                  ),
+                ],
+                if (follows)
+                  line(
+                    i18n('webdav_favorites_unchanged_hint'),
+                    color: colors.onSurfaceVariant,
+                    icon: AppIcons.selected,
+                    iconSize: 14,
+                  ),
+                if (preview.skipped > 0)
+                  line(
+                    i18n('backup_preview_skipped', args: {'count': '${preview.skipped}'}),
+                    color: colors.error,
+                    icon: AppIcons.warning,
+                    iconSize: 14,
+                  ),
+                if (!preview.changesSomething)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(i18n('backup_preview_nothing'), style: styles.t13Muted),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  mode == FollowRestoreMode.merge
+                      ? i18n('restore_mode_merge_hint')
+                      : i18n('backup_preview_warning'),
+                  style: styles.t12Muted,
+                ),
+              ],
+            ),
+            actions: [
+              DialogCancelButton(onPressed: () => Navigator.pop(dialogContext)),
+              DialogActionButton(
+                key: const ValueKey('backup-restore-confirm'),
+                label: i18n('backup_restore_now'),
+                onPressed: () => Navigator.pop(dialogContext, mode),
               ),
             ],
-            if (follows)
-              line(
-                i18n('webdav_favorites_unchanged_hint'),
-                color: colors.onSurfaceVariant,
-                icon: AppIcons.selected,
-                iconSize: 14,
-              ),
-            if (preview.skipped > 0)
-              line(
-                i18n('backup_preview_skipped', args: {'count': '${preview.skipped}'}),
-                color: colors.error,
-                icon: AppIcons.warning,
-                iconSize: 14,
-              ),
-            if (!preview.changesSomething)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(i18n('backup_preview_nothing'), style: styles.t13Muted),
-              ),
-            const SizedBox(height: 8),
-            Text(i18n('backup_preview_warning'), style: styles.t12Muted),
-          ],
-        ),
-        actions: [
-          DialogCancelButton(onPressed: () => Navigator.pop(dialogContext, false)),
-          DialogActionButton(
-            key: const ValueKey('backup-restore-confirm'),
-            label: i18n('backup_restore_now'),
-            onPressed: () => Navigator.pop(dialogContext, true),
-          ),
-        ],
+          );
+        },
       );
     },
   );
-  return confirmed ?? false;
 }
 
 /// The restore flow of both pages: [read] the file, show what it changes,
@@ -147,7 +176,7 @@ Future<bool> restoreWithPreview(
   required String readFailedKey,
 }) async {
   final Map<String, Object?> json;
-  final RestorePreview preview;
+  final RestoreChoices choices;
   try {
     json = await read();
   } on FormatException {
@@ -159,15 +188,17 @@ Future<bool> restoreWithPreview(
     return false;
   }
   try {
-    preview = await previewRestore(store, json, scope);
+    choices = await previewRestorePair(store, json, scope);
   } on FormatException {
     AppNavigator.toast(i18n(scope == BackupScope.follows ? 'backup_no_follows' : 'backup_not_backup'));
     return false;
   }
-  if (!context.mounted || !await confirmRestore(context, fileName: fileName, preview: preview)) return false;
-  final follows = preview.scope == BackupScope.follows;
+  if (!context.mounted) return false;
+  final mode = await confirmRestore(context, fileName: fileName, choices: choices);
+  if (mode == null) return false;
+  final follows = choices.scope == BackupScope.follows;
   try {
-    await restoreBackup(service, store, json, preview.scope);
+    await restoreBackup(service, store, json, choices.scope, mode: mode);
     // BackupService signals a restore already running with a StateError.
     // ignore: avoid_catching_errors
   } on StateError {

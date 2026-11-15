@@ -62,9 +62,19 @@ final class RemoteSyncDevice {
 /// (`import`) this device's settings.
 typedef RemoteSyncConfirm = Future<bool> Function(String action, String remoteAddress);
 
+/// What the user chose for an incoming sync: the parts to apply and how the
+/// follow lists are applied. A local decision; never travels in the packet.
+final class RemoteSyncImportDecision {
+  const new(this.parts, {this.mode = FollowRestoreMode.merge});
+
+  final Set<SyncPart> parts;
+  final FollowRestoreMode mode;
+}
+
 /// Asks the user which parts of the [settings] [remoteAddress] sends to
-/// apply here; null refuses them all.
-typedef RemoteSyncChooseImport = Future<Set<SyncPart>?> Function(String remoteAddress, Map<String, Object?> settings);
+/// apply here, and how to apply the follows; null refuses them all.
+typedef RemoteSyncChooseImport = Future<RemoteSyncImportDecision?> Function(
+    String remoteAddress, Map<String, Object?> settings);
 
 /// The device-sync server and client (3.x `RemoteSyncService`), alive while
 /// the page is open.
@@ -337,9 +347,12 @@ class RemoteSyncService extends ChangeNotifier {
     var allowed = false;
     // The parts the user keeps; null applies everything the packet has.
     Set<SyncPart>? parts;
+    var mode = FollowRestoreMode.overwrite;
     try {
       if (settings != null && choose != null) {
-        parts = _disposed ? null : await choose(remote, settings);
+        final decision = _disposed ? null : await choose(remote, settings);
+        parts = decision?.parts;
+        mode = decision?.mode ?? FollowRestoreMode.overwrite;
         allowed = parts != null && parts.isNotEmpty;
       } else {
         allowed = ask != null && !_disposed && await ask(action, remote);
@@ -355,7 +368,7 @@ class RemoteSyncService extends ChangeNotifier {
     syncing = true;
     _changed();
     try {
-      await BackupService(store).restoreAll(onlySyncParts(settings, parts));
+      await BackupService(store).restoreAll(onlySyncParts(settings, parts), mode: mode);
       return await _reply(response, 200, 'ok', true);
     } on Object {
       return await _reply(response, 500, 'apply settings failed');
@@ -412,9 +425,10 @@ class RemoteSyncService extends ChangeNotifier {
 
   /// Takes the settings of `ip:port` with [code] and applies them here;
   /// true on success (3.x `getRemoteSettings` + import).
-  Future<bool> receive(String ip, int port, String code) async {
+  Future<bool> receive(String ip, int port, String code,
+      {FollowRestoreMode mode = FollowRestoreMode.overwrite}) async {
     final settings = await fetch(ip, port, code);
-    return settings != null && await apply(settings);
+    return settings != null && await apply(settings, mode: mode);
   }
 
   /// Reads the settings of `ip:port` with [code] without applying them (the
@@ -433,8 +447,9 @@ class RemoteSyncService extends ChangeNotifier {
 
   /// Applies settings [fetch] read, only [parts] of them when given (the
   /// rest stays as it is); true on success.
-  Future<bool> apply(Map<String, Object?> settings, {Set<SyncPart>? parts}) => _busy(() async {
-    await BackupService(store).restoreAll(onlySyncParts(settings, parts));
+  Future<bool> apply(Map<String, Object?> settings,
+      {Set<SyncPart>? parts, FollowRestoreMode mode = FollowRestoreMode.overwrite}) => _busy(() async {
+    await BackupService(store).restoreAll(onlySyncParts(settings, parts), mode: mode);
     return true;
   });
 
