@@ -241,6 +241,7 @@ abstract final class BilibiliApi {
       totalViewers: _watched(item['watched_show'], live: true),
       audienceMetricType: AudienceMetricType.popularity,
       liveStatus: LiveStatus.live,
+      userId: jsonString(item['uid']),
     );
   }
 
@@ -294,6 +295,7 @@ abstract final class BilibiliApi {
       audienceMetricType: AudienceMetricType.popularity,
       liveStatus: state,
       startedAt: live ? _beijingTime(item['live_time']) : null,
+      userId: jsonString(item['uid']),
     );
   }
 
@@ -312,6 +314,7 @@ abstract final class BilibiliApi {
       audienceMetricType: AudienceMetricType.popularity,
       liveStatus: state,
       startedAt: state == LiveStatus.live ? _beijingTime(item['live_time']) : null,
+      userId: jsonString(item['uid']),
     );
   }
 
@@ -366,7 +369,7 @@ abstract final class BilibiliApi {
         title: decodeHtmlEntities(jsonString(room['title']) ?? ''),
         nick: decodeHtmlEntities(jsonString(base?['uname']) ?? ''),
         avatar: _image(base?['face'], '@100w.jpg'),
-        cover: _image(room['cover']),
+        cover: _image(room['keyframe']).ifEmpty(() => _image(room['cover'])),
         area: jsonString(room['area_name']) ?? '',
         watching: online,
         popularity: online,
@@ -378,6 +381,7 @@ abstract final class BilibiliApi {
         link: 'https://live.bilibili.com/$id',
         introduction: _richText(room['description']) ?? '',
         notice: notice == null ? '' : decodeHtmlEntities(notice),
+        userId: jsonString(room['uid']),
       ),
     );
   }

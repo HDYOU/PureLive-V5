@@ -207,13 +207,15 @@ void main() {
         final room = legacy['getRoomDetailForRefresh'] as Map<String, dynamic>;
         // introduction: HTML made plain text (3.x kept `<p>…</p>`);
         // totalViewers: see recommend;
+        // cover: the keyframe is preferred (3.x used `cover`, a keyframe
+        // screenshot itself);
         // liveStatus: the carousel (live_status 2) is its own state, index 5
         // instead of 3.x's offline (1-1). `status` and `isRecord` are unchanged,
         // so 3.x still reads the room as offline.
         _expectParity(
           json,
           room,
-          changed: {'introduction', 'totalViewers', if (name == 'S06-replay') 'liveStatus'},
+          changed: {'introduction', 'totalViewers', 'cover', if (name == 'S06-replay') 'liveStatus'},
           reason: name,
         );
         // M2.1's keys, which 3.x never wrote: the start time of a live room
