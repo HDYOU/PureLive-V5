@@ -494,11 +494,12 @@ abstract final class DouyuApi {
   }
 
   /// `Livenc/UserRelation/getFollowRoomListByRid`: the answered rooms, keyed
-  /// by their rid (the `list` entries have the room shape, no paging). The
-  /// answer has no `videoLoop`, so a live room and a loop (replay) room
-  /// cannot be told apart; `show_status` is the only live signal here (1 = on,
-  /// missing or 0 = off). [status] must be 2xx (the `error` envelope, like
-  /// every other Douyu call).
+  /// by their rid. The answer's `room_list` entries have their own field names
+  /// (`room_id`, `room_name`, `nickname`, `room_src`, `hn`, `avatar`,
+  /// `cate2_name`, `close_notice`, `show_status`) — not the `roomList` shape.
+  /// It has no `videoLoop`, so a live room and a replay room cannot be told
+  /// apart; `show_status` is the only live signal (1 = on, missing or 0 = off).
+  /// [status] must be 2xx (the `error` envelope, like every other Douyu call).
   ///
   /// Only rooms that can be played are kept: the not-live ones, plus a live
   /// room in a no-replay partition ([noReplayPartition]: with no replay such
@@ -507,17 +508,45 @@ abstract final class DouyuApi {
   static Map<String, LiveRoom> followRoomList(String body, {int status = 200}) {
     final root = _checked(body, status: status, what: 'getFollowRoomListByRid');
     final rooms = <String, LiveRoom>{};
-    for (final item in _list(_object(root['data'])?['list'])) {
-      if (_object(item) case final entry? when jsonInt(entry['type']) == 1) {
-        final on = jsonInt(entry['show_status']) == 1;
-        if (on && !noReplayPartition(entry['cid2']) && !noReplayPartition(entry['c2name'])) continue;
-        final answer = _listRoom(entry);
-        if (answer != null) {
-          rooms[answer.roomId] = answer.copyWith(liveStatus: on ? LiveStatus.live : LiveStatus.offline);
+    for (final item in _list(_object(root['data'])?['room_list'])) {
+      if (_object(item) case final entry? when _roomId(entry['room_id']) != null) {
+        final room = _followRoom(entry);
+        // A live room is kept only in a no-replay partition: with no replay
+        // it is a real stream, not a loop.
+        if (room.liveStatus == LiveStatus.live &&
+            !noReplayPartition(entry['cid2']) &&
+            !noReplayPartition(room.area)) {
+          continue;
         }
+        rooms[room.roomId] = room;
       }
     }
     return rooms;
+  }
+
+  /// One `room_list` entry of the follow answer, in its own field names; the
+  /// caller has checked that `room_id` is a valid rid.
+  static LiveRoom _followRoom(Map<String, dynamic> entry) {
+    final id = _roomId(entry['room_id']);
+    final online = jsonString(entry['hn']);
+    final on = jsonInt(entry['show_status']) == 1;
+    final closeNotice = jsonString(entry['close_notice']);
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      userId: jsonString(entry['uid']),
+      title: decodeHtmlEntities(jsonString(entry['room_name']) ?? ''),
+      nick: decodeHtmlEntities(jsonString(entry['nickname']) ?? ''),
+      avatar: normalizeImageUrl(entry['avatar']),
+      cover: normalizeImageUrl(entry['room_src']),
+      area: jsonString(entry['cate2_name']) ?? '',
+      watching: online ?? '0',
+      popularity: online ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: on ? LiveStatus.live : LiveStatus.offline,
+      introduction: closeNotice,
+      notice: closeNotice,
+    );
   }
 
   // Rooms ---------------------------------------------------------------------

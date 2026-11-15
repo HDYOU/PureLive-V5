@@ -197,7 +197,7 @@ ReplaySample _followBatch(List<String> rids, {Object? data, int status = 200}) =
   form: {'rids': rids.join(',')},
   bytes: utf8.encode(jsonEncode(data ?? const {
     'error': 0,
-    'data': {'total': 0, 'list': <Object>[]},
+    'data': {'total': 0, 'room_list': <Object>[]},
   })),
 );
 
@@ -1048,11 +1048,11 @@ void main() {
         extra: [
           _followBatch(['1', '2', '3', '4'], data: {
             'error': 0,
-            'data': {'total': 4, 'list': [
-              {'type': 1, 'rid': 1, 'rn': 'a', 'nn': 'A', 'av': '', 'rs16': '', 'c2name': '', 'ol': 5, 'uid': 100},
-              {'type': 1, 'rid': 2, 'rn': 'b', 'nn': 'B', 'av': '', 'rs16': '', 'c2name': '', 'ol': 7, 'uid': 101, 'show_status': 1},
-              {'type': 1, 'rid': 3, 'rn': 'c', 'nn': 'C', 'av': '', 'rs16': '', 'c2name': '', 'ol': 0, 'uid': 102},
-              {'type': 1, 'rid': 4, 'rn': 'd', 'nn': 'D', 'av': '', 'rs16': '', 'c2name': '', 'ol': 9, 'uid': 103, 'show_status': 1},
+            'data': {'total': 4, 'room_list': [
+              {'room_id': 1, 'room_name': 'a', 'nickname': 'A', 'room_src': '', 'hn': 5, 'cate2_name': '', 'uid': 100},
+              {'room_id': 2, 'room_name': 'b', 'nickname': 'B', 'room_src': '', 'hn': 7, 'cate2_name': '', 'uid': 101, 'show_status': 1},
+              {'room_id': 3, 'room_name': 'c', 'nickname': 'C', 'room_src': '', 'hn': 0, 'cate2_name': '', 'uid': 102},
+              {'room_id': 4, 'room_name': 'd', 'nickname': 'D', 'room_src': '', 'hn': 9, 'cate2_name': '', 'uid': 103, 'show_status': 1},
             ]},
           }),
         ],
@@ -1060,28 +1060,30 @@ void main() {
       final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2'), _room('3'), _room('4')]);
       expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'live rooms in ordinary partitions may be replays and are dropped');
       expect(updates['douyu:1']!.nick, 'A');
-      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline);
+      expect(updates['douyu:1']!.title, 'a');
+      expect(updates['douyu:1']!.watching, '5', reason: 'hn is the viewer count');
+      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline, reason: 'the not-live room is answered, so no per-room betard');
       expect(setup.http.requests.single.url.path, '/Livenc/UserRelation/getFollowRoomListByRid');
       expect(_form(setup.http.requests.single), {'rids': '1,2,3,4'});
     });
 
-    test('a live room in a no-replay partition counts as on; the partition is read from cid2 or c2name', () async {
+    test('a live room in a no-replay partition counts as on; the partition is read from cid2 or cate2_name', () async {
       final setup = _setup(
         [],
         extra: [
           _followBatch(['1', '2', '3', '4', '5'], data: {
             'error': 0,
-            'data': {'total': 5, 'list': [
+            'data': {'total': 5, 'room_list': [
               // No replay by cid2 (颜值 201): live, kept.
-              {'type': 1, 'rid': 1, 'rn': 'a', 'nn': 'A', 'av': '', 'rs16': '', 'c2name': '', 'cid2': 201, 'ol': 9, 'uid': 1, 'show_status': 1},
-              // No replay by c2name (星秀, no cid2): live, kept.
-              {'type': 1, 'rid': 2, 'rn': 'b', 'nn': 'B', 'av': '', 'rs16': '', 'c2name': '星秀', 'ol': 9, 'uid': 2, 'show_status': 1},
-              // No replay by name: live, kept.
-              {'type': 1, 'rid': 3, 'rn': 'c', 'nn': 'C', 'av': '', 'rs16': '', 'c2name': '唱歌', 'cid2': 910, 'ol': 9, 'uid': 3, 'show_status': 1},
+              {'room_id': 1, 'room_name': 'a', 'nickname': 'A', 'room_src': '', 'hn': 9, 'cate2_name': '', 'cid2': 201, 'show_status': 1},
+              // No replay by name (星秀, no cid2): live, kept.
+              {'room_id': 2, 'room_name': 'b', 'nickname': 'B', 'room_src': '', 'hn': 9, 'cate2_name': '星秀', 'show_status': 1},
+              // No replay by id: live, kept.
+              {'room_id': 3, 'room_name': 'c', 'nickname': 'C', 'room_src': '', 'hn': 9, 'cate2_name': '唱歌', 'cid2': 910, 'show_status': 1},
               // Ordinary partition, live: dropped (may be a replay).
-              {'type': 1, 'rid': 4, 'rn': 'd', 'nn': 'D', 'av': '', 'rs16': '', 'c2name': '英雄联盟', 'cid2': 1, 'ol': 9, 'uid': 4, 'show_status': 1},
+              {'room_id': 4, 'room_name': 'd', 'nickname': 'D', 'room_src': '', 'hn': 9, 'cate2_name': '英雄联盟', 'cid2': 1, 'show_status': 1},
               // Ordinary partition, not live: kept.
-              {'type': 1, 'rid': 5, 'rn': 'e', 'nn': 'E', 'av': '', 'rs16': '', 'c2name': '英雄联盟', 'cid2': 1, 'ol': 0, 'uid': 5},
+              {'room_id': 5, 'room_name': 'e', 'nickname': 'E', 'room_src': '', 'hn': 0, 'cate2_name': '英雄联盟', 'cid2': 1},
             ]},
           }),
         ],
@@ -1100,8 +1102,8 @@ void main() {
         extra: [
           _followBatch(first, data: {
             'error': 0,
-            'data': {'total': 1, 'list': [
-              {'type': 1, 'rid': 1, 'rn': 'first', 'nn': 'F', 'av': '', 'rs16': '', 'c2name': '', 'ol': 1, 'uid': 1},
+            'data': {'total': 1, 'room_list': [
+              {'room_id': 1, 'room_name': 'first', 'nickname': 'F', 'room_src': '', 'hn': 1, 'cate2_name': '', 'uid': 1},
             ]},
           }),
           _followBatch(second), // no list: the chunk answers nothing
@@ -1133,8 +1135,8 @@ void main() {
       );
       final ok = _followBatch(second, data: {
         'error': 0,
-        'data': {'total': 1, 'list': [
-          {'type': 1, 'rid': 21, 'rn': 'one', 'nn': 'O', 'av': '', 'rs16': '', 'c2name': '', 'ol': 0, 'uid': 21},
+        'data': {'total': 1, 'room_list': [
+          {'room_id': 21, 'room_name': 'one', 'nickname': 'O', 'room_src': '', 'hn': 0, 'cate2_name': '', 'uid': 21},
         ]},
       });
       final setup = _setup([], extra: [failing, ok]);
