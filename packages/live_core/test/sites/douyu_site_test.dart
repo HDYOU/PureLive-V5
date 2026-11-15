@@ -188,6 +188,19 @@ String? _cookieDid(LiveRequest request) =>
 
 LiveRoom _room(String id) => LiveRoom(platform: 'douyu', roomId: id);
 
+/// A form POST to `getFollowRoomListByRid` for [rids]; matching is on the
+/// `rids` field, so one sample answers one chunk.
+ReplaySample _followBatch(List<String> rids, {Object? data, int status = 200}) => ReplaySample(
+  method: 'POST',
+  url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid'),
+  status: status,
+  form: {'rids': rids.join(',')},
+  bytes: utf8.encode(jsonEncode(data ?? const {
+    'error': 0,
+    'data': {'total': 0, 'list': <Object>[]},
+  })),
+);
+
 LivePlayQuality _quality(int rate, List<String> cdns) =>
     LivePlayQuality(quality: '$rate', id: rate, data: DouyuPlayData(rate, cdns));
 
@@ -1025,6 +1038,80 @@ void main() {
         throwsA(isA<NetworkFailure>()),
       );
       await expectLater(setup.site.renewSession(cookie: 'acf_auth=a', ltp0: ' ', did: 'd'), throwsA(isA<NeedsLogin>()));
+    });
+  });
+
+  group('follow batch', () {
+    test('a single chunk: only the not-live rooms come back, keyed by rid', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _followBatch(['1', '2', '3'], data: {
+            'error': 0,
+            'data': {'total': 3, 'list': [
+              {'type': 1, 'rid': 1, 'rn': 'a', 'nn': 'A', 'av': '', 'rs16': '', 'c2name': '', 'ol': 5, 'uid': 100},
+              {'type': 1, 'rid': 2, 'rn': 'b', 'nn': 'B', 'av': '', 'rs16': '', 'c2name': '', 'ol': 7, 'uid': 101, 'show_status': 1},
+              {'type': 1, 'rid': 3, 'rn': 'c', 'nn': 'C', 'av': '', 'rs16': '', 'c2name': '', 'ol': 0, 'uid': 102},
+            ]},
+          }),
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2'), _room('3')]);
+      expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'room 2 is live (show_status 1), the rest are not');
+      expect(updates['douyu:1']!.nick, 'A');
+      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline);
+      expect(setup.http.requests.single.url.path, '/Livenc/UserRelation/getFollowRoomListByRid');
+      expect(_form(setup.http.requests.single), {'rids': '1,2,3'});
+    });
+
+    test('more than 20 rooms: two chunks in one batch, merged; a failed chunk drops its rooms', () async {
+      final first = [for (var i = 1; i <= 20; i++) '$i'];
+      final second = [for (var i = 21; i <= 25; i++) '$i'];
+      final setup = _setup(
+        [],
+        extra: [
+          _followBatch(first, data: {
+            'error': 0,
+            'data': {'total': 1, 'list': [
+              {'type': 1, 'rid': 1, 'rn': 'first', 'nn': 'F', 'av': '', 'rs16': '', 'c2name': '', 'ol': 1, 'uid': 1},
+            ]},
+          }),
+          _followBatch(second), // no list: the chunk answers nothing
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([...first, ...second].map(_room).toList());
+      expect(updates, {'douyu:1': updates['douyu:1']!}, reason: 'only rid 1 is answered and not live');
+      final paths = _paths(setup.http);
+      expect(paths.where((p) => p == '/Livenc/UserRelation/getFollowRoomListByRid'), hasLength(2));
+    });
+
+    test('one room, or non-numeric ids: no batch request', () async {
+      final setup = _setup([]);
+      expect(await setup.site.refreshFollowBatch([_room('1')]), isEmpty);
+      expect(setup.http.requests, isEmpty);
+      expect(await setup.site.refreshFollowBatch([_room('lpl')]), isEmpty, reason: 'an alias rid cannot be batched');
+      expect(setup.http.requests, isEmpty);
+    });
+
+    test('a chunk that fails is skipped; the other chunk still answers', () async {
+      final first = [for (var i = 1; i <= 20; i++) '$i'];
+      final second = [for (var i = 21; i <= 25; i++) '$i'];
+      final failing = ReplaySample(
+        method: 'POST',
+        url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid'),
+        status: 500,
+        form: {'rids': first.join(',')},
+        bytes: utf8.encode('boom'),
+      );
+      final ok = _followBatch(second, data: {
+        'error': 0,
+        'data': {'total': 1, 'list': [
+          {'type': 1, 'rid': 21, 'rn': 'one', 'nn': 'O', 'av': '', 'rs16': '', 'c2name': '', 'ol': 0, 'uid': 21},
+        ]},
+      });
+      final setup = _setup([], extra: [failing, ok]);
+      final updates = await setup.site.refreshFollowBatch([...first, ...second].map(_room).toList());
+      expect(updates, {'douyu:21': updates['douyu:21']!}, reason: 'the failed first chunk drops its rooms');
     });
   });
 

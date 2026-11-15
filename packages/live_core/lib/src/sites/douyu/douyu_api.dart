@@ -375,6 +375,7 @@ abstract final class DouyuApi {
     return LiveRoom(
       roomId: id,
       platform: _site,
+      userId: jsonString(item['uid']),
       title: decodeHtmlEntities(jsonString(item['rn']) ?? ''),
       nick: decodeHtmlEntities(jsonString(item['nn']) ?? ''),
       avatar: _listAvatar(item['av']),
@@ -447,6 +448,28 @@ abstract final class DouyuApi {
             liveStatus: jsonInt(anchor['isLive']) == 1 && (jsonInt(anchor['roomType']) ?? 0) == 0,
           ),
     ];
+  }
+
+  /// `Livenc/UserRelation/getFollowRoomListByRid`: the answered rooms, keyed
+  /// by their rid (the `list` entries have the room shape, no paging). The
+  /// answer has no `videoLoop`, so a live room and a loop (replay) room
+  /// cannot be told apart; `show_status` is the only live signal here (1 = on,
+  /// missing or 0 = off). [status] must be 2xx (the `error` envelope, like
+  /// every other Douyu call). Only the rooms that are not live are kept
+  /// (3.x's follow refresh only shows what can be played).
+  static Map<String, LiveRoom> followRoomList(String body, {int status = 200}) {
+    final root = _checked(body, status: status, what: 'getFollowRoomListByRid');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(_object(root['data'])?['list'])) {
+      if (_object(item) case final entry? when jsonInt(entry['type']) == 1) {
+        final on = jsonInt(entry['show_status']) == 1;
+        final answer = _listRoom(entry);
+        if (answer != null && !on) {
+          rooms[answer.roomId] = answer.copyWith(liveStatus: LiveStatus.offline);
+        }
+      }
+    }
+    return rooms;
   }
 
   // Rooms ---------------------------------------------------------------------
