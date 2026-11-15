@@ -15,9 +15,13 @@ const String _browserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
     'Chrome/151.0.0.0 Safari/537.36';
 
-const Map<String, String> _bilibiliHeaders = {'User-Agent': _browserAgent};
+const String _accept =
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,'
+    '*/*;q=0.8,application/signed-exchange;v=b3;q=0.7';
 
-const Map<String, String> _browserHeaders = {'User-Agent': _browserAgent};
+const Map<String, String> _bilibiliHeaders = {'User-Agent': _browserAgent, 'Accept': _accept};
+
+const Map<String, String> _browserHeaders = {'User-Agent': _browserAgent, 'Accept': _accept};
 
 /// Bumped when the image cache is cleared (3.x `CacheController.imageCacheEpoch`):
 /// the app passes it to `LiveUiConfig.imageCacheEpoch`, so covers and
