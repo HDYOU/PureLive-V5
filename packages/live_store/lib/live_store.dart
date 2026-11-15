@@ -5,7 +5,7 @@
 library;
 
 export 'src/accounts.dart' show AccountRoster, SavedAccount;
-export 'src/backup/backup_service.dart' show BackupService;
+export 'src/backup/backup_service.dart' show BackupService, FollowRestoreMode;
 export 'src/block_lists.dart' show BlockKind, BlockListStore;
 export 'src/database.dart' show StoreDatabase, StoreTables;
 export 'src/legacy/hive_reader.dart' show HiveBoxReader;
@@ -15,7 +15,7 @@ export 'src/legacy/legacy_rules.dart' show LegacyRules;
 export 'src/legacy/legacy_snapshot.dart' show LegacySnapshot;
 export 'src/live_store.dart' show LiveStore, MetaStore;
 export 'src/local_events.dart' show LocalEvent, LocalEventKind, LocalEventStore;
-export 'src/rooms.dart' show FollowAreaStore, FollowStore, HistoryStore, fillEmptyFields, isStorableRoom, uniqueRooms;
+export 'src/rooms.dart' show FollowAreaStore, FollowStore, HistoryStore, fillEmptyFields, isStorableRoom, uniqueAreas, uniqueRooms;
 export 'src/secrets.dart' show SecretCipher, SecretRefs, SecretStore, normalizeCookie;
 export 'src/settings/setting.dart'
     show BoolSetting, DoubleSetting, IntSetting, JsonSetting, Setting, SettingScope, StringListSetting, StringSetting;

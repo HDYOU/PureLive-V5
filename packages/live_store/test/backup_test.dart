@@ -202,6 +202,53 @@ void main() {
     expect([for (final r in await store.follows.all()) r.roomId], ['9']);
   });
 
+  test('merge unions follows: local order first, file-only rooms appended', () async {
+    await store.follows.replaceAll([
+      LiveRoom(platform: 'douyu', roomId: '1'),
+      LiveRoom(platform: 'douyu', roomId: '9'),
+    ]);
+    await backup.restoreFollows(
+      {
+        'favoriteRooms': [v3Room('douyu', '9'), v3Room('huya', '7')],
+      },
+      mode: FollowRestoreMode.merge,
+    );
+    expect([for (final r in await store.follows.all()) r.roomId], ['1', '9', '7']);
+  });
+
+  test('merge dedups by identityKey and keeps the local order', () async {
+    await store.follows.replaceAll([LiveRoom(platform: 'douyu', roomId: '1')]);
+    await backup.restoreFollows(
+      {
+        'favoriteRooms': [v3Room('douyu', '1'), v3Room('huya', '7')],
+      },
+      mode: FollowRestoreMode.merge,
+    );
+    expect([for (final r in await store.follows.all()) r.roomId], ['1', '7']);
+  });
+
+  test('restoreFollows() still defaults to overwrite', () async {
+    await store.follows.replaceAll([LiveRoom(platform: 'douyu', roomId: '1')]);
+    await backup.restoreFollows({
+      'favoriteRooms': [v3Room('huya', '9')],
+    });
+    expect([for (final r in await store.follows.all()) r.roomId], ['9']);
+  });
+
+  test('restoreAll(mode: merge) unions the follow rooms', () async {
+    await store.follows.replaceAll([LiveRoom(platform: 'douyu', roomId: '1')]);
+    await backup.restoreAll(
+      {
+        ...v3Backup(),
+        'favorite': {
+          'favoriteRooms': [v3Room('huya', '9')],
+        },
+      },
+      mode: FollowRestoreMode.merge,
+    );
+    expect([for (final r in await store.follows.all()) r.roomId], ['1', '9']);
+  });
+
   test('flat backups without a version (oldest 3.x)', () async {
     await backup.restoreAll({
       'danmakuSpeed': 90.0,

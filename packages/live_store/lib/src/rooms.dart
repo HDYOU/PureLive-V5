@@ -39,6 +39,19 @@ List<LiveRoom> uniqueRooms(Iterable<LiveRoom> rooms) {
   return byIdentity.values.toList();
 }
 
+/// [areas] without duplicates (by [LiveArea.identityKey], first wins), in
+/// order. Areas without an identity are dropped.
+List<LiveArea> uniqueAreas(Iterable<LiveArea> areas) {
+  final seen = <String>{};
+  final result = <LiveArea>[];
+  for (final area in areas) {
+    final key = area.identityKey;
+    if (key == null || !seen.add(key)) continue;
+    result.add(area);
+  }
+  return result;
+}
+
 /// Followed rooms, in the user's order (3.x `FavoriteRoomController`'s
 /// `favoriteRooms`).
 ///
@@ -120,6 +133,18 @@ final class FollowStore {
   Future<void> replaceAll(Iterable<LiveRoom> rooms) => _db.write(_tables, () async {
     await _db.run('DELETE FROM follows');
     await _insertAll(rooms);
+  });
+
+  /// Unions [rooms] into the followed list in one transaction: local rooms
+  /// keep their order and their spelling of the room id, file-only rooms are
+  /// appended at the end, and a duplicate keeps the local record with its
+  /// empty fields filled from the incoming one. Returns how many were added.
+  Future<int> merge(Iterable<LiveRoom> rooms) => _db.write(_tables, () async {
+    final before = await all();
+    final merged = uniqueRooms([...before, ...rooms]);
+    await _db.run('DELETE FROM follows');
+    await _insertAll(merged);
+    return merged.length - before.length;
   });
 
   /// Rewrites the list through [update] in one transaction (3.x
@@ -303,5 +328,23 @@ final class FollowAreaStore {
         jsonEncode(area.toJson()),
       ]);
     }
+  });
+
+  /// Unions [areas] into the followed areas in one transaction: local areas
+  /// keep their order, area-only entries from the file are appended. Returns
+  /// how many were added.
+  Future<int> merge(Iterable<LiveArea> areas) => _db.write(_tables, () async {
+    final before = await all();
+    final merged = uniqueAreas([...before, ...areas]);
+    await _db.run('DELETE FROM follow_areas');
+    var position = 0;
+    for (final area in merged) {
+      await _db.run('INSERT INTO follow_areas (identity, position, area) VALUES (?, ?, ?)', [
+        area.identityKey,
+        position++,
+        jsonEncode(area.toJson()),
+      ]);
+    }
+    return merged.length - before.length;
   });
 }

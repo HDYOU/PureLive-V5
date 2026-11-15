@@ -285,7 +285,7 @@ void main() {
       await _settle(tester);
       expect(find.byKey(const ValueKey('backup-preview')), findsOneWidget);
       expect(find.text('3.x 备份（版本 3）'), findsOneWidget);
-      expect(find.text('关注的直播间：1 → 2（新增 2，移除 1）'), findsOneWidget);
+      expect(find.text('关注的直播间：1 → 3（并入 2，本机已有项保留）'), findsOneWidget);
       expect(find.textContaining('文件中没有、保持不变'), findsOneWidget);
       // One thing at a time: the other backup actions grey out, WebDAV and
       // device sync stay (c7).
@@ -305,7 +305,7 @@ void main() {
       await _settle(tester);
       await tester.tap(find.byKey(const ValueKey('backup-restore-confirm')));
       await _settle(tester);
-      expect(await tester.runAsync(() => _followIds(services.store)), ['2', '3']);
+      expect(await tester.runAsync(() => _followIds(services.store)), ['1', '2', '3']);
       expect(_toasts, ['恢复备份成功']);
     });
 

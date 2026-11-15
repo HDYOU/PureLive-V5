@@ -290,7 +290,7 @@ void _partTests() {
       expect(syncPartsIn(offered!), contains(SyncPart.follows));
       expect(await _follows(target.store), ['1'], reason: 'refused: nothing changes');
 
-      target.chooseImport = (_, _) async => {SyncPart.keywords};
+      target.chooseImport = (_, _) async => RemoteSyncImportDecision({SyncPart.keywords});
       expect(await source.send('127.0.0.1', target.port, target.pairingCode), isTrue);
       expect(await target.store.blockLists.list(BlockKind.keyword), ['noise']);
       expect(await _follows(target.store), ['1']);
@@ -357,6 +357,7 @@ final class _FakeSync extends RemoteSyncService {
   /// The parts of the last send and apply; null for a whole one.
   Set<SyncPart>? sentParts;
   Set<SyncPart>? appliedParts;
+  FollowRestoreMode? appliedMode;
 
   @override
   Future<bool> takesParts(String ip, int port) async => partial;
@@ -375,9 +376,14 @@ final class _FakeSync extends RemoteSyncService {
   }
 
   @override
-  Future<bool> apply(Map<String, Object?> settings, {Set<SyncPart>? parts}) async {
+  Future<bool> apply(
+    Map<String, Object?> settings, {
+    Set<SyncPart>? parts,
+    FollowRestoreMode mode = FollowRestoreMode.overwrite,
+  }) async {
     applied = settings;
     appliedParts = parts;
+    appliedMode = mode;
     return true;
   }
 }
@@ -803,9 +809,9 @@ void _pageTests() {
     expect(find.text('来自 PureLive Windows'), findsOneWidget);
     expect(find.text('192.168.1.101:39888 · v4'), findsNWidgets(2));
     expect(find.text('接收后会这样变化：'), findsOneWidget);
-    expect(find.text('关注的直播间：0 → 1（新增 1，移除 0）'), findsOneWidget);
+    expect(find.text('关注的直播间：0 → 1（并入 1，本机已有项保留）'), findsOneWidget);
     expect(find.text('账号：对方没有开“同步账号 Cookie”，本机账号不变'), findsOneWidget);
-    expect(find.textContaining('接收会替换勾选的内容，没勾的保持不变'), findsOneWidget);
+    expect(find.textContaining('合并模式'), findsOneWidget);
     // One part: its box, no "全选" (J05.1).
     expect(find.byKey(const ValueKey('remote-sync-part-all')), findsNothing);
     expect(find.byKey(const ValueKey('remote-sync-part-follows')), findsOneWidget);
@@ -861,7 +867,7 @@ void _pageTests() {
     await _until(tester, () => find.byKey(const ValueKey('remote-sync-incoming')).evaluate().isNotEmpty);
     await _frames(tester);
     expect(find.text('设备 192.168.1.101（PureLive Windows）请求用它的设置覆盖本机设置，是否允许？'), findsOneWidget);
-    expect(find.text('关注的直播间：0 → 1（新增 1，移除 0）'), findsOneWidget);
+    expect(find.text('关注的直播间：0 → 1（并入 1，本机已有项保留）'), findsOneWidget);
     expect(find.byKey(const ValueKey('remote-sync-part-settings')), findsOneWidget);
     expect(find.byKey(const ValueKey('remote-sync-part-keywords')), findsOneWidget);
     await tester.tapAt(const Offset(5, 5));
@@ -882,7 +888,7 @@ void _pageTests() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('remote-sync-allow')));
     await _frames(tester);
-    expect(await answer, {SyncPart.follows, SyncPart.keywords});
+    expect((await answer)?.parts, {SyncPart.follows, SyncPart.keywords});
   });
 
   testWidgets('another device asks: its name, "拒绝" / "允许", no closing outside (c8)', (tester) async {
