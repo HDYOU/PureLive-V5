@@ -18,9 +18,18 @@ import 'package:http/http.dart' as http;
 /// `HttpClient.findProxy` takes it), so a changed proxy applies to the next
 /// image. With `HttpOverrides` in force (tests) the downloads stay on this
 /// isolate, through them.
+///
+/// A CDN front may answer a missing or broken source with a tiny
+/// `image/gif` placeholder (52 bytes). When detected, the download is
+/// retried up to 3 times with escalating delays (500 ms, 1 s, 1.5 s)
+/// before giving up.
 final class IsolateImageFileService extends FileService {
   /// Creates the service.
-  new({required this.directiveFor, this.connectTimeout = const Duration(seconds: 15)});
+  new({
+    required this.directiveFor,
+    this.connectTimeout = const Duration(seconds: 15),
+    this.delayFor,
+  });
 
   /// The proxy directive for an image URL ("DIRECT", "PROXY host:port").
   final String Function(Uri url) directiveFor;
@@ -28,8 +37,23 @@ final class IsolateImageFileService extends FileService {
   /// How long a connection may take.
   final Duration connectTimeout;
 
+  /// The delay between placeholder retries; injectable for tests.
+  final Duration Function(int attempt)? delayFor;
+
   /// How long a whole download may take.
   static const Duration timeout = Duration(seconds: 60);
+
+  /// The number of retries after a placeholder response.
+  static const int maxPlaceholderRetries = 3;
+
+  /// The delays between placeholder retries (index = retry number).
+  static const List<Duration> _placeholderDelays = [
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(milliseconds: 1500),
+  ];
+
+  Duration _retryDelay(int attempt) => delayFor?.call(attempt) ?? _placeholderDelays[attempt];
 
   _Worker? _worker;
 
@@ -37,12 +61,15 @@ final class IsolateImageFileService extends FileService {
   Future<FileServiceResponse> get(String url, {Map<String, String>? headers}) async {
     final uri = Uri.parse(url);
     final directive = directiveFor(uri);
-    if (HttpOverrides.current != null) {
-      return HttpGetResponse(await _fetchHere(uri, headers ?? const {}, directive));
+    final hdrs = headers ?? const <String, String>{};
+
+    var reply = await _downloadOnce(uri, hdrs, directive);
+    var bytes = reply.bytes.materialize().asUint8List();
+    for (var attempt = 0; attempt < maxPlaceholderRetries && _isPlaceholder(reply.status, reply.headers, bytes.length); attempt++) {
+      await Future<void>.delayed(_retryDelay(attempt));
+      reply = await _downloadOnce(uri, hdrs, directive);
+      bytes = reply.bytes.materialize().asUint8List();
     }
-    final worker = _worker ??= _Worker(connectTimeout);
-    final reply = await worker.fetch(url, headers ?? const {}, directive);
-    final bytes = reply.bytes.materialize().asUint8List();
     return HttpGetResponse(
       http.StreamedResponse(
         Stream.value(bytes),
@@ -54,20 +81,30 @@ final class IsolateImageFileService extends FileService {
     );
   }
 
-  Future<http.StreamedResponse> _fetchHere(Uri uri, Map<String, String> headers, String directive) async {
+  /// Downloads once: on this isolate under `HttpOverrides`, on a worker
+  /// isolate otherwise.
+  Future<_Reply> _downloadOnce(Uri uri, Map<String, String> headers, String directive) async {
+    if (HttpOverrides.current != null) {
+      return await _fetchHere(uri, headers, directive);
+    }
+    final worker = _worker ??= _Worker(connectTimeout);
+    return await worker.fetch(uri.toString(), headers, directive);
+  }
+
+  /// Whether the response is the CDN front's placeholder (a tiny `image/gif`).
+  static bool _isPlaceholder(int status, Map<String, String> headers, int byteLength) {
+    if (status != 200) return false;
+    final contentType = headers['content-type'] ?? '';
+    if (!contentType.contains('image/gif')) return false;
+    return byteLength == 52;
+  }
+
+  Future<_Reply> _fetchHere(Uri uri, Map<String, String> headers, String directive) async {
     final client = HttpClient()
       ..connectionTimeout = connectTimeout
       ..findProxy = (_) => directive;
     try {
-      final reply = await _download(client, uri, headers).timeout(timeout);
-      final bytes = reply.bytes.materialize().asUint8List();
-      return http.StreamedResponse(
-        Stream.value(bytes),
-        reply.status,
-        contentLength: bytes.length,
-        headers: reply.headers,
-        request: http.Request('GET', uri),
-      );
+      return await _download(client, uri, headers).timeout(timeout);
     } finally {
       client.close();
     }

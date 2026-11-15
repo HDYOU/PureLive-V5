@@ -80,6 +80,129 @@ void main() {
     }, _RealHttp());
   });
 
+  test('placeholder retry: a 52-byte image/gif is retried 3 times with escalating delays', () async {
+    // A server that returns a 52-byte image/gif placeholder for the first
+    // two requests, then a real 3-byte image/png on the third.
+    final placeholder = List<int>.filled(52, 0);
+    var requestCount = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      requestCount++;
+      final isPlaceholder = requestCount <= 2;
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = isPlaceholder ? ContentType('image', 'gif') : ContentType('image', 'png')
+        ..add(isPlaceholder ? placeholder : const [1, 2, 3]);
+      await request.response.close();
+    });
+
+    final saved = HttpOverrides.current;
+    HttpOverrides.global = _RealHttp();
+    addTearDown(() => HttpOverrides.global = saved);
+
+    // Inject a zero delay so the test is fast; verify the delay function
+    // is called with the correct attempt indices.
+    final delays = <int>[];
+    final service = IsolateImageFileService(
+      directiveFor: (_) => 'DIRECT',
+      delayFor: (attempt) {
+        delays.add(attempt);
+        return Duration.zero;
+      },
+    );
+
+    final response = await service.get('http://127.0.0.1:${server.port}/img');
+    expect(response.statusCode, 200);
+    expect(await response.content.expand((bytes) => bytes).toList(), [1, 2, 3]);
+    expect(requestCount, 3, reason: 'initial + 2 retries (third attempt succeeds)');
+    expect(delays, [0, 1], reason: 'retry delays for attempts 0 and 1');
+  });
+
+  test('placeholder retry: all retries exhausted returns the last placeholder', () async {
+    final placeholder = List<int>.filled(52, 0);
+    var requestCount = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      requestCount++;
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('image', 'gif')
+        ..add(placeholder);
+      await request.response.close();
+    });
+
+    final saved = HttpOverrides.current;
+    HttpOverrides.global = _RealHttp();
+    addTearDown(() => HttpOverrides.global = saved);
+
+    final service = IsolateImageFileService(
+      directiveFor: (_) => 'DIRECT',
+      delayFor: (_) => Duration.zero,
+    );
+
+    final response = await service.get('http://127.0.0.1:${server.port}/img');
+    expect(response.statusCode, 200);
+    expect(await response.content.expand((bytes) => bytes).toList(), placeholder);
+    expect(requestCount, 4, reason: 'initial + 3 retries, all placeholders');
+  });
+
+  test('placeholder retry: a non-gif or non-52-byte response is not retried', () async {
+    var requestCount = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      requestCount++;
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('image', 'png')
+        ..add(const [1, 2, 3]);
+      await request.response.close();
+    });
+
+    final saved = HttpOverrides.current;
+    HttpOverrides.global = _RealHttp();
+    addTearDown(() => HttpOverrides.global = saved);
+
+    final service = IsolateImageFileService(
+      directiveFor: (_) => 'DIRECT',
+      delayFor: (_) => Duration.zero,
+    );
+
+    final response = await service.get('http://127.0.0.1:${server.port}/img');
+    expect(response.statusCode, 200);
+    expect(await response.content.expand((bytes) => bytes).toList(), [1, 2, 3]);
+    expect(requestCount, 1, reason: 'no retry for a normal response');
+  });
+
+  test('placeholder retry: a gif that is not 52 bytes is not retried', () async {
+    var requestCount = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      requestCount++;
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType('image', 'gif')
+        ..add(const [1, 2, 3, 4, 5, 6, 7]);
+      await request.response.close();
+    });
+
+    final saved = HttpOverrides.current;
+    HttpOverrides.global = _RealHttp();
+    addTearDown(() => HttpOverrides.global = saved);
+
+    final service = IsolateImageFileService(
+      directiveFor: (_) => 'DIRECT',
+      delayFor: (_) => Duration.zero,
+    );
+
+    final response = await service.get('http://127.0.0.1:${server.port}/img');
+    expect(await response.content.expand((bytes) => bytes).toList(), [1, 2, 3, 4, 5, 6, 7]);
+    expect(requestCount, 1, reason: 'a non-52-byte gif is a real image');
+  });
+
   test('R01.3: images download on a worker isolate, through the proxy directive of each request', () async {
     final saved = HttpOverrides.current;
     HttpOverrides.global = null;
