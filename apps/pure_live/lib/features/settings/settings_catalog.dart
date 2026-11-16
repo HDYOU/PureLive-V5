@@ -1849,12 +1849,12 @@ List<SettingsEntry> _build() {
       keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN'],
     )
     ..add(
-      'image_cdn_proxy_exclude',
-      'image_cdn_proxy_exclude',
-      (context, entry) => ImageCdnProxyExcludeTile(entry: entry),
-      desc: 'image_cdn_proxy_exclude_desc',
-      settings: [Settings.imageCdnProxyExcludeList],
-      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN', '排除'],
+      'image_cdn_proxy_sites',
+      'image_cdn_proxy_sites',
+      (context, entry) => ImageCdnProxySitesTile(entry: entry),
+      desc: 'image_cdn_proxy_sites_desc',
+      settings: [Settings.imageCdnProxySites],
+      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN', '百度', '搜狗', 'wsrv'],
     )
     ..group = 'api_proxy_group_title'
     ..add(

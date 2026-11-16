@@ -316,6 +316,89 @@ void main() {
     expect(imageCdnProxyUrl(store.settings, image), isNot(image), reason: 'without a site everything is proxied');
   });
 
+  test('imageCdnProxyUrl: per-site CDN providers (imageCdnProxySites)', () async {
+    final store = await LiveStore.memory(cipher: FakeCipher());
+    addTearDown(store.close);
+    const image = 'https://i0.hdslb.com/bfs/live-key-frame/keyframe123.jpg';
+    final encoded = Uri.encodeComponent(image);
+
+    await store.settings.set(Settings.enableImageCdnProxy, true);
+    await store.settings.set(Settings.imageCdnProxySites, {
+      'bilibili': 'baidu',
+      'douyu': 'sougou',
+      'huya': 'wsrv',
+      'twitch': 'wp',
+      'kuaishou': 'none',
+    });
+
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'bilibili'),
+      'https://gimg0.baidu.com/gimg/src=$encoded&app=2001&n=0&g=0n&q=80&fmt=webp',
+      reason: 'baidu provider',
+    );
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'douyu'),
+      'https://img02.sogoucdn.com/v2/thumb/retype/ext/webp/q/80/crop/xy/ai/t/0/?appid=122&url=$encoded',
+      reason: 'sougou provider',
+    );
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'huya'),
+      'https://wsrv.nl/?url=$encoded&output=webp&q=80',
+      reason: 'wsrv provider',
+    );
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'twitch'),
+      'https://i2.wp.com/$image',
+      reason: 'wp provider',
+    );
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'kuaishou'),
+      image,
+      reason: 'none provider keeps the original URL',
+    );
+    // A site not in the map defaults to baidu.
+    expect(
+      imageCdnProxyUrl(store.settings, image, site: 'soop'),
+      'https://gimg0.baidu.com/gimg/src=$encoded&app=2001&n=0&g=0n&q=80&fmt=webp',
+      reason: 'unlisted site defaults to baidu',
+    );
+    // No site at all defaults to baidu.
+    expect(
+      imageCdnProxyUrl(store.settings, image),
+      'https://gimg0.baidu.com/gimg/src=$encoded&app=2001&n=0&g=0n&q=80&fmt=webp',
+      reason: 'no site defaults to baidu',
+    );
+
+    // Off: everything stays direct regardless of per-site config.
+    await store.settings.set(Settings.enableImageCdnProxy, false);
+    expect(imageCdnProxyUrl(store.settings, image, site: 'bilibili'), image, reason: 'off: no rewrite');
+  });
+
+  test('applyImageCdnProvider: each provider rewrites the URL correctly', () {
+    const url = 'https://example.com/img.png';
+    expect(ImageCdnProvider.none, applyImageCdnProvider(ImageCdnProvider.none, url), reason: 'none: unchanged');
+    expect(
+      applyImageCdnProvider(ImageCdnProvider.baidu, url),
+      'https://gimg0.baidu.com/gimg/src=${Uri.encodeComponent(url)}&app=2001&n=0&g=0n&q=80&fmt=webp',
+    );
+    expect(
+      applyImageCdnProvider(ImageCdnProvider.sougou, url),
+      'https://img02.sogoucdn.com/v2/thumb/retype/ext/webp/q/80/crop/xy/ai/t/0/?appid=122&url=${Uri.encodeComponent(url)}',
+    );
+    expect(
+      applyImageCdnProvider(ImageCdnProvider.wsrv, url),
+      'https://wsrv.nl/?url=${Uri.encodeComponent(url)}&output=webp&q=80',
+    );
+    expect(applyImageCdnProvider(ImageCdnProvider.wp, url), 'https://i2.wp.com/$url');
+  });
+
+  test('ImageCdnProviderId: fromId round-trips and falls back to baidu', () {
+    for (final p in ImageCdnProvider.values) {
+      expect(ImageCdnProviderId.fromId(p.id), p, reason: '${p.id} round-trip');
+    }
+    expect(ImageCdnProviderId.fromId('unknown'), ImageCdnProvider.baidu, reason: 'unknown falls back to baidu');
+  });
+
   test('live_ui loads the picture through the CDN front, the cache under its own address', () {
     String front(String url) => 'front:$url';
     final config = LiveUiConfig(imageUrl: front);

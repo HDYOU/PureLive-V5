@@ -1272,11 +1272,22 @@ abstract final class Settings {
 
   /// Platform ids whose images load direct even with [enableImageCdnProxy]
   /// (3.x `networkImageProxyExcludeList`): an empty list proxies everything.
+  /// Superseded by [imageCdnProxySites] (per-site CDN provider selection);
+  /// kept for migration.
   static const imageCdnProxyExcludeList = StringListSetting(
     'imageCdnProxyExcludeList',
     section: 'proxy',
     defaultValue: [],
     tidy: true,
+  );
+
+  /// Per-site image CDN provider (site id → provider id). Providers:
+  /// `none`, `baidu`, `sougou`, `wsrv`, `wp`.
+  /// Sites not listed default to `baidu` when [enableImageCdnProxy] is on.
+  static const imageCdnProxySites = JsonSetting(
+    'imageCdnProxySites',
+    section: 'proxy',
+    defaultValue: {},
   );
 
   /// API requests for the listed platforms are sent through a forward proxy
@@ -2313,6 +2324,7 @@ abstract final class Settings {
     appProxyPort,
     enableImageCdnProxy,
     imageCdnProxyExcludeList,
+    imageCdnProxySites,
     apiProxySites,
     apiProxyHost,
     apiProxyPort,

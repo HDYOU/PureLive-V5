@@ -18,6 +18,7 @@ import 'package:pure_live/i18n/i18n.dart';
 import 'package:pure_live/platform/display_mode.dart';
 import 'package:pure_live/platform/overlay_window.dart';
 import 'package:pure_live/routes/app_navigator.dart';
+import 'package:pure_live/shared/images.dart';
 import 'package:pure_live/shared/rooms/room_texts.dart';
 
 /// The three expert mpv options.
@@ -647,64 +648,68 @@ class _ApiProxyHostDialogState extends State<_ApiProxyHostDialog> {
   );
 }
 
-/// The platforms whose images load direct even with the image CDN front on
-/// (3.x `networkImageProxyExcludeList`): a dialog of chips, one per
-/// platform; nothing picked means everything goes through the front.
-class ImageCdnProxyExcludeTile extends ConsumerWidget {
+/// The per-site image CDN provider (3.x `networkImageProxyExcludeList`
+/// superseded): a dialog listing each platform with a dropdown to pick
+/// the CDN provider (`none`, `baidu`, `sougou`, `wsrv.nl`, `i2.wp.com`);
+/// platforms without a selection use the default (`baidu`).
+class ImageCdnProxySitesTile extends ConsumerWidget {
   /// Creates the row.
   const new({required this.entry, super.key});
 
   /// The entry drawn.
   final SettingsEntry entry;
 
-  /// A platform id in lowercase letters.
-  static String _id(String id) => id.trim().toLowerCase();
-
-  /// A supported platform id in lowercase letters.
-  static bool _supported(String id) => SiteIds.isSupported(id);
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final enabled = watchSetting(ref, Settings.enableImageCdnProxy);
-    final excluded = watchSetting(ref, Settings.imageCdnProxyExcludeList);
-    final shown = excluded.map(_id).where(_supported).toList();
+    final perSite = watchSetting(ref, Settings.imageCdnProxySites);
+    final configured = perSite.entries
+        .where((e) => e.value is String && SiteIds.isSupported(e.key))
+        .toList();
+    final summary = configured.isEmpty
+        ? i18n('image_cdn_proxy_sites_default')
+        : configured.map((e) => '${platformName(e.key)}: ${ImageCdnProviderId.fromId(e.value! as String).name}').join('、');
     return SettingsLinkRow(
       key: entry.rowKey,
       icon: AppIcons.settingsImageCdnProxyExclude,
       title: entry.titleText,
       subtitle: entry.descriptionText,
       enabled: enabled,
-      value: shown.isEmpty ? i18n('image_cdn_proxy_exclude_all') : shown.map(platformName).join('、'),
+      value: summary,
       onTap: () async {
-        final picked = await showAppDialog<List<String>>(
+        final current = <String, String>{};
+        perSite.forEach((k, v) {
+          if (v is String) current[k] = v;
+        });
+        final picked = await showAppDialog<Map<String, String>>(
           context: context,
-          builder: (context) => _ImageCdnProxyExcludeDialog(initial: shown),
+          builder: (context) => _ImageCdnProxySitesDialog(initial: current),
         );
-        if (picked != null && context.mounted) writeSetting(ref, Settings.imageCdnProxyExcludeList, picked);
+        if (picked != null && context.mounted) writeSetting(ref, Settings.imageCdnProxySites, picked);
       },
     );
   }
 }
 
-class _ImageCdnProxyExcludeDialog extends StatefulWidget {
+class _ImageCdnProxySitesDialog extends StatefulWidget {
   const new({required this.initial});
 
-  final List<String> initial;
+  final Map<String, String> initial;
 
   @override
-  State<_ImageCdnProxyExcludeDialog> createState() => _ImageCdnProxyExcludeDialogState();
+  State<_ImageCdnProxySitesDialog> createState() => _ImageCdnProxySitesDialogState();
 }
 
-class _ImageCdnProxyExcludeDialogState extends State<_ImageCdnProxyExcludeDialog> {
-  late final List<String> _selected = List.of(widget.initial);
+class _ImageCdnProxySitesDialogState extends State<_ImageCdnProxySitesDialog> {
+  late final Map<String, String> _selected = Map.of(widget.initial);
 
   @override
   Widget build(BuildContext context) => SettingsDialogFrame(
-    title: i18n('image_cdn_proxy_exclude'),
+    title: i18n('image_cdn_proxy_sites'),
     actions: [
       const DialogCancelButton(),
       DialogActionButton(
-        key: const ValueKey('settings-image-cdn-proxy-exclude-save'),
+        key: const ValueKey('settings-image-cdn-proxy-sites-save'),
         label: i18n('save'),
         onPressed: () => Navigator.of(context).pop(_selected),
       ),
@@ -715,34 +720,32 @@ class _ImageCdnProxyExcludeDialogState extends State<_ImageCdnProxyExcludeDialog
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(i18n('image_cdn_proxy_exclude_hint'), style: Theme.of(context).textTheme.bodySmall),
+          Text(i18n('image_cdn_proxy_sites_hint'), style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionChip(
-                key: const ValueKey('settings-image-cdn-proxy-exclude-none'),
-                avatar: const Icon(AppIcons.selected, size: 18),
-                label: Text(i18n('image_cdn_proxy_exclude_all')),
-                onPressed: () => setState(_selected.clear),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final id in SiteIds.supported)
-                FilterChip(
-                  key: ValueKey('settings-image-cdn-proxy-exclude-$id'),
-                  label: Text(platformName(id)),
-                  selected: _selected.contains(id),
-                  onSelected: (on) => setState(() => on ? _selected.add(id) : _selected.remove(id)),
+          for (final id in SiteIds.supported) ...[
+            if (id != 'iptv')
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        platformName(id),
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                    ),
+                    DropdownButton<String>(
+                      value: _selected[id] ?? 'baidu',
+                      onChanged: (v) => setState(() => _selected[id] = v!),
+                      items: [
+                        for (final p in ImageCdnProvider.values)
+                          DropdownMenuItem(value: p.id, child: Text(p.name)),
+                      ],
+                    ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+          ],
         ],
       ),
     ),
