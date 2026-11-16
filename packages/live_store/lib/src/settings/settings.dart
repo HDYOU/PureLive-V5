@@ -1270,20 +1270,9 @@ abstract final class Settings {
   /// local network can open; off loads them direct.
   static const enableImageCdnProxy = BoolSetting('enableImageCdnProxy', section: 'proxy', defaultValue: true);
 
-  /// Platform ids whose images load direct even with [enableImageCdnProxy]
-  /// (3.x `networkImageProxyExcludeList`): an empty list proxies everything.
-  /// Superseded by [imageCdnProxySites] (per-site CDN provider selection);
-  /// kept for migration.
-  static const imageCdnProxyExcludeList = StringListSetting(
-    'imageCdnProxyExcludeList',
-    section: 'proxy',
-    defaultValue: [],
-    tidy: true,
-  );
-
   /// Per-site image CDN provider (site id → provider id). Providers:
   /// `none`, `baidu`, `sougou`, `wsrv`, `wp`.
-  /// Sites not listed default to `baidu` when [enableImageCdnProxy] is on.
+  /// Sites not listed default to `none` (direct) when [enableImageCdnProxy] is on.
   static const imageCdnProxySites = JsonSetting(
     'imageCdnProxySites',
     section: 'proxy',
@@ -2323,7 +2312,6 @@ abstract final class Settings {
     appProxyHost,
     appProxyPort,
     enableImageCdnProxy,
-    imageCdnProxyExcludeList,
     imageCdnProxySites,
     apiProxySites,
     apiProxyHost,

@@ -33,7 +33,7 @@ enum ImageCdnProvider {
   /// Load the image direct, no CDN rewrite.
   none,
 
-  /// Baidu gimg front (3.x default).
+  /// Baidu gimg front.
   baidu,
 
   /// Sogou image CDN.
@@ -57,14 +57,14 @@ extension ImageCdnProviderId on ImageCdnProvider {
     ImageCdnProvider.wp => 'wp',
   };
 
-  /// Parses [id]; unknown ids fall back to baidu.
+  /// Parses [id]; unknown ids fall back to [ImageCdnProvider.none].
   static ImageCdnProvider fromId(String id) => switch (id) {
     'none' => ImageCdnProvider.none,
     'baidu' => ImageCdnProvider.baidu,
     'sougou' => ImageCdnProvider.sougou,
     'wsrv' => ImageCdnProvider.wsrv,
     'wp' => ImageCdnProvider.wp,
-    _ => ImageCdnProvider.baidu,
+    _ => ImageCdnProvider.none,
   };
 }
 
@@ -80,10 +80,52 @@ extension ImageCdnProviderName on ImageCdnProvider {
   };
 }
 
+/// Maps an image URL host to the platform id it belongs to, so the
+/// per-site CDN config can be applied without an explicit site parameter.
+/// Returns null for hosts not recognised.
+String? siteFromImageUrlHost(String host) {
+  final h = host.toLowerCase();
+  if (h.contains('hdslb.com') || h.contains('bilibili.com')) return 'bilibili';
+  if (h.contains('douyu.tv') || h.contains('douyucdn.cn')) return 'douyu';
+  if (h.contains('huya.com') || h.contains('huajiao.com')) return 'huya';
+  if (h.contains('snssdk.com') || h.contains('douyin.com')) return 'douyin';
+  if (h.contains('kwai') || h.contains('kuaishou')) return 'kuaishou';
+  if (h.contains('twitch.tv') || h.contains('ttvnw.net')) return 'twitch';
+  if (h.contains('soop') || h.contains('afreeca')) return 'soop';
+  if (h.contains('yy.com') || h.contains('duopa.com')) return 'yy';
+  if (h.contains('acfun.cn')) return 'acfun';
+  if (h.contains('picarto.tv')) return 'picarto';
+  if (h.contains('twitcasting.tv')) return 'twitcasting';
+  if (h.contains('missevan')) return 'missevan';
+  if (h.contains('inke')) return 'inke';
+  if (h.contains('kila')) return 'kilakila';
+  if (h.contains('xiaohongshu') || h.contains('xhscdn')) return 'xiaohongshu';
+  if (h.contains('niconico') || h.contains('nicosee')) return 'niconico';
+  if (h.contains('weibo') || h.contains('sinaimg')) return 'weibo';
+  if (h.contains('showroom-live.com')) return 'showroom';
+  if (h.contains('chzzk')) return 'chzzk';
+  if (h.contains('kick.com')) return 'kick';
+  if (h.contains('liveme') || h.contains('bigolive')) return 'liveMe';
+  if (h.contains('tiktok') || h.contains('muscdn')) return 'tiktok';
+  if (h.contains('youtube') || h.contains('ytimg')) return 'youtube';
+  if (h.contains('bigo') || h.contains('livecdn')) return 'bigo';
+  if (h.contains('pandalive') || h.contains('panda')) return 'pandaLive';
+  if (h.contains('fc2') || h.contains('fc2live')) return 'fc2Live';
+  if (h.contains('steam')) return 'steamBroadcast';
+  if (h.contains('jd') || h.contains('jdlive')) return 'jdLive';
+  if (h.contains('kugou')) return 'kugouLive';
+  if (h.contains('baidu') || h.contains('bytedance')) return 'baiduLive';
+  if (h.contains('sixroom')) return 'sixRoom';
+  if (h.contains('looklive')) return 'lookLive';
+  if (h.contains('seventeen')) return 'seventeenLive';
+  return null;
+}
+
 /// Rewrites [url] through [provider].
 /// [provider] is `none` to keep the original URL.
 String applyImageCdnProvider(ImageCdnProvider provider, String url) {
   final encoded = Uri.encodeComponent(url);
+  final hostPath = url.startsWith('https://') ? url.substring(8) : url.startsWith('http://') ? url.substring(7) : url;
   return switch (provider) {
     ImageCdnProvider.none => url,
     ImageCdnProvider.baidu =>
@@ -93,31 +135,25 @@ String applyImageCdnProvider(ImageCdnProvider provider, String url) {
     ImageCdnProvider.wsrv =>
       'https://wsrv.nl/?url=$encoded&output=webp&q=80',
     ImageCdnProvider.wp =>
-      'https://i2.wp.com/$url',
+      'https://i2.wp.com/$hostPath',
   };
 }
 
-/// The CDN front the image cache loads through when the app proxy is off
-/// (3.x `networkImageProxy`): it fetches the image from [url] and answers
-/// with a small webp. Read for each picture, so the switch and the
-/// [Settings.imageCdnProxySites] apply to the next one; [site] is the
-/// room's platform.
-///
-/// Per-site provider lookup:
-/// 1. [Settings.imageCdnProxySites] (site → provider id);
-/// 2. [Settings.imageCdnProxyExcludeList] (legacy: listed sites stay direct);
-/// 3. default: baidu.
+/// The CDN interceptor for image downloads. Reads [Settings.imageCdnProxySites]
+/// and applies the configured provider per image URL. When the proxy switch
+/// is off or no provider is configured for the detected site, the URL is
+/// returned unchanged.
 String imageCdnProxyUrl(SettingsStore settings, String url, {String? site}) {
   if (!settings.get(Settings.enableImageCdnProxy)) return url;
   final perSite = settings.get(Settings.imageCdnProxySites);
-  if (site != null && site.isNotEmpty) {
-    final providerId = perSite[site];
+  // Determine the site: explicit [site] parameter, or inferred from the URL host.
+  final effectiveSite = site ?? siteFromImageUrlHost(Uri.tryParse(url)?.host ?? '');
+  if (effectiveSite != null && effectiveSite.isNotEmpty) {
+    final providerId = perSite[effectiveSite];
     if (providerId is String) {
       return applyImageCdnProvider(ImageCdnProviderId.fromId(providerId), url);
     }
   }
-  // Legacy: the exclude list keeps a site direct even when the proxy is on.
-  final excludes = settings.get(Settings.imageCdnProxyExcludeList);
-  if (site != null && site.isNotEmpty && excludes.contains(site)) return url;
-  return applyImageCdnProvider(ImageCdnProvider.baidu, url);
+  // Default: direct (no rewrite).
+  return url;
 }

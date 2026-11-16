@@ -648,10 +648,10 @@ class _ApiProxyHostDialogState extends State<_ApiProxyHostDialog> {
   );
 }
 
-/// The per-site image CDN provider (3.x `networkImageProxyExcludeList`
-/// superseded): a dialog listing each platform with a dropdown to pick
-/// the CDN provider (`none`, `baidu`, `sougou`, `wsrv.nl`, `i2.wp.com`);
-/// platforms without a selection use the default (`baidu`).
+/// The per-site image CDN provider: a dialog listing each platform with a
+/// dropdown to pick the CDN provider (`none`, `baidu`, `sougou`, `wsrv.nl`,
+/// `i2.wp.com`); platforms without a selection use the default (`none`,
+/// direct load).
 class ImageCdnProxySitesTile extends ConsumerWidget {
   /// Creates the row.
   const new({required this.entry, super.key});
@@ -728,6 +728,8 @@ class _ImageCdnProxySitesDialogState extends State<_ImageCdnProxySitesDialog> {
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Row(
                   children: [
+                    PlatformLogo(id, size: 22),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         platformName(id),
@@ -735,7 +737,7 @@ class _ImageCdnProxySitesDialogState extends State<_ImageCdnProxySitesDialog> {
                       ),
                     ),
                     DropdownButton<String>(
-                      value: _selected[id] ?? 'baidu',
+                      value: _selected[id] ?? 'none',
                       onChanged: (v) => setState(() => _selected[id] = v!),
                       items: [
                         for (final p in ImageCdnProvider.values)
