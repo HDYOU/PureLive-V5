@@ -448,7 +448,10 @@ class ImageCdnProxyTile extends ConsumerWidget {
       title: entry.titleText,
       subtitle: entry.descriptionText,
       value: enabled,
-      onChanged: (on) => writeSetting(ref, Settings.enableImageCdnProxy, on),
+      onChanged: (on) {
+        writeSetting(ref, Settings.enableImageCdnProxy, on);
+        imageCacheEpoch.value++;
+      },
     );
   }
 }
@@ -685,7 +688,10 @@ class ImageCdnProxySitesTile extends ConsumerWidget {
           context: context,
           builder: (context) => _ImageCdnProxySitesDialog(initial: current),
         );
-        if (picked != null && context.mounted) writeSetting(ref, Settings.imageCdnProxySites, picked);
+        if (picked != null && context.mounted) {
+          writeSetting(ref, Settings.imageCdnProxySites, picked);
+          imageCacheEpoch.value++;
+        }
       },
     );
   }
