@@ -219,7 +219,9 @@ typedef ImageHeadersResolver = Map<String, String>? Function(String url);
 
 /// The address an image picture loads from instead of [url] (the app's CDN
 /// front, 3.x `networkImageProxy`): null keeps the address as is.
-typedef ImageUrlResolver = String? Function(String url);
+/// [site] is the platform id when the caller knows it (a room card, the
+/// player); null lets the resolver infer it from the URL host.
+typedef ImageUrlResolver = String? Function(String url, [String? site]);
 
 /// What the app tells the shared widgets (3.x read these from the settings
 /// singleton): words, the loading style, and how network images load.
@@ -265,15 +267,15 @@ final class LiveUiConfig {
 
   /// The cache key of [url]: the address itself, plus `#epoch` once the
   /// cache has been cleared.
-  String imageCacheKey(String url) {
-    final rewritten = imageUrl?.call(url);
+  String imageCacheKey(String url, [String? site]) {
+    final rewritten = imageUrl?.call(url, site);
     return imageCacheEpoch == 0 ? rewritten ?? url : '$url#$imageCacheEpoch';
   }
 
   /// The address an image picture loads `url` through: the result of
   /// `imageUrl`, or `url` without one (for the cache manager of the danmaku
   /// layer's emoticons, which caches under the picture's own address).
-  String imageDownloadUrl(String url) => imageUrl?.call(url) ?? url;
+  String imageDownloadUrl(String url, [String? site]) => imageUrl?.call(url, site) ?? url;
 
   /// A copy with the given fields replaced.
   LiveUiConfig copyWith({

@@ -14,6 +14,7 @@ class LiveNetworkImage extends StatelessWidget {
     this.memCacheWidth,
     this.fit = BoxFit.cover,
     this.filterQuality = FilterQuality.low,
+    this.site,
     super.key,
   });
 
@@ -36,15 +37,19 @@ class LiveNetworkImage extends StatelessWidget {
   /// large with [FilterQuality.medium] reads as a soft blur).
   final FilterQuality filterQuality;
 
+  /// The platform id (a room card, the player); null lets the resolver
+  /// infer it from the URL host.
+  final String? site;
+
   @override
   Widget build(BuildContext context) {
     final config = LiveUiScope.of(context);
     // The address it loads through (the CDN front, 3.x `networkImageProxy`);
     // null keeps the picture's own.
-    final rewritten = config.imageUrl?.call(url);
+    final rewritten = config.imageUrl?.call(url, site);
     return CachedNetworkImage(
       imageUrl: rewritten ?? url,
-      cacheKey: config.imageCacheKey(url),
+      cacheKey: config.imageCacheKey(url, site),
       httpHeaders: config.imageHeaders?.call(url),
       cacheManager: config.imageCacheManager,
       fit: fit,

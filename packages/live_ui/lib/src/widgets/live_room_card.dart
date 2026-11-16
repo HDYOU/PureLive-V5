@@ -257,6 +257,7 @@ final class _Parts {
         final cacheWidth = (width * MediaQuery.devicePixelRatioOf(context)).round().clamp(240, 720);
         return LiveNetworkImage(
           url: url,
+          site: data.platformId,
           memCacheWidth: cacheWidth,
           placeholder: (_) => coverPlaceholder(),
           error: (_) => coverPlaceholder(),

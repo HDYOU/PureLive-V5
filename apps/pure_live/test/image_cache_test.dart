@@ -406,7 +406,7 @@ void main() {
   });
 
   test('live_ui loads the picture through the CDN front, the cache under its own address', () {
-    String front(String url) => 'front:$url';
+    String? front(String url, [String? site]) => 'front:$url';
     final config = LiveUiConfig(imageUrl: front);
     expect(config.imageDownloadUrl('https://a.example/pic.png'), 'front:https://a.example/pic.png');
     expect(config.imageCacheKey('https://a.example/pic.png'), 'front:https://a.example/pic.png');

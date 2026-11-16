@@ -299,6 +299,7 @@ class RoomSwipePreview extends StatelessWidget {
               LiveNetworkImage(
                 key: const ValueKey('live-play-swipe-cover'),
                 url: cover,
+                site: room.platform,
                 fit: BoxFit.contain,
                 memCacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context))
                     .round()

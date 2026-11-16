@@ -854,6 +854,7 @@ class _MiniAudioCover extends StatelessWidget {
         if (room.cover.trim().isNotEmpty)
           LiveNetworkImage(
             url: room.cover,
+            site: room.platform,
             placeholder: (_) => const SizedBox.shrink(),
             error: (_) => const SizedBox.shrink(),
           ),
