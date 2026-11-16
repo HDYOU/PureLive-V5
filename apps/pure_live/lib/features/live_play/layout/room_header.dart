@@ -182,6 +182,7 @@ class RoomTitle extends StatelessWidget {
                   child: CommonAvatar(
                     key: const ValueKey('live-play-avatar'),
                     avatarUrl: avatar,
+                    site: platform,
                     radius: 16,
                     fallbackName: nick.isEmpty ? platformLabel : nick,
                     onTap: onTap,

@@ -295,7 +295,7 @@ class PictureStateView extends StatelessWidget {
     final Widget? leading = switch (state.kind) {
       PictureStateKind.offline || PictureStateKind.carousel => VideoStateAvatar(
         size: compact ? 40 : 48,
-        child: CommonAvatar(avatarUrl: room.avatar, radius: compact ? 20 : 24, fallbackName: room.nick),
+        child: CommonAvatar(avatarUrl: room.avatar, site: room.platform, radius: compact ? 20 : 24, fallbackName: room.nick),
       ),
       // The lock stays on a short picture too (U.2g note 10).
       PictureStateKind.restricted => const Icon(

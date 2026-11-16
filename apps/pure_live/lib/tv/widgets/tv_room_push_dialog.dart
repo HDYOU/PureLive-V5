@@ -81,7 +81,7 @@ class TvRoomPushDialog extends StatelessWidget {
               )
             : Row(
                 children: [
-                  CommonAvatar(avatarUrl: room.avatar, fallbackName: room.nick, radius: scale.pxText(28)),
+                  CommonAvatar(avatarUrl: room.avatar, site: room.platform, fallbackName: room.nick, radius: scale.pxText(28)),
                   SizedBox(width: scale.px(14)),
                   Expanded(
                     child: Column(

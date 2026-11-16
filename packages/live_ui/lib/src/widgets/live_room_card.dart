@@ -333,7 +333,7 @@ final class _Parts {
 
   Widget avatar() => KeyedSubtree(
     key: const ValueKey('room-card-avatar'),
-    child: CommonAvatar(avatarUrl: data.avatarUrl, fallbackName: data.anchorName, dense: dense),
+    child: CommonAvatar(avatarUrl: data.avatarUrl, site: data.platformId, fallbackName: data.anchorName, dense: dense),
   );
 
   Widget title() => Text(
@@ -749,7 +749,7 @@ class _RoomRowState extends State<RoomRow> {
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      CommonAvatar(avatarUrl: data.avatarUrl, fallbackName: data.anchorName),
+                      CommonAvatar(avatarUrl: data.avatarUrl, site: data.platformId, fallbackName: data.anchorName),
                       Positioned(
                         right: -3,
                         bottom: -3,

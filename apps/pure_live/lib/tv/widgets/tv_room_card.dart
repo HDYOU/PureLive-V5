@@ -176,6 +176,7 @@ class TvRoomCard extends StatelessWidget {
                             )
                           : CommonAvatar(
                               avatarUrl: data.avatarUrl,
+                              site: data.platformId,
                               fallbackName: data.anchorName,
                               radius: scale.pxText(14),
                             ),

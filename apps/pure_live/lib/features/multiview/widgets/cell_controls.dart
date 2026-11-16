@@ -214,7 +214,7 @@ class _RoomRow extends StatelessWidget {
       child: Row(
         spacing: 10,
         children: [
-          CommonAvatar(avatarUrl: room.avatar, fallbackName: room.nick, radius: 16),
+            CommonAvatar(avatarUrl: room.avatar, site: room.platform, fallbackName: room.nick, radius: 16),
           Expanded(
             child: Column(
               mainAxisSize: MainAxisSize.min,

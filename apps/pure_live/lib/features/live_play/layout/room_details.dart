@@ -337,7 +337,7 @@ class _StreamerState extends State<_Streamer> {
     final secondary = theme.textTheme.bodyMedium?.regular.copyWith(color: scheme.onSurfaceVariant);
     return Row(
       children: [
-        CommonAvatar(avatarUrl: room.avatar, radius: 24, fallbackName: room.nick),
+        CommonAvatar(avatarUrl: room.avatar, site: room.platform, radius: 24, fallbackName: room.nick),
         const SizedBox(width: 12),
         Expanded(
           child: Column(

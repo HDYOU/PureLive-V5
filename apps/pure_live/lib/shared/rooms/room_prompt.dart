@@ -60,7 +60,7 @@ class RoomPromptDialog extends StatelessWidget {
     final nick = room.nick.trim();
     // A narrow window or a large system font puts the avatar on top (3.x).
     final stacked = MediaQuery.sizeOf(context).width < 350 || MediaQuery.textScalerOf(context).scale(10) >= 16;
-    final avatar = CommonAvatar(avatarUrl: room.avatar, fallbackName: nick.isEmpty ? platform : nick, radius: 24);
+    final avatar = CommonAvatar(avatarUrl: room.avatar, site: room.platform, fallbackName: nick.isEmpty ? platform : nick, radius: 24);
     final meta = [if (nick.isNotEmpty) nick, platform, '${i18n('room_id')} ${room.roomId.trim()}'].join(' · ');
     final names = Column(
       mainAxisSize: MainAxisSize.min,
