@@ -95,6 +95,7 @@ Map<String, String> _form(LiveRequest request) => Uri.splitQueryString(utf8.deco
 Map<String, String> _legacyHeaders(String name) => {
   for (final MapEntry(:key, :value) in (_legacyRequest(name)['headers'] as Map<String, dynamic>).entries)
     if (key != 'Cookie') key.toLowerCase(): '$value',
+  'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
 };
 
 void main() {

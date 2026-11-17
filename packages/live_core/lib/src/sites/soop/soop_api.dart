@@ -212,6 +212,7 @@ abstract final class SoopApi {
   /// lower case; [cookie] only when there is one (3.x sent an empty one).
   static Map<String, String> apiHeaders({String cookie = ''}) => {
     'accept': '*/*',
+    'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
     'origin': _www,
     'referer': '$_www/',
     'sec-fetch-dest': 'empty',
@@ -407,7 +408,7 @@ abstract final class SoopApi {
         final restricted = LiveRoom(
           roomId: id,
           platform: _site,
-          title: _display(fields['TITLE']),
+          title: _displayTranslated(fields, 'TITLE_TRANSLATE', 'TITLE'),
           liveStatus: LiveStatus.live,
           startedAt: startedBefore(fields['BTIME'], now),
           restriction: switch (answer.result) {
@@ -429,7 +430,7 @@ abstract final class SoopApi {
     final room = LiveRoom(
       roomId: id,
       platform: _site,
-      title: _display(fields['TITLE']),
+      title: _displayTranslated(fields, 'TITLE_TRANSLATE', 'TITLE'),
       nick: _display(fields['BJNICK']),
       avatar: bj.length < 2 ? '' : 'https://stimg.sooplive.co.kr/LOGO/${bj.substring(0, 2)}/$bj/$bj.jpg',
       cover: _cover(bno, now),
@@ -824,7 +825,7 @@ abstract final class SoopApi {
     return withAgeCover(LiveRoom(
       roomId: id,
       platform: _site,
-      title: _display(item['broad_title']),
+      title: _displayTranslated(item, 'broad_title_translate', 'broad_title'),
       nick: _display(item['user_nick']),
       avatar: avatar.isEmpty ? SoopApi.avatar(id) : avatar,
       cover: normalizeImageUrl(cover),
@@ -845,6 +846,14 @@ String _text(Object? value) => value == null ? '' : '$value';
 
 /// A title or name as shown: [_text] with HTML entities decoded (7-2).
 String _display(Object? value) => decodeHtmlEntities(_text(value));
+
+/// The translated title of a field map: [translatedKey] when it names a
+/// non-empty string, else [fallbackKey]; both HTML-decoded (7-2).
+String _displayTranslated(Map<String, dynamic> fields, String translatedKey, String fallbackKey) {
+  final translated = fields[translatedKey];
+  if (translated is String && translated.trim().isNotEmpty) return decodeHtmlEntities(translated);
+  return _display(fields[fallbackKey]);
+}
 
 /// `true`, 1, and `true`, `Y`, `yes` or `1` in any case (`is_more`, `BPWD`,
 /// `is_password`).
