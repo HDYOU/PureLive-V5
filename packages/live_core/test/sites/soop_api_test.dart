@@ -41,7 +41,8 @@ void _expectRooms(List<LiveRoom> rooms, Object? legacy, {required String reason,
   final expected = (legacy! as List).cast<Map<String, dynamic>>();
   expect(rooms.map((room) => room.roomId), expected.map((room) => room['roomId']), reason: reason);
   for (final (index, room) in rooms.indexed) {
-    _expectParity(room.toJson(), expected[index], changed: {'title', 'nick', ...changed}, reason: '$reason[$index]');
+    final roomChanged = <String>{'title', 'nick', ...changed, if (room.restriction == LiveRestriction.adult) 'cover'};
+    _expectParity(room.toJson(), expected[index], changed: roomChanged, reason: '$reason[$index]');
     expect(room.title, decodeHtmlEntities('${expected[index]['title'] ?? ''}'), reason: '7-2 $reason[$index]');
     expect(room.nick, decodeHtmlEntities('${expected[index]['nick'] ?? ''}'), reason: '7-2 $reason[$index]');
   }
@@ -624,7 +625,7 @@ void main() {
       expect(entry.title, '다시보기 X 추석 토끼 떡 찧다가 술마시는중');
       expect(entry.avatar, 'https://profile.img.sooplive.co.kr/LOGO/bu/bumzi98/bumzi98.jpg');
       expect(entry.onlineViewers, '3209');
-      expect(entry.cover, 'https://liveimg.sooplive.co.kr/m/297428401?_t=${_now.millisecondsSinceEpoch}');
+      expect(entry.cover, SoopApi.ageRestrictedCover);
       expect(entry.startedAt, DateTime.utc(2026, 9, 27, 13, 26, 31), reason: "BTIME's, the same as broad_start");
       expect(entry.data, isNull);
       expect(SoopApi.noStream(entry), isA<NeedsLogin>());

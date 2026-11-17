@@ -151,6 +151,17 @@ final class SoopStationBroadcast {
 /// with the archived v4 parser's fixes). Each function takes the response
 /// text and status and returns 3.x's models or throws a `SiteError`.
 abstract final class SoopApi {
+  /// The cover shown for age-restricted (adult) rooms across all interfaces.
+  static const String ageRestrictedCover =
+      'https://i2.wp.com/upload.moonchan.xyz/p.inari.site/26-11/17/6afc0ed1da1ca.webp';
+
+  /// Applies the [ageRestrictedCover] to [room] when its restriction is
+  /// [LiveRestriction.adult]; returns [room] unchanged otherwise.
+  static LiveRoom withAgeCover(LiveRoom room) {
+    if (room.restriction != LiveRestriction.adult) return room;
+    return room.copyWith(cover: ageRestrictedCover);
+  }
+
   /// Desktop Chrome 128, the UA 3.x sent with every API request.
   static const String userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -393,7 +404,7 @@ abstract final class SoopApi {
       case -2:
         return LiveRoom(roomId: id, platform: _site, liveStatus: LiveStatus.banned, link: roomPageUrl(id));
       case -6 || -8 || -14:
-        return LiveRoom(
+        final restricted = LiveRoom(
           roomId: id,
           platform: _site,
           title: _display(fields['TITLE']),
@@ -406,6 +417,7 @@ abstract final class SoopApi {
           },
           link: roomPageUrl(id),
         );
+        return withAgeCover(restricted);
       default:
         throw ApiChanged(_site, 'player_live_api: RESULT ${answer.result}');
     }
@@ -414,7 +426,7 @@ abstract final class SoopApi {
     final tags = fields['CATEGORY_TAGS'];
     final live = fields['VIEWPRESET'] != null;
     final viewers = onlineViewers(fields);
-    return LiveRoom(
+    final room = LiveRoom(
       roomId: id,
       platform: _site,
       title: _display(fields['TITLE']),
@@ -444,6 +456,7 @@ abstract final class SoopApi {
           : null,
       danmakuData: withDanmaku ? danmakuArgs(fields, roomId: id, cookie: cookie) : null,
     );
+    return withAgeCover(room);
   }
 
   /// `chapi.sooplive.co.kr/api/<id>/station` (7-5). An unknown streamer
@@ -499,14 +512,14 @@ abstract final class SoopApi {
       avatar: station.avatar.isEmpty ? null : station.avatar,
       introduction: station.introduction.isEmpty ? null : station.introduction,
     );
-    if (broadcast == null || profile.effectiveLiveStatus == LiveStatus.banned) return profile;
+    if (broadcast == null || profile.effectiveLiveStatus == LiveStatus.banned) return withAgeCover(profile);
     final live = profile.isLiveNow;
     // A broadcast that ended between the two answers is not this one.
     if (profile.data case SoopRoomData(:final bno) when live && bno.isNotEmpty && bno != broadcast.bno) {
-      return profile;
+      return withAgeCover(profile);
     }
-    if (!live && profile.effectiveLiveStatus != LiveStatus.offline) return profile;
-    return profile.copyWith(
+    if (!live && profile.effectiveLiveStatus != LiveStatus.offline) return withAgeCover(profile);
+    final merged = profile.copyWith(
       liveStatus: LiveStatus.live,
       title: profile.title.trim().isEmpty ? broadcast.title : null,
       cover: profile.cover.isEmpty ? _cover(broadcast.bno, now) : null,
@@ -518,6 +531,7 @@ abstract final class SoopApi {
           ? stricter(profile.restriction, broadcast.restriction)
           : (broadcast.restriction == LiveRestriction.none ? LiveRestriction.unplayable : broadcast.restriction),
     );
+    return withAgeCover(merged);
   }
 
   /// Why [room] (the player API's answer when a stream was asked for) has
@@ -802,7 +816,12 @@ abstract final class SoopApi {
     final id = jsonString(item['user_id']);
     if (id == null) return null;
     final viewers = onlineViewers(item);
-    return LiveRoom(
+    final restriction = restrictionOf(
+      password: item['is_password'],
+      subscribers: item['subscription_only'],
+      grade: item['broad_grade'] ?? item['grade'],
+    );
+    return withAgeCover(LiveRoom(
       roomId: id,
       platform: _site,
       title: _display(item['broad_title']),
@@ -815,12 +834,8 @@ abstract final class SoopApi {
       audienceMetricType: AudienceMetricType.onlineViewers,
       liveStatus: LiveStatus.live,
       startedAt: koreanTime(item['broad_start']),
-      restriction: restrictionOf(
-        password: item['is_password'],
-        subscribers: item['subscription_only'],
-        grade: item['broad_grade'] ?? item['grade'],
-      ),
-    );
+      restriction: restriction,
+    ));
   }
 }
 
