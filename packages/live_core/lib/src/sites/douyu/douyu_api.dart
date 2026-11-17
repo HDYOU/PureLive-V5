@@ -350,6 +350,18 @@ abstract final class DouyuApi {
     'httponly',
   };
 
+  /// Whether a "live" room is actually replaying, detected by the platform's
+  /// naming convention: the anchor name matches 赛事/官方 AND the room title
+  /// matches 重播/录播/回放. Used when `show_status == 1` but no `videoLoop`
+  /// flag is set (batch/follow answers have no `videoLoop` field).
+  static bool _isReplayByNameAndTitle(String? nick, String? title) {
+    final name = (nick ?? '').replaceAll(RegExp(r'<[^>]*>'), '');
+    final t = title ?? '';
+    final nameMatch = name.contains('赛事') || name.contains('官方');
+    final titleMatch = t.contains('重播') || t.contains('录播') || t.contains('回放');
+    return nameMatch && titleMatch;
+  }
+
   // Catalog -------------------------------------------------------------------
 
   /// `m.douyu.com/api/cate/list`: `cate1Info` sorted by id, each with the
@@ -531,19 +543,26 @@ abstract final class DouyuApi {
     final online = jsonString(entry['hn']);
     final on = jsonInt(entry['show_status']) == 1;
     final closeNotice = jsonString(entry['close_notice']);
+    final nick = jsonString(entry['nickname']) ?? '';
+    final title = jsonString(entry['room_name']) ?? '';
+    final replayByConvention = on && _isReplayByNameAndTitle(nick, title);
     return LiveRoom(
       roomId: id,
       platform: _site,
       userId: jsonString(entry['uid']),
-      title: decodeHtmlEntities(jsonString(entry['room_name']) ?? ''),
-      nick: decodeHtmlEntities(jsonString(entry['nickname']) ?? ''),
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
       avatar: normalizeImageUrl(entry['avatar']),
       cover: normalizeImageUrl(entry['room_src']),
       area: jsonString(entry['cate2_name']) ?? '',
       watching: online ?? '0',
       popularity: online ?? '',
       audienceMetricType: AudienceMetricType.popularity,
-      liveStatus: on ? LiveStatus.live : LiveStatus.offline,
+      liveStatus: replayByConvention
+          ? LiveStatus.replay
+          : on
+          ? LiveStatus.live
+          : LiveStatus.offline,
       introduction: closeNotice,
       notice: closeNotice,
     );
@@ -577,8 +596,14 @@ abstract final class DouyuApi {
     final rid = _roomId(room['room_id']);
     if (rid == null) throw const ApiChanged(_site, 'betard: room.room_id missing');
     final rawTitle = jsonString(room['room_name']) ?? '';
+    final rawNick = jsonString(room['owner_name']) ?? '';
     final replay = jsonInt(room['videoLoop']) == 1;
-    final live = jsonInt(room['show_status']) == 1 && !replay && !rawTitle.startsWith('【回放】');
+    final replayByConvention =
+        jsonInt(room['show_status']) == 1 && _isReplayByNameAndTitle(rawNick, rawTitle);
+    final live = jsonInt(room['show_status']) == 1 &&
+        !replay &&
+        !replayByConvention &&
+        !rawTitle.startsWith('【回放】');
     final hot = jsonString(_object(room['room_biz_all'])?['hot']);
     final id = requestedId.trim();
     return (
@@ -594,7 +619,7 @@ abstract final class DouyuApi {
         watching: hot ?? '0',
         popularity: hot ?? '',
         audienceMetricType: AudienceMetricType.popularity,
-        liveStatus: replay
+        liveStatus: replay || replayByConvention
             ? LiveStatus.replay
             : live
             ? LiveStatus.live
