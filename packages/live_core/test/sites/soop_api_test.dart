@@ -809,6 +809,7 @@ void main() {
       // 3.x: getHeaders() with its UA and Origin replaced.
       expect(args.headers, {
         'accept': '*/*',
+        'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
         'origin': 'https://play.sooplive.co.kr',
         'referer': 'https://www.sooplive.co.kr/',
         'sec-fetch-dest': 'empty',
@@ -991,6 +992,7 @@ void main() {
       expect(SoopApi.apiHeaders(), {
         for (final MapEntry(:key, :value) in legacy.entries)
           if (key != 'Cookie') key.toLowerCase(): value,
+        'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
       });
       expect(SoopApi.apiHeaders(cookie: 'a=1')['cookie'], 'a=1');
     });
