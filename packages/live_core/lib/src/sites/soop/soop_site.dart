@@ -361,16 +361,31 @@ final class SoopSite extends LiveSite
       }
     }
 
-    await assign(primary);
-    final key = await _player(roomId, type: 'aid', bno: data.bno, quality: name);
-    final aid = SoopApi.aid(key.text, status: key.status, password: data.password);
     final candidates = {
       for (final cdn in cdnCandidates.take(7))
         if (SoopApi.webCdns.contains(cdn) && cdn != primary) cdn,
     }.toList();
-    for (var start = 0; start < candidates.length; start += 3) {
-      await Future.wait(candidates.skip(start).take(3).map(assign));
+
+    // Fire the aid request and all assignments in parallel: the aid request
+    // is independent of the assignments (both only need bno + rmd + quality).
+    final aidFuture = _player(roomId, type: 'aid', bno: data.bno, quality: name);
+    // The primary runs alongside the first candidate batch.
+    final primaryFuture = assign(primary);
+    var start = 0;
+    if (start < candidates.length) {
+      final batch = candidates.skip(start).take(5).toList();
+      start += 5;
+      await Future.wait(<Future<void>>[primaryFuture, ...batch.map(assign)]);
+    } else {
+      await primaryFuture;
     }
+    // Remaining candidate batches, still bounded to 5 at a time.
+    for (; start < candidates.length; start += 5) {
+      await Future.wait(candidates.skip(start).take(5).map(assign));
+    }
+    final key = await aidFuture;
+    final aid = SoopApi.aid(key.text, status: key.status, password: data.password);
+
     final lines = <LivePlayLine>[];
     final seen = <String>{};
     for (final cdn in [primary, ...candidates]) {

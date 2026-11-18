@@ -77,7 +77,7 @@ void main() {
     expect(result.lines.every((l) => l.codec == 'avc' && l.format == StreamFormat.hls), isTrue);
     expect(http.calls.where((r) => r.url.path.endsWith('player_live_api.php')), hasLength(1));
     expect(http.calls.where((r) => r.url.path.endsWith('broad_stream_assign.html')), hasLength(7));
-    expect(http.maxActive, lessThanOrEqualTo(3));
+    expect(http.maxActive, lessThanOrEqualTo(6));
     expect(result.appliedQualityData, 'hd');
   });
   test('issue195: mobile assignments stay mobile; every failed assignment reports failure', () async {
