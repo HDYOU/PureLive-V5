@@ -42,6 +42,8 @@ jobs:
         shell: bash
         run: |
             set +e   # 显式忽略任何命令失败，保证脚本继续
+            git config --global user.name "${{ github.repository_owner }}"
+            git config --global user.email "${{ github.repository_owner }}@users.noreply.github.com"
             CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
             echo "当前分支: $CURRENT_BRANCH"
         
