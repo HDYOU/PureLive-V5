@@ -144,6 +144,10 @@ class _ChatListState extends ConsumerState<ChatList> {
   /// This close to the newest line the list is at the bottom.
   static const double _bottomSlack = 24;
 
+  /// The danmaku batch interval: lines within 300 ms are merged into one
+  /// view update.
+  static const Duration _batchInterval = Duration(milliseconds: 300);
+
   late final ScrollController _scroll;
 
   /// Lines added since the list last showed the newest one.
@@ -168,11 +172,28 @@ class _ChatListState extends ConsumerState<ChatList> {
   /// What the list shows of the room besides its lines.
   late _RoomFacts _facts;
 
+  // ── debounce + visibility ─────────────────────────────
+  Timer? _batchTimer;
+  bool _pendingLines = false;
+  bool _pendingRoom = false;
+  bool _visible = true;
+  bool _appResumed = true;
+  late final AppLifecycleListener _lifecycle;
+
   ChatFeed get _feed => widget.controller.chat;
+
+  // ── lifecycle ─────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(
+      onResume: _onAppResumed,
+      onPause: _onAppPaused,
+      onInactive: _onAppPaused,
+      onHide: _onAppPaused,
+    );
+
     // B09 c4: back where it was left (the memory is the page's; the offset
     // is not left to the page storage, which keys by place in the tree).
     final held = widget.memory?.chatList;
@@ -183,9 +204,29 @@ class _ChatListState extends ConsumerState<ChatList> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // TickerMode is driven by the outer widget (TabBarView wraps hidden
+    // tabs in TickerMode(enabled: false)). Sync visibility and flush.
+    final enabled = TickerMode.of(context);
+    if (enabled == _visible) return;
+    _visible = enabled;
+    if (enabled) _flushPending();
+  }
+
+  @override
   void deactivate() {
-    // Leaving the tree (the fullscreen, another layout, another tab): what
-    // it held, for the list built in its place.
+    // Leaving the tree: cancel pending timers, flush the last batch so
+    // the memory holds accurate values.
+    _batchTimer?.cancel();
+    if (_pendingLines) {
+      _pendingLines = false;
+      _applyLines();
+    }
+    if (_pendingRoom) {
+      _pendingRoom = false;
+      _applyRoom();
+    }
     final memory = widget.memory;
     if (memory != null) {
       memory.chatList = _following || !_scroll.hasClients
@@ -199,6 +240,9 @@ class _ChatListState extends ConsumerState<ChatList> {
   void didUpdateWidget(ChatList oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (identical(oldWidget.controller, widget.controller)) return;
+    _batchTimer?.cancel();
+    _pendingLines = false;
+    _pendingRoom = false;
     _detach(oldWidget.controller);
     _following = true;
     _attach(widget.controller);
@@ -206,12 +250,29 @@ class _ChatListState extends ConsumerState<ChatList> {
 
   @override
   void dispose() {
+    _batchTimer?.cancel();
+    _lifecycle.dispose();
     _detach(widget.controller);
     _scroll.dispose();
     _unseen.dispose();
     _shown.dispose();
     super.dispose();
   }
+
+  // ── app foreground / background ───────────────────────
+
+  void _onAppResumed() {
+    if (_appResumed) return;
+    _appResumed = true;
+    _flushPending();
+  }
+
+  void _onAppPaused() {
+    _appResumed = false;
+    _batchTimer?.cancel();
+  }
+
+  // ── attach / detach ───────────────────────────────────
 
   void _attach(LiveRoomController controller, {ChatListMemory? held}) {
     controller.addListener(_onRoom);
@@ -250,15 +311,54 @@ class _ChatListState extends ConsumerState<ChatList> {
     controller.chat.removeListener(_onLines);
   }
 
-  /// The room changed: the list rebuilds only for what it shows of it.
+  // ── room facts ────────────────────────────────────────
+
   void _onRoom() {
+    if (!mounted) return;
+    if (!_canUpdateView) {
+      _pendingRoom = true;
+      return;
+    }
+    _applyRoom();
+  }
+
+  void _applyRoom() {
     if (!mounted) return;
     final facts = _RoomFacts.of(widget.controller);
     if (facts != _facts) setState(() => _facts = facts);
   }
 
-  /// The feed changed (at most once a frame).
+  // ── danmaku lines: debounce + visibility ─────────────
+
+  /// Whether the view can be updated: mounted, foreground, ticker enabled.
+  bool get _canUpdateView => mounted && _appResumed && _visible;
+
   void _onLines() {
+    if (!mounted) return;
+    if (!_canUpdateView) {
+      _pendingLines = true;
+      return;
+    }
+    // First frame on an empty list while following: apply immediately so
+    // the user does not stare at a blank list for 300 ms.
+    if (_shown.value.isEmpty && _following) {
+      _batchTimer?.cancel();
+      _pendingLines = false;
+      _applyLines();
+      return;
+    }
+    // 300 ms debounce: coalesce rapid changes into one update.
+    if (_pendingLines) return;
+    _pendingLines = true;
+    _batchTimer?.cancel();
+    _batchTimer = Timer(_batchInterval, () {
+      _pendingLines = false;
+      if (mounted) _applyLines();
+    });
+  }
+
+  /// Applies the feed's changes to [_shown] (the original _onLines body).
+  void _applyLines() {
     if (!mounted) return;
     final feed = _feed;
     if (_following) {
@@ -282,6 +382,22 @@ class _ChatListState extends ConsumerState<ChatList> {
     }
     _unseen.value = feed.added - _seen;
   }
+
+  /// Flushed when returning from hidden or background: one catch-up update.
+  void _flushPending() {
+    if (!mounted) return;
+    if (_pendingRoom) {
+      _pendingRoom = false;
+      _applyRoom();
+    }
+    if (_pendingLines) {
+      _batchTimer?.cancel();
+      _pendingLines = false;
+      _applyLines();
+    }
+  }
+
+  // ── scroll / follow ───────────────────────────────────
 
   /// What the list says before its first message, or null for the list.
   Widget? _emptyState(List<ChatLine> lines) {
@@ -359,6 +475,9 @@ class _ChatListState extends ConsumerState<ChatList> {
   /// Follows the feed again, from its newest line.
   void _follow() {
     if (_following) return;
+    // Immediate: the user asked to go to the bottom, no debounce.
+    _batchTimer?.cancel();
+    _pendingLines = false;
     setState(() => _following = true);
     _shown.value = _feed.lines;
     _seen = _feed.added;
