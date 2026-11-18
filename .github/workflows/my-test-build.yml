@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   build-android:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: 签出代码
         uses: actions/checkout@v7
