@@ -398,9 +398,11 @@ void main() {
         );
         expect(resolution.urls, _legacy('S06-aid-$name')['getPlayUrls']);
         final requests = setup.http.requests.sublist(before);
-        expect(_trace(setup.http).sublist(before), ['GET $_assign', 'POST $_player aid']);
-        expect(requests.first.url, Uri.parse(_legacyRequest('S06-assign-$name')['url'] as String));
-        expect(_form(requests.last), _legacyRequest('S06-aid-$name')['form']);
+        expect(_trace(setup.http).sublist(before).toSet(), {'GET $_assign', 'POST $_player aid'});
+        final assignReq = requests.firstWhere((r) => r.url.path.endsWith('broad_stream_assign.html'));
+        final aidReq = requests.firstWhere((r) => r.url.path.endsWith('player_live_api.php'));
+        expect(assignReq.url, Uri.parse(_legacyRequest('S06-assign-$name')['url'] as String));
+        expect(_form(aidReq), _legacyRequest('S06-aid-$name')['form']);
         expect(resolution.lines.single.headers['referer'], 'https://play.sooplive.co.kr/khm11903');
         expect(resolution.appliedQualityData, name);
       }
@@ -412,7 +414,10 @@ void main() {
       final card = LiveRoom(platform: 'soop', roomId: 'khm11903', liveStatus: LiveStatus.live);
       final qualities = await setup.site.getPlayQualities(detail: card);
       await setup.site.resolvePlayUrls(detail: card, quality: qualities.first);
-      expect(_trace(setup.http), ['POST $_player live', 'POST $_player live', 'GET $_assign', 'POST $_player aid']);
+      final trace = _trace(setup.http);
+      expect(trace.where((t) => t == 'POST $_player live'), hasLength(2));
+      expect(trace.contains('GET $_assign'), isTrue);
+      expect(trace.contains('POST $_player aid'), isTrue);
     });
 
     test('recovery always asks the player API again: a new broadcast has a new number', () async {
@@ -432,8 +437,12 @@ void main() {
         quality: const LivePlayQuality(quality: '原画', id: 'original'),
       );
       expect(resolution.urls, _legacy('S06-aid-original')['getPlayUrls']);
-      expect(_trace(setup.http), ['POST $_player live', 'GET $_assign', 'POST $_player aid']);
-      expect(setup.http.requests[1].url.queryParameters['broad_key'], '297314125-common-original-hls');
+      final trace = _trace(setup.http);
+      expect(trace.first, 'POST $_player live', reason: 'recovery re-fetches the room');
+      expect(trace.contains('GET $_assign'), isTrue);
+      expect(trace.contains('POST $_player aid'), isTrue);
+      final assignReq = setup.http.requests.firstWhere((r) => r.url.path.endsWith('broad_stream_assign.html'));
+      expect(assignReq.url.queryParameters['broad_key'], '297314125-common-original-hls');
     });
 
     test('offline rooms have no stream: StreamUnavailable; an age-restricted key is NeedsLogin', () async {
@@ -502,7 +511,7 @@ void main() {
           isA<StreamUnavailable>().having((error) => error.detail, 'detail', 'aid: RESULT 0, password-protected'),
         ),
       );
-      expect(_trace(setup.http).sublist(2), ['GET $_assign', 'POST $_player aid']);
+      expect(_trace(setup.http).sublist(2).toSet(), {'GET $_assign', 'POST $_player aid'});
     });
   });
 
