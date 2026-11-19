@@ -29,6 +29,11 @@ extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     buildFeatures {
         buildConfig = true
     }
+    packaging {
+        resources {
+            pickFirst("lib/**/libc++_shared.so")
+        }
+    }
     // toolchain.env (android/build.gradle.kts).
     compileSdk = rootProject.extra["androidCompileSdk"] as Int
     compileSdkMinor = rootProject.extra["androidCompileSdkMinor"] as Int?
