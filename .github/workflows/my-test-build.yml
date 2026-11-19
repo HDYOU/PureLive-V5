@@ -305,11 +305,12 @@ jobs:
           # Flutter requests its own NDK and AGP bootstraps it via sdkmanager
           # during configuration, which fails the store after the whole build.
           # Local builds keep the cache enabled and actually reuse it.
-          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false -Dandroid.builtInKotlin=false -Dandroid.newDsl=false
         run: |
           flutter build apk \
             --release \
             --split-per-abi \
+            --obfuscate --split-debug-info=build/symbols-android-split \
             --dart-define=PURELIVE_BUILD_SOURCE=github-manual
 
       - name: 上传 APK
