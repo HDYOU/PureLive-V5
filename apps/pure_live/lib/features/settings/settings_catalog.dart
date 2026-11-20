@@ -1609,7 +1609,8 @@ List<SettingsEntry> _build() {
       'kernel_switch',
       (context, entry) => KernelTile(entry: entry),
       desc: 'kernel_switch_subtitle',
-      keywords: ['mpv', '播放器', '内核'],
+      settings: [Settings.playbackEngine],
+      keywords: ['mpv', 'fvp', '播放器', '内核'],
     )
     ..toggle(
       'hard_stop',
@@ -2301,6 +2302,7 @@ const List<Setting<Object>> portraitSettings = [
 /// Settings of the player page's restore: only that page (3.x also reset
 /// the preferred qualities, U.6c P9).
 const List<Setting<Object>> kernelSettings = [
+  Settings.playbackEngine,
   Settings.enableCodec,
   Settings.playerCompatMode,
   Settings.useHardStopOnExit,

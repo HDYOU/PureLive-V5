@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   ffmpeg_kit_extended_flutter
   flutter_inappwebview_windows
   flutter_webrtc
+  fvp
   url_launcher_windows
   share_plus
   media_kit_video

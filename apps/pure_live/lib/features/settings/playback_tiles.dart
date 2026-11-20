@@ -283,7 +283,11 @@ class MiniWindowSizeTile extends ConsumerWidget {
 
 /// The player engine: v4 plays everything with mpv (PLAN §4, M7.1), so the
 /// row shows it and cannot be changed (3.x on computers).
-class KernelTile extends StatelessWidget {
+/// The engine the player builds (`Settings.playbackEngine`, G01): libmpv,
+/// or libmdk through fvp for the streams mpv cannot play (3.x's "MPV /
+/// FVP" choice on the player page). The session made next — the next room or
+/// multi-view cell — uses the engine picked here.
+class KernelTile extends ConsumerWidget {
   /// Creates the row.
   const new({required this.entry, super.key});
 
@@ -291,14 +295,15 @@ class KernelTile extends StatelessWidget {
   final SettingsEntry entry;
 
   @override
-  Widget build(BuildContext context) => SettingsLinkRow(
-    key: entry.rowKey,
+  Widget build(BuildContext context, WidgetRef ref) => SettingChoiceTile<String>(
+    entry: entry,
+    setting: Settings.playbackEngine,
     icon: AppIcons.settingsKernel,
-    title: entry.titleText,
-    subtitle: entry.descriptionText,
-    value: i18n('player_mpv'),
-    chevron: false,
-    onTap: null,
+    hint: i18n('kernel_switch_hint'),
+    options: () => [
+      (value: 'mpv', label: i18n('player_mpv'), description: i18n('player_mpv_desc')),
+      (value: 'fvp', label: i18n('player_fvp'), description: i18n('player_fvp_desc')),
+    ],
   );
 }
 

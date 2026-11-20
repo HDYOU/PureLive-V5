@@ -332,7 +332,7 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
       runtime = adopted;
     } else {
       final config = _engineConfig(store.settings);
-      final key = engineConfigKey(config);
+      final key = engineConfigKey(config, engine: PlaybackEngineKind.of(store.settings.get(Settings.playbackEngine)));
       // The player the last room left, when it is configured the same way.
       final session = standby.take(config: key) ?? ref.read(playbackSessionFactoryProvider)(config: config);
       runtime = _newRuntime(
@@ -673,9 +673,11 @@ class _LivePlayPageState extends ConsumerState<LivePlayPage> with SingleTickerPr
     liveRewindEnabled: settings.get(Settings.livePlayRewind),
   );
 
-  /// What decides whether a kept player fits ([PlayerStandby]): every field
-  /// of [config] (it has no `==`).
-  static Object engineConfigKey(MpvEngineConfig config) => (
+  /// What decides whether a kept player fits ([PlayerStandby]): the engine
+  /// (G01, an mpv session is never handed to an fvp request) and every
+  /// field of [config] (it has no `==`).
+  static Object engineConfigKey(MpvEngineConfig config, {required PlaybackEngineKind engine}) => (
+    engine,
     config.platform,
     config.hardwareDecoding,
     config.customOutput,

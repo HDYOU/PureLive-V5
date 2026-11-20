@@ -85,6 +85,7 @@ const Map<String, Object> v3Defaults = {
   'danmakuFontFamilyFileName': '',
   'videoFitIndex': 0,
   'videoPlayerKey': 'mpv',
+  'playbackEngine': 'mpv',
   'preferResolution': '原画',
   'preferResolutionCellular': '原画',
   'enableCodec': true,
