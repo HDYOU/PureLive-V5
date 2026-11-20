@@ -168,6 +168,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Timer? _ticker;
   ({int width, int height})? _lastSize;
   double? _lastFrameRate;
+  var _mediaInfoReported = false;
   var _buffering = false;
   var _hasSource = false;
   var _audioOnly = false;
@@ -350,8 +351,8 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _buffering = false;
     _lastSize = null;
     _lastFrameRate = null;
+    _mediaInfoReported = false;
     _frameSize.value = null;
-    _textureId.value = null;
 
     final old = _player;
     try {
@@ -377,6 +378,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _buffering = false;
     _lastSize = null;
     _lastFrameRate = null;
+    _mediaInfoReported = false;
     _frameSize.value = null;
     _textureId.value = null;
 
@@ -485,6 +487,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       await _releaseTexture();
       _lastSize = null;
       _lastFrameRate = null;
+      _mediaInfoReported = false;
     }
     _player.setActiveTracks(mdk.MediaType.video, enabled ? const [0] : const []);
     _audioOnly = !enabled;
@@ -529,6 +532,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _buffering = false;
     _lastSize = null;
     _lastFrameRate = null;
+    _mediaInfoReported = false;
     _stopTicker();
     if (_disposed) return;
     _player.state = mdk.PlaybackState.stopped;
@@ -583,6 +587,14 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (_disposed) return const PlaybackStats();
     try {
       final info = _player.mediaInfo;
+      // A diagnostic of the libmdk media info, once per open. The panel polls
+      // readStats each second, so the flag keeps it from spamming. libmdk's
+      // MediaInfo carries FFI byte lists, so its own toString (which formats
+      // every field) is what can be logged, not jsonEncode of the object.
+      if (_hasSource && !_mediaInfoReported) {
+        _mediaInfoReported = true;
+        debugPrint('fvp mediaInfo: $info');
+      }
       final video = info.video?.isEmpty ?? true ? null : info.video!.first;
       final audio = info.audio?.isEmpty ?? true ? null : info.audio!.first;
 
