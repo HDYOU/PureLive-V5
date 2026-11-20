@@ -167,6 +167,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   Timer? _ticker;
   ({int width, int height})? _lastSize;
+  double? _lastFrameRate;
   var _buffering = false;
   var _hasSource = false;
   var _audioOnly = false;
@@ -290,10 +291,24 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     } on Object {
       return;
     }
-    if (size == null || size == _lastSize) return;
+    if (size == null || size == _lastSize) {
+      _emitFrameRate();
+      return;
+    }
     _lastSize = size;
     _frameSize.value = Size(size.width.toDouble(), size.height.toDouble());
     _add(EngineVideoSize(size.width, size.height));
+    _emitFrameRate();
+  }
+
+  /// Reports the source's frame rate once per open when it is known. libmdk
+  /// fills `mediaInfo.video.codec.frameRate` as the video track is probed
+  /// (the `loaded` status), so a line whose rate is missing from the first
+  /// probe still reports it once the probe completes.
+  void _emitFrameRate() {
+    if (_disposed) return;
+    final fps = _videoFrameRate();
+    if (fps != null && fps != _lastFrameRate) _add(EngineFrameRate(fps));
   }
 
   int _durationMs() {
@@ -334,6 +349,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _hasSource = false;
     _buffering = false;
     _lastSize = null;
+    _lastFrameRate = null;
     _frameSize.value = null;
     _textureId.value = null;
 
@@ -360,6 +376,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _hasSource = false;
     _buffering = false;
     _lastSize = null;
+    _lastFrameRate = null;
     _frameSize.value = null;
     _textureId.value = null;
 
@@ -397,8 +414,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       _player.state = mdk.PlaybackState.playing;
       final duration = _durationMs();
       if (media.onDemand && duration > 0) _add(EngineDuration(Duration(milliseconds: duration)));
-      final fps = _videoFrameRate();
-      if (fps != null) _add(EngineFrameRate(fps));
+      _emitFrameRate();
       _startTicker();
     } on PlayerException {
       rethrow;
@@ -468,6 +484,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (!enabled) {
       await _releaseTexture();
       _lastSize = null;
+      _lastFrameRate = null;
     }
     _player.setActiveTracks(mdk.MediaType.video, enabled ? const [0] : const []);
     _audioOnly = !enabled;
@@ -511,6 +528,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _hasSource = false;
     _buffering = false;
     _lastSize = null;
+    _lastFrameRate = null;
     _stopTicker();
     if (_disposed) return;
     _player.state = mdk.PlaybackState.stopped;
@@ -583,14 +601,16 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       final bitrate = info.bitRate;
       final downloadBytesPerSecond = bitrate > 0 ? bitrate / 8.0 : null;
 
-      // libmdk's build version (the integer `MDK_version`); shown next to the
-      // engine name where it is available. There is no FFmpeg version to read.
+      // libmdk's build version (the integer `MDK_version`); shown as
+      // "mdk-N" next to the engine name where it is available. There is no
+      // FFmpeg version to read.
       int? mdkVersion;
       try {
         mdkVersion = mdk.version();
       } on Object {
         mdkVersion = null;
       }
+      final mdkBuild = mdkVersion == null ? null : 'mdk-$mdkVersion';
 
       return PlaybackStats(
         width: video?.codec.width,
@@ -604,7 +624,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         audioCodec: audio?.codec.codec,
         bufferSeconds: bufferSeconds,
         downloadBytesPerSecond: downloadBytesPerSecond,
-        mpvVersion: mdkVersion?.toString(),
+        mpvVersion: mdkBuild,
       );
     } on Object {
       return const PlaybackStats();
