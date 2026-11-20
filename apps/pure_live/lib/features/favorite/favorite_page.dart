@@ -557,6 +557,8 @@ class _FollowGridState extends ConsumerState<_FollowGrid> {
                     return RoomGridCard(
                       key: ValueKey(room.identityKey),
                       room: room,
+                      appearance: appearance,
+                      policy: policy,
                       dense: dense,
                       mixedPlatforms: mixed,
                       statusPending: pending != null,

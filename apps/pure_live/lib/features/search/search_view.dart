@@ -365,6 +365,10 @@ class _SearchViewState extends ConsumerState<SearchView> {
   Widget build(BuildContext context) {
     final appearance = watchCardAppearance(ref);
     final fontSizes = watchFontSizes(ref);
+    // Read once for the page: its cards take these instead of each
+    // subscribing to them.
+    final policy = watchAudiencePolicy(ref);
+    final follows = ref.watch(followKeysProvider).value;
     final spacing = watchSetting(ref, Settings.crossAxisSpacing);
     final mainSpacing = watchSetting(ref, Settings.mainAxisSpacing);
     final scheme = Theme.of(context).colorScheme;
@@ -438,7 +442,15 @@ class _SearchViewState extends ConsumerState<SearchView> {
                     child: SearchLinkBanner(resolving: _resolvingLink, onOpen: () => unawaited(_submit())),
                   ),
                 if (_model.pending > 0) SliverToBoxAdapter(child: SearchPendingRow(count: _model.pending)),
-                ..._content(context, geometry, spacing, mainSpacing),
+                ..._content(
+                  context,
+                  geometry,
+                  spacing,
+                  mainSpacing,
+                  appearance: appearance,
+                  policy: policy,
+                  follows: follows,
+                ),
               ],
             ),
           );
@@ -514,7 +526,15 @@ class _SearchViewState extends ConsumerState<SearchView> {
     );
   }
 
-  List<Widget> _content(BuildContext context, RoomGridGeometry geometry, double spacing, double mainSpacing) {
+  List<Widget> _content(
+    BuildContext context,
+    RoomGridGeometry geometry,
+    double spacing,
+    double mainSpacing, {
+    required RoomCardAppearance appearance,
+    required AudiencePolicy policy,
+    required Set<String>? follows,
+  }) {
     if (!_model.searched) {
       return [
         if (_history.words.isNotEmpty)
@@ -570,6 +590,9 @@ class _SearchViewState extends ConsumerState<SearchView> {
               return RoomGridCard(
                 key: ValueKey('room-${room.identityKey}'),
                 room: room,
+                appearance: appearance,
+                policy: policy,
+                followed: follows?.contains(room.identityKey) ?? false,
                 // "All" mixes platforms: the badge shows which (c14, U.4a c2).
                 mixedPlatforms: _model.selected == 0,
                 onOpen: () => _openRoom(room, playlist: rooms),
