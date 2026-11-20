@@ -7,6 +7,7 @@ export 'src/diagnostics.dart';
 export 'src/engine.dart';
 export 'src/engine_profile.dart';
 export 'src/frame_rate.dart';
+export 'src/fvp_engine.dart';
 export 'src/mpv_engine.dart';
 export 'src/mpv_options.dart';
 export 'src/playback_stats.dart';

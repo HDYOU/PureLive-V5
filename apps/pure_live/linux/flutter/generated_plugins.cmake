@@ -6,8 +6,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   ffmpeg_kit_extended_flutter
   flutter_webrtc
-  media_kit_video
+  fvp
   url_launcher_linux
+  media_kit_video
   window_manager
 )
 

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui' show Size;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:live_player/live_player.dart';
 
 /// A scripted [PlayerEngine]: records every call; [onOpen] decides what an
@@ -93,4 +95,15 @@ final class FakeEngine implements PlayerEngine {
     await onDispose?.call();
     await _events.close();
   }
+}
+
+/// A [FakeEngine] that draws into a texture, as fvp does ([TextureVideoHost]):
+/// tests of the view's texture path set [textureId] and [frameSize] as the
+/// engine would.
+final class TextureFakeEngine extends FakeEngine implements TextureVideoHost {
+  @override
+  final ValueNotifier<int?> textureId = ValueNotifier<int?>(null);
+
+  @override
+  final ValueNotifier<Size?> frameSize = ValueNotifier<Size?>(null);
 }
