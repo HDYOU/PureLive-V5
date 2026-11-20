@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:live_core/live_core.dart';
 import 'package:live_net/live_net.dart';
@@ -37,6 +38,7 @@ bool signedInOn(CookieVault cookies, String platform) => cookies.cookieFor(platf
 
 /// The audience settings a card and the ranking use (3.x
 /// `preferRealOnlineCounts`, `realOnlinePlatforms`).
+@immutable
 final class AudiencePolicy {
   /// Creates the policy.
   const new({required this.preferRealOnline, required this.realOnlinePlatforms});
@@ -55,6 +57,16 @@ final class AudiencePolicy {
 
   /// Whether the setting applies to [platform].
   bool enabledFor(String platform) => realOnlinePlatforms.contains(platform.trim().toLowerCase());
+
+  @override
+  bool operator ==(Object other) =>
+      other is AudiencePolicy &&
+      other.preferRealOnline == preferRealOnline &&
+      other.realOnlinePlatforms.length == realOnlinePlatforms.length &&
+      other.realOnlinePlatforms.containsAll(realOnlinePlatforms);
+
+  @override
+  int get hashCode => Object.hash(preferRealOnline, realOnlinePlatforms.length);
 
   /// [rooms] by audience, largest first (3.x `rankPopularRoomsByAudience`).
   List<LiveRoom> rank(List<LiveRoom> rooms) => [...rooms]

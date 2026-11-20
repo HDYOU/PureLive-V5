@@ -145,6 +145,9 @@ class RoomGridCard extends ConsumerWidget {
     this.now,
     this.onOpen,
     this.follow = false,
+    this.appearance,
+    this.policy,
+    this.followed,
     super.key,
   });
 
@@ -173,10 +176,21 @@ class RoomGridCard extends ConsumerWidget {
   /// Opens the room; null opens it as a page.
   final VoidCallback? onOpen;
 
+  /// The card settings; null reads them. A grid reads them once for all its
+  /// cards: one subscription instead of one per visible room.
+  final RoomCardAppearance? appearance;
+
+  /// The audience policy; null reads it. Same reason as [appearance].
+  final AudiencePolicy? policy;
+
+  /// The room is followed (its heart on every page but the follows). Null
+  /// reads the follows; same reason as [appearance].
+  final bool? followed;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final policy = watchAudiencePolicy(ref);
-    final appearance = watchCardAppearance(ref);
+    final policy = this.policy ?? watchAudiencePolicy(ref);
+    final appearance = this.appearance ?? watchCardAppearance(ref);
     final alerts = follow && liveAlertsAvailable;
     final bell =
         alerts &&
@@ -186,7 +200,7 @@ class RoomGridCard extends ConsumerWidget {
     final card = LiveRoomCard(
       data: policy.cardOf(room, now: now ?? ref.read(roomClockProvider)()),
       // Issue #10: on every other page a followed room has its heart.
-      followed: !follow && (ref.watch(followKeysProvider).value?.contains(room.identityKey) ?? false),
+      followed: followed ?? (!follow && (ref.watch(followKeysProvider).value?.contains(room.identityKey) ?? false)),
       appearance: appearance,
       dense: dense,
       mixedPlatforms: mixedPlatforms,
@@ -491,21 +505,24 @@ const ScrollPhysics _listPhysics = PureLiveScrollPhysics(parent: AlwaysScrollabl
 /// already on screen alone (Kazumi's stable grid cards). Every feed
 /// notification would otherwise rebuild every visible card.
 class _CardCache {
-  final Map<String, ({LiveRoom room, Widget card})> _cards = {};
-  String? _style;
+  final Map<String, ({LiveRoom room, Object stamp, Widget card})> _cards = {};
+  Object? _style;
 
   /// The tile of [room] under [style], built by [create] the first time, or
-  /// when [style] changed (the card settings, the text size, the minute of
-  /// the clock) or another room took its [key].
-  Widget of(String style, String key, LiveRoom room, Widget Function() create) {
+  /// when [style] changed (the card settings, the text size, the audience
+  /// policy, the minute of the clock), when [stamp] did (the room's heart),
+  /// or when another room took its [key]. Both are values: the settings are
+  /// built into new instances on every read, so comparing them by identity
+  /// would never hit.
+  Widget of(Object style, String key, LiveRoom room, Object stamp, Widget Function() create) {
     if (style != _style) {
       _cards.clear();
       _style = style;
     }
     final cached = _cards[key];
-    if (cached != null && identical(cached.room, room)) return cached.card;
+    if (cached != null && identical(cached.room, room) && cached.stamp == stamp) return cached.card;
     final card = create();
-    _cards[key] = (room: room, card: card);
+    _cards[key] = (room: room, stamp: stamp, card: card);
     return card;
   }
 
@@ -723,6 +740,10 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     final settings = ref.read(storeProvider).settings;
     final appearance = watchCardAppearance(ref);
     final fontSizes = watchFontSizes(ref);
+    // Read once for the whole page: its cards take these instead of each
+    // subscribing to them (one read, not one per visible room).
+    final policy = watchAudiencePolicy(ref);
+    final follows = ref.watch(followKeysProvider).value;
     final spacing = watchSetting(ref, Settings.crossAxisSpacing);
     final mainSpacing = watchSetting(ref, Settings.mainAxisSpacing);
     final showJumps = watchSetting(ref, Settings.pageShowScrollTop);
@@ -780,12 +801,18 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
             // Back on a home tab after another one, the rooms are where
             // they were (A11.6).
             final clock = ref.read(roomClockProvider)();
-            // Tiles are kept per style and per minute: the card settings and
-            // the text size rebuild them, and so does a new minute of the
-            // clock, which is when a card's time on air moves (D01.3).
-            final cardStyle =
-                '$prefix|$appearance|$fontSizes|${MediaQuery.textScalerOf(context)}|'
-                '${clock.millisecondsSinceEpoch ~/ 60000}';
+            // Tiles are kept per style and per minute: the card settings, the
+            // text size and the audience policy rebuild them, and so does a
+            // new minute of the clock, which is when a card's time on air
+            // moves (D01.3).
+            final cardStyle = (
+              prefix,
+              appearance,
+              fontSizes,
+              MediaQuery.textScalerOf(context),
+              clock.millisecondsSinceEpoch ~/ 60000,
+              policy,
+            );
             return KeepScrollPosition(
               id: '$prefix:${_feed.platform}',
               child: CustomScrollView(
@@ -801,16 +828,21 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                       itemCount: rooms.length,
                       itemBuilder: (context, index) {
                         final room = rooms[index];
+                        final followed = follows?.contains(room.identityKey) ?? false;
                         // The tiles already on screen come back as the same
                         // widget: an append builds only the rooms it brings.
                         return _cards.of(
                           cardStyle,
                           '$prefix|${room.identityKey}',
                           room,
+                          followed,
                           () => RoomGridCard(
                             key: ValueKey(room.identityKey),
                             room: room,
                             now: clock,
+                            appearance: appearance,
+                            policy: policy,
+                            followed: followed,
                             // The feed's rooms go along: the portrait
                             // fullscreen swipes through them (U.2b2).
                             onOpen: () =>
