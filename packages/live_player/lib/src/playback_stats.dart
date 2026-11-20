@@ -76,7 +76,7 @@ final class PlaybackStats {
   final double? downloadBytesPerSecond;
 
   /// The mpv build (`mpv-version`); the fvp engine reports its libmdk version
-  /// (the integer `MDK_version`) in its place.
+  /// as `mdk-N` (the integer `MDK_version`) in its place.
   final String? mpvVersion;
 
   /// The FFmpeg build (`ffmpeg-version`). The fvp engine reports none.
