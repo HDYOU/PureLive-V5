@@ -5,7 +5,7 @@ name: pure_live_workspace
 publish_to: none
 
 environment:
-  sdk: ^3.13.0
+  sdk: ^3.14.0
 
 workspace:
   - apps/pure_live
@@ -45,7 +45,7 @@ dependency_overrides:
   # WakelockPlus.enable/disable).
   wakelock_plus: 1.8.2
   xml: 7.1.0
-  # Flutter 3.47.8's flutter_test pins test_api 0.7.12, below what test 1.33.0
+  # Flutter 3.50.1's flutter_test pins test_api 0.7.14, below what test 1.33.0
   # (the pure Dart members) needs exactly 0.7.15; flutter_test runs on it.
   test_api: 0.7.15
   # The Linux build offers no in-app browser (InAppWeb.available is false);
