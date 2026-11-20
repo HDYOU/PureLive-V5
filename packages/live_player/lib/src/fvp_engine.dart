@@ -59,19 +59,30 @@ final class FvpEngineConfig {
   static const maxVolumeGainDb = 12;
 }
 
-/// The video decoders libmdk tries, in order: the platform's hardware one
-/// first when decoding by hardware, then FFmpeg's software decoders (so a
-/// profile the hardware decoder rejects still plays; 3.x's own fvp adapter
-/// relied on the same fallback).
+/// The video decoders libmdk tries, in order: when decoding by hardware the
+/// platform's hardware decoders come first (each in the order that suits the
+/// platform's own hardware), then FFmpeg's software decoders and the
+/// stand-alone `dav1d` AV1 one, so a profile a hardware decoder rejects still
+/// plays (3.x's own fvp adapter relied on the same fallback). Hardware
+/// decoding off decodes with FFmpeg alone.
+///
+/// The Linux entry is device-dependent; the reference ordering picks it from
+/// the device (Rockchip, a Raspberry Pi, or a generic desktop GPU), here the
+/// generic desktop order (VAAPI, CUDA, VDPAU, ...) is used: `fvpVideoDecoders`
+/// stays framework-agnostic, and a device-specific Linux build can override
+/// it.
 List<String> fvpVideoDecoders(FvpPlatform platform, {required bool hardwareDecoding}) {
   if (!hardwareDecoding) return const ['FFmpeg'];
   final hardware = switch (platform) {
-    FvpPlatform.android => 'MediaCodec',
-    FvpPlatform.ios || FvpPlatform.macos => 'VideoToolbox',
-    FvpPlatform.windows => 'D3D11',
-    FvpPlatform.linux => 'VAAPI',
+    FvpPlatform.android => const ['AMediaCodec', 'MediaCodec', 'FFmpeg', 'dav1d'],
+    FvpPlatform.ios => const ['VT', 'FFmpeg', 'dav1d'],
+    FvpPlatform.macos => const ['VT', 'hap', 'FFmpeg', 'dav1d'],
+    FvpPlatform.windows => const ['MFT:d3d=11', 'D3D11', 'DXVA', 'CUDA', 'hap', 'FFmpeg', 'dav1d'],
+    // The generic desktop Linux order; a Rockchip or Pi build picks its own
+    // (rockchip / rkmpp, or V4L2M2M / drm) ahead of these.
+    FvpPlatform.linux => const ['VAAPI', 'CUDA', 'VDPAU', 'hap', 'FFmpeg', 'dav1d'],
   };
-  return [hardware, 'FFmpeg'];
+  return hardware;
 }
 
 /// The request headers as libmdk's `avio.headers` value: one

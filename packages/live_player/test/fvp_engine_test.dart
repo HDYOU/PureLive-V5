@@ -8,12 +8,23 @@ import 'support/fake_engine.dart';
 
 void main() {
   group('G01: the fvp engine', () {
-    test('the decoder order: the platform hardware one first, FFmpeg behind it', () {
-      expect(fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: true), ['MediaCodec', 'FFmpeg']);
-      expect(fvpVideoDecoders(FvpPlatform.ios, hardwareDecoding: true), ['VideoToolbox', 'FFmpeg']);
-      expect(fvpVideoDecoders(FvpPlatform.macos, hardwareDecoding: true), ['VideoToolbox', 'FFmpeg']);
-      expect(fvpVideoDecoders(FvpPlatform.windows, hardwareDecoding: true), ['D3D11', 'FFmpeg']);
-      expect(fvpVideoDecoders(FvpPlatform.linux, hardwareDecoding: true), ['VAAPI', 'FFmpeg']);
+    test('the decoder order: the platform hardware ones first, software behind them', () {
+      // 3.x's hardware-decoder order: the platform's hardware decoders first,
+      // then FFmpeg's software decoders and the stand-alone dav1d.
+      expect(
+        fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: true),
+        ['AMediaCodec', 'MediaCodec', 'FFmpeg', 'dav1d'],
+      );
+      expect(fvpVideoDecoders(FvpPlatform.ios, hardwareDecoding: true), ['VT', 'FFmpeg', 'dav1d']);
+      expect(fvpVideoDecoders(FvpPlatform.macos, hardwareDecoding: true), ['VT', 'hap', 'FFmpeg', 'dav1d']);
+      expect(
+        fvpVideoDecoders(FvpPlatform.windows, hardwareDecoding: true),
+        ['MFT:d3d=11', 'D3D11', 'DXVA', 'CUDA', 'hap', 'FFmpeg', 'dav1d'],
+      );
+      expect(
+        fvpVideoDecoders(FvpPlatform.linux, hardwareDecoding: true),
+        ['VAAPI', 'CUDA', 'VDPAU', 'hap', 'FFmpeg', 'dav1d'],
+      );
       // 3.x's "硬件解码" off decodes with FFmpeg alone.
       expect(fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: false), ['FFmpeg']);
     });
