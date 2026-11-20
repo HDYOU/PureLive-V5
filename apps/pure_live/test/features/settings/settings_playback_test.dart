@@ -331,7 +331,7 @@ void main() {
   });
 
   group('player page (c8–c11)', () {
-    testWidgets('four groups; the engine is fixed; takeovers grey rows with the reason', (tester) async {
+    testWidgets('four groups; the engine is a choice (G01); takeovers grey rows with the reason', (tester) async {
       final h = await pumpSettings(tester, height: 2400, arguments: 'playerKernel');
       expectInOrder(tester, [
         for (final title in ['内核', '解码', '网络', 'MPV 高级设置']) _text(title),
@@ -352,7 +352,27 @@ void main() {
           settingsRow(id),
       ]);
       expect(_inRow('kernel', _text('Mpv播放器')), findsOneWidget);
-      expect(_rowWidget(tester, 'kernel').onTap, isNull);
+      // G01: the engine row picks mpv or fvp; the session made next uses
+      // the one stored.
+      expect(_rowWidget(tester, 'kernel').onTap, isNotNull);
+      await tapSettings(tester, settingsRow('kernel'));
+      expect(_text('内核切换'), findsOneWidget);
+      expect(find.text('换引擎后，下一次打开直播间或多画面格时生效'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('settings-choice-mpv')),
+          matching: find.byIcon(AppIcons.selected),
+        ),
+        findsOneWidget,
+      );
+      await tapSettings(tester, find.byKey(const ValueKey('settings-choice-fvp')));
+      expect(h.settings.get(Settings.playbackEngine), 'fvp');
+      expect(_inRow('kernel', _text('Fvp播放器')), findsOneWidget);
+      // Back to the default so the rest of the page reads as before.
+      await tapSettings(tester, settingsRow('kernel'));
+      await tapSettings(tester, find.byKey(const ValueKey('settings-choice-mpv')));
+      expect(h.settings.get(Settings.playbackEngine), 'mpv');
+      expect(_inRow('kernel', _text('Mpv播放器')), findsOneWidget);
       expect(_inRow('player_proxy_link', _text('未开启')), findsOneWidget);
       expect(find.byKey(const ValueKey('settings-mpv-docs')), findsOneWidget);
       // The drivers wait for "custom drivers".

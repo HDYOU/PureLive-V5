@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:live_player/src/engine.dart';
 import 'package:live_player/src/mpv_engine.dart';
 import 'package:live_player/src/screen_wake.dart';
 import 'package:live_player/src/session.dart';
@@ -124,7 +125,15 @@ class _LiveVideoViewState extends State<LiveVideoView> {
   @override
   Widget build(BuildContext context) {
     final engine = widget.session.engine;
-    if (engine is! MpvEngine) return ColoredBox(color: widget.fill, child: const SizedBox.expand());
+    if (engine is MpvEngine) return _mpvVideo(engine);
+    // Engines that draw into a texture (fvp) keep the same box, fit, fill
+    // and alignment as media_kit's `Video`; the texture's own size is the
+    // picture's, so the fit is done here.
+    if (engine case final TextureVideoHost host) return _textureVideo(host);
+    return ColoredBox(color: widget.fill, child: const SizedBox.expand());
+  }
+
+  Widget _mpvVideo(MpvEngine engine) {
     final video = Video(
       // VideoState binds player streams in initState. A replacement engine
       // must not inherit the old player's width/height visibility listeners.
@@ -147,4 +156,34 @@ class _LiveVideoViewState extends State<LiveVideoView> {
       },
     );
   }
+
+  /// The picture of a [TextureVideoHost]: a `Texture` of the engine's own
+  /// size, scaled into the box by [LiveVideoView.fit] and placed by
+  /// [LiveVideoView.alignment]; the fill shows while it has no texture.
+  Widget _textureVideo(TextureVideoHost host) => ColoredBox(
+    color: widget.fill,
+    child: SizedBox.expand(
+      child: ValueListenableBuilder<int?>(
+        valueListenable: host.textureId,
+        builder: (context, id, _) {
+          if (id == null || id < 0) return const SizedBox.expand();
+          return FittedBox(
+            fit: widget.fit,
+            alignment: widget.alignment,
+            clipBehavior: Clip.hardEdge,
+            child: ValueListenableBuilder<Size?>(
+              valueListenable: host.frameSize,
+              builder: (context, size, _) => SizedBox(
+                // Before the size is known the picture is drawn at its own
+                // size and clipped; it appears within a frame.
+                width: size?.width ?? 16,
+                height: size?.height ?? 16,
+                child: Texture(textureId: id),
+              ),
+            ),
+          );
+        },
+      ),
+    ),
+  );
 }

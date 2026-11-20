@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:live_core/live_core.dart';
@@ -85,12 +86,30 @@ final class AppServices {
 
   /// A new playback session (3.x `GlobalPlayerService.instance.playerManager`;
   /// the live room uses one, multi-view one per cell). [config] carries the
-  /// player settings (decoder, output, M9/M13).
-  PlaybackSession newPlaybackSession({MpvEngineConfig? config}) => PlaybackSession(
-    engine: () =>
-        MpvEngine.create(config: config, onBufferingSnapshot: (line) => AppLog.instance.info('playback', line)),
-    opener: mediaOpener,
-  );
+  /// player settings (decoder, output, M9/M13), and `Settings.playbackEngine`
+  /// decides which engine the session builds (G01).
+  PlaybackSession newPlaybackSession({MpvEngineConfig? config}) =>
+      PlaybackSession(engine: _engineFactory(config), opener: mediaOpener);
+
+  /// The engine of a new session: libmpv (the default) or fvp's libmdk
+  /// (`Settings.playbackEngine`, read when the session is made, so the next
+  /// room or multi-view cell uses the engine the player page now shows).
+  EngineFactory _engineFactory(MpvEngineConfig? config) {
+    final settings = store.settings;
+    return switch (PlaybackEngineKind.of(settings.get(Settings.playbackEngine))) {
+      PlaybackEngineKind.mpv => () => MpvEngine.create(
+        config: config,
+        onBufferingSnapshot: (line) => AppLog.instance.info('playback', line),
+      ),
+      PlaybackEngineKind.fvp => fvpEngineFactory(
+        FvpEngineConfig(
+          platform: fvpPlatformOf(defaultTargetPlatform) ?? FvpPlatform.linux,
+          hardwareDecoding: settings.get(Settings.enableCodec),
+          volumeGainDb: settings.get(Settings.volumeBoostDb),
+        ),
+      ),
+    };
+  }
 
   /// IPTV imports and syncs; null when IPTV is not set up.
   final IptvImporter? iptvImporter;

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui' show Size;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:live_media/live_media.dart';
 import 'package:meta/meta.dart';
 
@@ -208,9 +210,39 @@ final class EngineError extends EngineEvent {
   String toString() => 'EngineError($error)';
 }
 
+/// Which engine a session creates (`Settings.playbackEngine`, G01).
+enum PlaybackEngineKind {
+  /// libmpv through the media_kit fork in `third_party/`: the default on
+  /// every platform, and what 3.x used on desktop.
+  mpv,
+
+  /// libmdk through fvp's backend player API: an alternative for streams
+  /// whose decoder mpv's bundle cannot play smoothly (3.x's `fvp`
+  /// adapter, G01).
+  fvp;
+
+  /// The kind stored as [id] (`mpv`, `fvp`); [mpv] for anything else, so a
+  /// repaired setting or a 3.x backup never leaves the app without a
+  /// player.
+  static PlaybackEngineKind of(Object? id) => values.firstWhere((kind) => kind.name == id, orElse: () => mpv);
+}
+
+/// An engine that draws into a Flutter texture (`Texture`), as fvp does,
+/// instead of through a package video widget (media_kit's `Video`).
+/// `LiveVideoView` draws its picture with the view's fit, fill and
+/// alignment.
+abstract interface class TextureVideoHost {
+  /// The texture the engine draws into; null while it has no picture.
+  ValueListenable<int?> get textureId;
+
+  /// The picture's size (rotation applied), for the aspect ratio; null
+  /// while it is unknown.
+  ValueListenable<Size?> get frameSize;
+}
+
 /// The engine contract the session drives (3.x's `UnifiedPlayer`, reduced to
-/// what the one mpv engine needs). Implementations: `MpvEngine`, and fakes in
-/// tests.
+/// what the one mpv engine needs). Implementations: `MpvEngine`, `FvpEngine`
+/// and fakes in tests.
 abstract interface class PlayerEngine {
   /// Events of every source, in arrival order.
   Stream<EngineEvent> get events;

@@ -354,6 +354,16 @@ abstract final class Settings {
   /// 3.x's player engine; v4 plays everything with mpv, kept for backups.
   static const videoPlayerKey = StringSetting('videoPlayerKey', section: 'player', defaultValue: 'mpv');
 
+  /// Which engine the player builds (G01.3): `mpv` (libmpv, the default) or
+  /// `fvp` (libmdk through fvp), chosen on the player page and read when a
+  /// session is created.
+  static const playbackEngine = StringSetting(
+    'playbackEngine',
+    section: 'player',
+    defaultValue: 'mpv',
+    allowed: {'mpv', 'fvp'},
+  );
+
   /// Preferred quality name on Wi-Fi (`原画`, `蓝光8M`, `蓝光4M`, `超清`, `流畅`).
   static const preferResolution = StringSetting(
     'preferResolution',
@@ -2137,6 +2147,7 @@ abstract final class Settings {
     danmakuFontFamilyFileName,
     videoFitIndex,
     videoPlayerKey,
+    playbackEngine,
     preferResolution,
     preferResolutionCellular,
     enableCodec,
