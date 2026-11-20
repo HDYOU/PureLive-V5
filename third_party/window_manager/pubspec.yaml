@@ -29,7 +29,7 @@ dependencies:
   flutter:
     sdk: flutter
   path: ^1.8.2
-  screen_retriever: ^0.3.0
+  screen_retriever: ^0.4.0
 
 dev_dependencies:
   dependency_validator: ^3.0.0

@@ -46,7 +46,7 @@ dependencies:
   ffmpeg_kit_extended_flutter: 1.0.0
   # System file and folder pickers (IPTV import, backups, record folder);
   # Android uses the system document picker (no all-files access).
-  file_picker: ^13.3.0
+  file_picker: ^13.4.0
   flutter:
     sdk: flutter
   # The image cache (covers, avatars, emoticons) downloading through the app
@@ -81,22 +81,22 @@ dependencies:
   live_vod: any
   # QR codes of device sync and TV sync.
   mobile_scanner: ^7.4.2
-  # tray_manager 0.8's own types (the Mac's menu bar icon size); the version
+  # tray_manager 0.9's own types (the Mac's menu bar icon size); the version
   # tray_manager depends on.
-  nativeapi: ^0.5.2
+  nativeapi: ^0.6.1
   # Opens local files on Android (playlist copies, downloaded installers).
   open_filex: ^5.0.0
   path: ^1.9.1
   # The data folder and 3.x's folders.
   path_provider: ^2.1.6
   # Whether the remembered window place is still on a display.
-  screen_retriever: ^0.3.0
+  screen_retriever: ^0.4.0
   # The system share sheet of the room menu.
   share_plus: ^13.3.0
   # Reads 3.x's IPTV database (pure_live_tv.db) for the import (M12.1).
   sqlite3: ^3.8.0
   # The Windows tray (3.x).
-  tray_manager: ^0.8.0
+  tray_manager: ^0.9.0
   # CC's official entries open in the browser (3.x AppNavigator.toCategoryDetail).
   url_launcher: ^6.3.2
   # 3.x's install folders from the uninstall entries (the 3.x data import)
