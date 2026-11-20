@@ -170,7 +170,6 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   var _buffering = false;
   var _hasSource = false;
   var _audioOnly = false;
-  var _externalAudio = false;
   var _disposed = false;
   var _opens = 0;
   var _volume = 1.0;
@@ -195,11 +194,22 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   /// The settings that stay on this player between sources.
   void _configure() {
     _gainDb = config.volumeGainDb.clamp(-FvpEngineConfig.maxVolumeGainDb, FvpEngineConfig.maxVolumeGainDb);
-    // A live line that drops is reconnected by libmdk itself; the session
-    // still sees the stall through the position and its buffering flags.
     _player
+      // A hardware video decoder without the extra shader resources.
+      ..setProperty('video.decoder', 'shader_resource=0')
+      // Accept the experimental stream formats and segment files 3.x plays
+      // (its own player set these on creation).
+      ..setProperty('avformat.strict', 'experimental')
+      ..setProperty('avformat.safe', '0')
+      // A live line that drops is reconnected by libmdk itself; the session
+      // still sees the stall through the position and its buffering flags.
       ..setProperty('avio.reconnect', '1')
-      ..setProperty('avio.reconnect_delay_max', '7');
+      ..setProperty('avio.reconnect_delay_max', '7')
+      // An RTSP line rides over TCP, and the extension picker accepts every
+      // segment file type.
+      ..setProperty('avformat.rtsp_transport', 'tcp')
+      ..setProperty('avformat.extension_picky', '0')
+      ..setProperty('avformat.allowed_segment_extensions', 'ALL');
   }
 
   /// Binds the player's streams. Safe to call again after a new player was
@@ -362,7 +372,6 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       _applyProperties(media);
       _player.media = media.uri.toString();
       final audio = media.audio;
-      _externalAudio = audio != null;
       if (audio != null) {
         // A split stream's sound (A17.6): an external audio source of this
         // player, fetched with the same headers and proxy as the video.
