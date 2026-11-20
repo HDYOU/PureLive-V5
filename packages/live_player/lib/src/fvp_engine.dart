@@ -567,6 +567,31 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       final info = _player.mediaInfo;
       final video = info.video?.isEmpty ?? true ? null : info.video!.first;
       final audio = info.audio?.isEmpty ?? true ? null : info.audio!.first;
+
+      // Seconds of media held in libmdk's cache; the panel's "缓冲" row.
+      int? bufferedMs;
+      try {
+        bufferedMs = _player.buffered();
+      } on Object {
+        bufferedMs = null;
+      }
+      final bufferSeconds = bufferedMs == null || bufferedMs <= 0 ? null : bufferedMs / 1000;
+
+      // The current download bit rate in bytes a second; libmdk updates
+      // `mediaInfo.bitRate` to the realtime value while playing. The panel
+      // smooths it over a few polls, as it does for mpv's cache-speed.
+      final bitrate = info.bitRate;
+      final downloadBytesPerSecond = bitrate > 0 ? bitrate / 8.0 : null;
+
+      // libmdk's build version (the integer `MDK_version`); shown next to the
+      // engine name where it is available. There is no FFmpeg version to read.
+      int? mdkVersion;
+      try {
+        mdkVersion = mdk.version();
+      } on Object {
+        mdkVersion = null;
+      }
+
       return PlaybackStats(
         width: video?.codec.width,
         height: video?.codec.height,
@@ -577,6 +602,9 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         channels: audio?.codec.channels,
         audioBitrate: audio?.codec.bitRate,
         audioCodec: audio?.codec.codec,
+        bufferSeconds: bufferSeconds,
+        downloadBytesPerSecond: downloadBytesPerSecond,
+        mpvVersion: mdkVersion?.toString(),
       );
     } on Object {
       return const PlaybackStats();
