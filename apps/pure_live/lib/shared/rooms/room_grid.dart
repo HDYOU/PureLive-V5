@@ -485,9 +485,52 @@ class RoomFeedView extends ConsumerStatefulWidget {
 /// The lists' physics where there is no pull to refresh (desktop pages).
 const ScrollPhysics _listPhysics = PureLiveScrollPhysics(parent: AlwaysScrollableScrollPhysics());
 
+/// The tiles a page has built, kept across its rebuilds (D01.3): a tile
+/// returned unchanged is a child Flutter updates without rebuilding, so
+/// appending a page of rooms builds the rooms it brings and leaves the rooms
+/// already on screen alone (Kazumi's stable grid cards). Every feed
+/// notification would otherwise rebuild every visible card.
+class _CardCache {
+  final Map<String, ({LiveRoom room, Widget card})> _cards = {};
+  String? _style;
+
+  /// The tile of [room] under [style], built by [create] the first time, or
+  /// when [style] changed (the card settings, the text size, the minute of
+  /// the clock) or another room took its [key].
+  Widget of(String style, String key, LiveRoom room, Widget Function() create) {
+    if (style != _style) {
+      _cards.clear();
+      _style = style;
+    }
+    final cached = _cards[key];
+    if (cached != null && identical(cached.room, room)) return cached.card;
+    final card = create();
+    _cards[key] = (room: room, card: card);
+    return card;
+  }
+
+  /// Forgets the tiles of [keys]: the rooms the page no longer shows, so a
+  /// list that keeps changing does not keep building up.
+  void retain(Set<String> keys) => _cards.removeWhere((key, _) => !keys.contains(key));
+
+  /// Drops everything: another feed, or another page of it.
+  void clear() {
+    _cards.clear();
+    _style = null;
+  }
+
+  /// The keys of [rooms] under [prefix].
+  static Set<String> keysOf(String prefix, Iterable<LiveRoom> rooms) => {
+    for (final room in rooms) '$prefix|${room.identityKey}',
+  };
+}
+
 class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
   final ScrollController _scroll = createPureLiveScrollController();
   final PageFillScheduler _fillScheduler = PageFillScheduler();
+  final _CardCache _cards = _CardCache();
+  List<LiveRoom>? _cardedRooms;
+  Object? _shown;
   int? _pageSize;
   int? _autoCapacity;
   int? _pendingAnchor;
@@ -524,6 +567,9 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
       _autoFillFrom = -1;
       _autoCapacity = null;
       _pendingAnchor = null;
+      _cards.clear();
+      _cardedRooms = null;
+      _shown = null;
       _fillScheduler.reset();
     }
     if (widget.pageSize != null && widget.pageSize != oldWidget.pageSize) {
@@ -543,9 +589,32 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     super.dispose();
   }
 
+  /// What the page draws out of the feed: rooms, page, its states. A
+  /// notification that leaves all of it as it was redraws nothing; the
+  /// post-frame work (a list shorter than the screen, an unfilled automatic
+  /// page) still runs.
+  Object get _shownState {
+    final feed = _feed;
+    return (
+      feed.rooms,
+      feed.page,
+      feed.loaded,
+      feed.busy,
+      feed.refreshing,
+      feed.hasMore,
+      feed.error,
+      feed.errorOnRefresh,
+      feed.hiddenCount,
+    );
+  }
+
   void _feedChanged() {
     if (!mounted) return;
-    setState(() {});
+    final shown = _shownState;
+    if (shown != _shown) {
+      _shown = shown;
+      setState(() {});
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _fillViewport();
@@ -666,6 +735,13 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     final sizes = pageSizesOf(settings, MediaQuery.sizeOf(context).width);
     final pageSize = _currentPageSize;
     final hasContent = _feed.rooms.isNotEmpty;
+    // The tiles of the rooms still listed are kept; the ones that left the
+    // list go (D01.3).
+    final listed = _feed.rooms;
+    if (!identical(listed, _cardedRooms)) {
+      _cardedRooms = listed;
+      _cards.retain(_CardCache.keysOf(prefix, listed));
+    }
 
     final Widget body;
     if (!hasContent && (!_feed.loaded || (_feed.busy && _feed.error == null))) {
@@ -703,6 +779,13 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
             }
             // Back on a home tab after another one, the rooms are where
             // they were (A11.6).
+            final clock = ref.read(roomClockProvider)();
+            // Tiles are kept per style and per minute: the card settings and
+            // the text size rebuild them, and so does a new minute of the
+            // clock, which is when a card's time on air moves (D01.3).
+            final cardStyle =
+                '$prefix|$appearance|$fontSizes|${MediaQuery.textScalerOf(context)}|'
+                '${clock.millisecondsSinceEpoch ~/ 60000}';
             return KeepScrollPosition(
               id: '$prefix:${_feed.platform}',
               child: CustomScrollView(
@@ -716,14 +799,25 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                     sliver: SliverGrid.builder(
                       gridDelegate: geometry.delegate(spacing: spacing, mainSpacing: mainSpacing),
                       itemCount: rooms.length,
-                      itemBuilder: (context, index) => RoomGridCard(
-                        key: ValueKey(rooms[index].identityKey),
-                        room: rooms[index],
-                        // The feed's rooms go along: the portrait fullscreen
-                        // swipes through them (U.2b2).
-                        onOpen: () =>
-                            unawaited(AppNavigator.toLiveRoomDetail(liveRoom: rooms[index], playlist: _feed.rooms)),
-                      ),
+                      itemBuilder: (context, index) {
+                        final room = rooms[index];
+                        // The tiles already on screen come back as the same
+                        // widget: an append builds only the rooms it brings.
+                        return _cards.of(
+                          cardStyle,
+                          '$prefix|${room.identityKey}',
+                          room,
+                          () => RoomGridCard(
+                            key: ValueKey(room.identityKey),
+                            room: room,
+                            now: clock,
+                            // The feed's rooms go along: the portrait
+                            // fullscreen swipes through them (U.2b2).
+                            onOpen: () =>
+                                unawaited(AppNavigator.toLiveRoomDetail(liveRoom: room, playlist: _feed.rooms)),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   if (desktop ? _hiddenNote(context) : _phoneFooter(context) case final footer?)
