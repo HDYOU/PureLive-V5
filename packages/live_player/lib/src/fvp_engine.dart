@@ -617,7 +617,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         height: video?.codec.height,
         videoFormat: video?.codec.codec,
         videoCodec: video?.codec.codec,
-        encoder: video?.metadata['encoder'] ?? audio?.metadata['encoder'],
+        encoder: _encoderMetadata(video) ?? _encoderMetadata(audio),
         sampleRate: audio?.codec.sampleRate,
         channels: audio?.codec.channels,
         audioBitrate: audio?.codec.bitRate,
@@ -629,6 +629,17 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     } on Object {
       return const PlaybackStats();
     }
+  }
+
+  /// The encoder tag the source streamer wrote into a track's metadata
+  /// (OBS writes `obs-output module …` on the video track). Some sources spell
+  /// the key uppercase, and many carry no encoder tag at all, so both case
+  /// variants are read and a missing tag is null.
+  String? _encoderMetadata(mdk.StreamInfo? stream) {
+    if (stream == null) return null;
+    final metadata = stream.metadata;
+    final encoder = metadata['encoder'] ?? metadata['ENCODER'];
+    return encoder == null || encoder.isEmpty ? null : encoder;
   }
 
   @override
