@@ -105,6 +105,10 @@ String fvpHeaderLines(Map<String, String> headers) =>
 ///   loads the media with its external audio (a split stream's rendition,
 ///   `setMedia(type: audio)`) and prepares it at the start position. A
 ///   failed prepare throws, which the session treats as the source failing.
+/// - **Each open recreates the native libmdk player**, releasing the old one
+///   first: switching lines then cannot inherit a stale decoder, texture or
+///   network state from the previous source (which showed as a black picture
+///   on the new line).
 /// - libmdk reports playback state, media status (buffering, end, invalid)
 ///   and events; the position is read four times a second, as the session
 ///   judges a live source by whether it moves.
@@ -113,7 +117,7 @@ String fvpHeaderLines(Map<String, String> headers) =>
 /// - Windows reports no presented frames here (`reportsFrames` false), so
 ///   the frame watchdog does not apply to this engine.
 final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource, VolumeGainControl, TextureVideoHost {
-  new _(this.player, this.config) {
+  new _(this._player, this.config) {
     _bind();
   }
 
@@ -135,14 +139,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     }
   }
 
-  /// The libmdk player.
-  final mdk.Player player;
+  /// The current libmdk player. Replaced on every [open] (`_recreatePlayer`),
+  /// so no decoder, texture or network state survives a line switch.
+  mdk.Player _player;
+
+  /// The libmdk player currently in use (kept for callers that read it).
+  mdk.Player get player => _player;
 
   /// Configuration.
   final FvpEngineConfig config;
 
   final StreamController<EngineEvent> _events = StreamController.broadcast(sync: true);
-  final List<StreamSubscription<Object?>> _subscriptions = [];
+  List<StreamSubscription<Object?>> _subscriptions = [];
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
   final ValueNotifier<Size?> _frameSize = ValueNotifier<Size?>(null);
 
@@ -178,15 +186,21 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _gainDb = config.volumeGainDb.clamp(-FvpEngineConfig.maxVolumeGainDb, FvpEngineConfig.maxVolumeGainDb);
     // A live line that drops is reconnected by libmdk itself; the session
     // still sees the stall through the position and its buffering flags.
-    player
+    _player
       ..setProperty('avio.reconnect', '1')
       ..setProperty('avio.reconnect_delay_max', '7');
   }
 
+  /// Binds the player's streams. Safe to call again after a new player was
+  /// created: it first cancels the previous bindings.
   void _bind() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    _subscriptions = [];
     _subscriptions
       ..add(
-        player.onStateChanged.listen((event) {
+        _player.onStateChanged.listen((event) {
           if (_disposed) return;
           switch (event.newValue) {
             case mdk.PlaybackState.playing:
@@ -199,13 +213,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         }),
       )
       ..add(
-        player.onMediaStatus.listen((event) {
+        _player.onMediaStatus.listen((event) {
           if (_disposed) return;
           _onStatus(event.newValue);
         }),
       )
       ..add(
-        player.onEvent.listen((event) {
+        _player.onEvent.listen((event) {
           if (_disposed) return;
           // The first decoded frame tells the picture's size when the
           // probe did not (libmdk fills `mediaInfo.video` at load).
@@ -243,7 +257,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (_disposed) return;
     final ({int width, int height})? size;
     try {
-      final streams = player.mediaInfo.video;
+      final streams = _player.mediaInfo.video;
       if (streams == null || streams.isEmpty) return;
       final stream = streams.first;
       size = fvpDisplaySizeOf(
@@ -263,7 +277,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   int _durationMs() {
     try {
-      return player.mediaInfo.duration;
+      return _player.mediaInfo.duration;
     } on Object {
       return 0;
     }
@@ -271,12 +285,52 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   double? _videoFrameRate() {
     try {
-      final streams = player.mediaInfo.video;
+      final streams = _player.mediaInfo.video;
       final fps = streams == null || streams.isEmpty ? 0.0 : streams.first.codec.frameRate;
       return fps > 0 && fps.isFinite ? fps : null;
     } on Object {
       return null;
     }
+  }
+
+  /// Releases the current native player and creates a fresh one, then
+  /// re-applies the persistent configuration and re-binds the streams.
+  ///
+  /// The old player is disposed before the new one is made, so a line switch
+  /// cannot inherit a stale decoder, texture, avio connection or a pending
+  /// reconnect from the previous source. The replacement costs a native
+  /// init (a few dozen to a few hundred milliseconds) per open; the old code
+  /// reused one player and left that stale state behind, which showed as a
+  /// black picture after switching lines.
+  Future<void> _recreatePlayer() async {
+    // Drop the old bindings first so the teardown cannot emit into the
+    // engine while the player is being released.
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    _subscriptions = [];
+    _stopTicker();
+    _hasSource = false;
+    _buffering = false;
+    _lastSize = null;
+    _frameSize.value = null;
+    _textureId.value = null;
+
+    final old = _player;
+    try {
+      await old.updateTexture(width: -1);
+    } on Object {
+      // The native player may already have dropped the texture.
+    }
+    try {
+      await old.disposeAsync();
+    } on Object {
+      // The native player may already be gone.
+    }
+
+    _player = mdk.Player();
+    _configure();
+    _bind();
   }
 
   @override
@@ -287,18 +341,24 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _lastSize = null;
     _frameSize.value = null;
     _textureId.value = null;
+
+    // Every open gets a new native player: a line switch then cannot reuse a
+    // decoder, texture or avio state from the previous source.
+    await _recreatePlayer();
+    if (_disposed || open != _opens) return;
+
     try {
       _applyProperties(media);
-      player.media = media.uri.toString();
+      _player.media = media.uri.toString();
       final audio = media.audio;
-      if (audio != null || _externalAudio) {
+      _externalAudio = audio != null;
+      if (audio != null) {
         // A split stream's sound (A17.6): an external audio source of this
         // player, fetched with the same headers and proxy as the video.
-        player.setMedia(audio?.uri.toString() ?? '', mdk.MediaType.audio);
-        _externalAudio = audio != null;
+        _player.setMedia(audio.uri.toString(), mdk.MediaType.audio);
       }
       final start = media.start?.inMilliseconds ?? 0;
-      final result = await player.prepare(position: math.max(0, start));
+      final result = await _player.prepare(position: math.max(0, start));
       if (_disposed || open != _opens) return;
       if (result < 0) {
         throw PlayerException(
@@ -314,7 +374,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       if (_disposed || open != _opens) return;
       _hasSource = true;
       _applyVolume();
-      player.state = mdk.PlaybackState.playing;
+      _player.state = mdk.PlaybackState.playing;
       final duration = _durationMs();
       if (media.onDemand && duration > 0) _add(EngineDuration(Duration(milliseconds: duration)));
       final fps = _videoFrameRate();
@@ -337,7 +397,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   /// The per-open properties: headers, proxy and the decoder order.
   void _applyProperties(EngineMedia media) {
-    player
+    _player
       ..setProperty('avio.headers', media.headers.isEmpty ? '' : fvpHeaderLines(media.headers))
       ..setProperty('avio.http_proxy', media.proxyUrl)
       ..setProperty('avformat.http_proxy', media.proxyUrl)
@@ -348,10 +408,17 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   }
 
   /// Creates the texture for this open's picture (libmdk sizes it to the
-  /// video's own frame, so the view keeps the aspect ratio).
+  /// video's own frame, so the view keeps the aspect ratio). A failure throws
+  /// instead of leaving a silent black picture.
   Future<void> _createTexture(int open) async {
-    final id = await player.updateTexture();
-    if (id < 0) return;
+    final id = await _player.updateTexture();
+    if (id < 0) {
+      throw PlayerException(
+        message: 'libmdk could not create the video texture (updateTexture returned $id)',
+        type: PlayerErrorType.native,
+        code: 'fvp_texture_failed',
+      );
+    }
     if (_disposed || open != _opens) {
       // A newer open took over while the texture was being made: drop it
       // without showing the old picture.
@@ -363,9 +430,9 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   Future<void> _releaseTexture() async {
     _textureId.value = null;
-    if ((player.textureId.value ?? -1) < 0) return;
+    if ((_player.textureId.value ?? -1) < 0) return;
     try {
-      await player.updateTexture(width: -1);
+      await _player.updateTexture(width: -1);
     } on Object {
       // Native teardown may refuse; the player keeps the texture until it
       // is disposed.
@@ -382,7 +449,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       await _releaseTexture();
       _lastSize = null;
     }
-    player.setActiveTracks(mdk.MediaType.video, enabled ? const [0] : const []);
+    _player.setActiveTracks(mdk.MediaType.video, enabled ? const [0] : const []);
     _audioOnly = !enabled;
   }
 
@@ -394,7 +461,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (_disposed || !_hasSource) return;
       try {
-        _add(EnginePosition(Duration(milliseconds: player.position)));
+        _add(EnginePosition(Duration(milliseconds: _player.position)));
       } on Object {
         _stopTicker();
       }
@@ -409,13 +476,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   @override
   Future<void> play() async {
     if (_disposed) return;
-    player.state = mdk.PlaybackState.playing;
+    _player.state = mdk.PlaybackState.playing;
   }
 
   @override
   Future<void> pause() async {
     if (_disposed) return;
-    player.state = mdk.PlaybackState.paused;
+    _player.state = mdk.PlaybackState.paused;
   }
 
   @override
@@ -426,7 +493,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _lastSize = null;
     _stopTicker();
     if (_disposed) return;
-    player.state = mdk.PlaybackState.stopped;
+    _player.state = mdk.PlaybackState.stopped;
     await _releaseTexture();
     _frameSize.value = null;
   }
@@ -434,7 +501,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   @override
   Future<void> seek(Duration position) async {
     if (_disposed || !_hasSource) return;
-    await player.seek(position: math.max(0, position.inMilliseconds));
+    await _player.seek(position: math.max(0, position.inMilliseconds));
   }
 
   @override
@@ -455,13 +522,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   void _applyVolume() {
     if (_disposed) return;
     final gain = math.pow(10, _gainDb / 20).toDouble();
-    player.volume = (_volume * gain).clamp(0, 8).toDouble();
+    _player.volume = (_volume * gain).clamp(0, 8).toDouble();
   }
 
   @override
   Future<void> setRate(double rate) async {
     if (_disposed) return;
-    player.playbackRate = rate.clamp(0.25, 4).toDouble();
+    _player.playbackRate = rate.clamp(0.25, 4).toDouble();
   }
 
   @override
@@ -477,7 +544,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Future<PlaybackStats> readStats() async {
     if (_disposed) return const PlaybackStats();
     try {
-      final info = player.mediaInfo;
+      final info = _player.mediaInfo;
       final video = info.video?.isEmpty ?? true ? null : info.video!.first;
       final audio = info.audio?.isEmpty ?? true ? null : info.audio!.first;
       return PlaybackStats(
@@ -505,8 +572,9 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
+    _subscriptions = [];
     try {
-      await player.disposeAsync();
+      await _player.disposeAsync();
     } on Object {
       // The native player may already be gone.
     }
