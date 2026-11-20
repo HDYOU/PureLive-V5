@@ -58,23 +58,28 @@ final class PlaybackStats {
   final String? audioCodec;
 
   /// Frames dropped by the renderer (`frame-drop-count`, else the decoder's
-  /// `decoder-frame-drop-count`).
+  /// `decoder-frame-drop-count`). The fvp engine does not report frame drops
+  /// (libmdk has no such counter), so this stays null there.
   final int? droppedFrames;
 
   /// Frames decoded so far (`estimated-frame-number`, else
-  /// `estimated-frame-count`).
+  /// `estimated-frame-count`). The fvp engine does not report the decoded
+  /// frame count (libmdk has no such counter), so this stays null there.
   final int? decodedFrames;
 
-  /// Seconds of media in the demuxer cache (`demuxer-cache-duration`).
+  /// Seconds of media in the demuxer cache (`demuxer-cache-duration`; the fvp
+  /// engine's `buffered()` in seconds).
   final double? bufferSeconds;
 
-  /// Bytes a second mpv reads from the stream (`cache-speed`).
+  /// Bytes a second mpv reads from the stream (`cache-speed`); the fvp
+  /// engine reports its live download bit rate (`mediaInfo.bitRate` / 8).
   final double? downloadBytesPerSecond;
 
-  /// The mpv build (`mpv-version`).
+  /// The mpv build (`mpv-version`); the fvp engine reports its libmdk version
+  /// (the integer `MDK_version`) in its place.
   final String? mpvVersion;
 
-  /// The FFmpeg build (`ffmpeg-version`).
+  /// The FFmpeg build (`ffmpeg-version`). The fvp engine reports none.
   final String? ffmpegVersion;
 }
 
