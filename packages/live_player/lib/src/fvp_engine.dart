@@ -255,6 +255,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
           // The first decoded frame tells the picture's size when the
           // probe did not (libmdk fills `mediaInfo.video` at load).
           if (event.category == 'decoder.video') _emitSize();
+          _logEvent(event);
         }),
       );
   }
@@ -281,6 +282,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       _add(EngineBuffering(buffering: buffering));
     }
     if (status.test(mdk.MediaStatus.loaded)) _emitSize();
+  }
+
+  /// Prints a libmdk event that carries an error code, so a failing source
+  /// (a dropped connection, a refused line, a decode fault) is visible in
+  /// the logs. The `error` field doubles as buffering progress when the
+  /// category is `reader.buffering`, which is not an error and is skipped.
+  void _logEvent(mdk.MediaEvent event) {
+    if (event.error == 0) return;
+    if (event.category == 'reader.buffering') return;
+    debugPrint(
+      'fvp error: code=${event.error} category=${event.category} detail=${event.detail}',
+    );
   }
 
   /// Reports the picture's size once per open when it is known.
