@@ -175,6 +175,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Timer? _ticker;
   ({int width, int height})? _lastSize;
   double? _lastFrameRate;
+  EngineMedia? _lastMedia;
   var _mediaInfoReported = false;
   var _lifecycleObserver = _TextureLifecycleObserver();
   var _buffering = false;
@@ -395,6 +396,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   @override
   Future<void> open(EngineMedia media) async {
     final open = ++_opens;
+    _lastMedia = media;
     _hasSource = false;
     _buffering = false;
     _lastSize = null;
@@ -466,18 +468,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       );
   }
 
-  /// Recreates this open's texture after the app returns from the
-  /// background, when libmdk has dropped it. Only while a picture is being
-  /// shown (a source, video on). The frame size is re-reported so the view
-  /// lays the picture out again.
+  /// Reopens the source after the app returns from the background, when
+  /// libmdk has dropped its texture and decoder. Re-calling [open] recreates
+  /// the native player, re-prepares and re-creates the texture, so a fresh
+  /// frame is pulled through the decoder instead of the last frozen one.
   Future<void> _onAppResumed() async {
-    if (_disposed || !_hasSource || _audioOnly) return;
+    final media = _lastMedia;
+    if (_disposed || !_hasSource || _audioOnly || media == null) return;
     try {
-      await _createTexture(_opens);
-      _emitSize();
+      await open(media);
     } on Object {
-      // A failed texture recreate keeps the last picture state; the next
-      // frame or open recovers it.
+      // A failed reopen keeps the last picture state; the next open
+      // recovers it.
     }
   }
 
@@ -564,6 +566,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   @override
   Future<void> stop() async {
     _opens++;
+    _lastMedia = null;
     _hasSource = false;
     _buffering = false;
     _lastSize = null;
