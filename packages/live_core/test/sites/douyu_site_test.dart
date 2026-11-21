@@ -192,9 +192,9 @@ LiveRoom _room(String id) => LiveRoom(platform: 'douyu', roomId: id);
 /// `rids` field, so one sample answers one chunk.
 ReplaySample _followBatch(List<String> rids, {Object? data, int status = 200}) => ReplaySample(
   method: 'POST',
-  url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid'),
+  url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid?client_sys=android'),
   status: status,
-  form: {'rids': rids.join(',')},
+  form: {'rids': rids.join(','), 'rsAvg': '540'},
   bytes: utf8.encode(jsonEncode(data ?? const {
     'error': 0,
     'data': {'total': 0, 'room_list': <Object>[]},
@@ -1026,7 +1026,7 @@ void main() {
       expect(updates['douyu:1']!.watching, '5', reason: 'hn is the viewer count');
       expect(updates['douyu:3']!.liveStatus, LiveStatus.offline, reason: 'the not-live room is answered, so no per-room betard');
       expect(setup.http.requests.single.url.path, '/Livenc/UserRelation/getFollowRoomListByRid');
-      expect(_form(setup.http.requests.single), {'rids': '1,2,3,4'});
+      expect(_form(setup.http.requests.single), {'rids': '1,2,3,4', 'rsAvg': '540'});
     });
 
     test('a live room in a no-replay partition counts as on; the partition is read from cid2 or cate2_name', () async {
@@ -1090,9 +1090,9 @@ void main() {
       final second = [for (var i = 21; i <= 25; i++) '$i'];
       final failing = ReplaySample(
         method: 'POST',
-        url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid'),
+        url: Uri.parse('https://apiv2.douyucdn.cn/Livenc/UserRelation/getFollowRoomListByRid?client_sys=android'),
         status: 500,
-        form: {'rids': first.join(',')},
+        form: {'rids': first.join(','), 'rsAvg': '540'},
         bytes: utf8.encode('boom'),
       );
       final ok = _followBatch(second, data: {
