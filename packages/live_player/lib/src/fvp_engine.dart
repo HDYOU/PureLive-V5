@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:ui' show Size;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show AppLifecycleState;
+import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver;
 import 'package:fvp/mdk.dart' as mdk;
 import 'package:live_media/live_media.dart';
 import 'package:live_player/src/engine.dart';
@@ -138,7 +140,12 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   static Future<FvpEngine> create({FvpEngineConfig? config}) async {
     final resolved = config ?? const FvpEngineConfig();
     try {
-      return FvpEngine._(mdk.Player(), resolved).._configure();
+      final engine = FvpEngine._(mdk.Player(), resolved).._configure();
+      // When the app returns from the background, libmdk's texture may have
+      // been dropped; the observer recreates it so the picture comes back.
+      engine._lifecycleObserver.bind(engine);
+      WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+      return engine;
     } on Object catch (error, stack) {
       throw PlayerException(
         message: 'The fvp engine could not start: $error',
@@ -169,6 +176,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   ({int width, int height})? _lastSize;
   double? _lastFrameRate;
   var _mediaInfoReported = false;
+  var _lifecycleObserver = _TextureLifecycleObserver();
   var _buffering = false;
   var _hasSource = false;
   var _audioOnly = false;
@@ -445,6 +453,22 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       );
   }
 
+  /// Recreates this open's texture after the app returns from the
+  /// background, when libmdk has dropped it. Only while a picture is being
+  /// shown (a source, video on). The frame size is re-reported so the view
+  /// lays the picture out again.
+  Future<void> _onAppResumed() async {
+    if (_disposed || !_hasSource || _audioOnly) return;
+    try {
+      await _releaseTexture();
+      await _createTexture(_opens);
+      _emitSize();
+    } on Object {
+      // A failed texture recreate keeps the last picture state; the next
+      // frame or open recovers it.
+    }
+  }
+
   /// Creates the texture for this open's picture (libmdk sizes it to the
   /// video's own frame, so the view keeps the aspect ratio). A failure throws
   /// instead of leaving a silent black picture.
@@ -659,6 +683,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (_disposed) return;
     _disposed = true;
     _opens++;
+    WidgetsBinding.instance.removeObserver(_lifecycleObserver);
     _stopTicker();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
@@ -678,3 +703,17 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 /// An [EngineFactory] creating [FvpEngine]s with [config].
 EngineFactory fvpEngineFactory([FvpEngineConfig? config]) =>
     () => FvpEngine.create(config: config);
+
+/// Watches the app's lifecycle and asks [FvpEngine] to rebuild its texture
+/// when it comes back to the foreground.
+final class _TextureLifecycleObserver extends WidgetsBindingObserver {
+  FvpEngine? _engine;
+
+  /// Watches [engine]'s lifecycle.
+  void bind(FvpEngine engine) => _engine = engine;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _engine?._onAppResumed();
+  }
+}
