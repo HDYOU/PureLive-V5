@@ -266,7 +266,7 @@ abstract final class DouyuApi {
         '/Livenc/UserRelation/getFollowRoomListByRid',
         time,
         androidAid,
-        {'rids': rids},
+        {'rids': rids, 'rsAvg': '540'},
       );
 
   /// Partitions that produce no replay (时光机): the platform refuses audio
