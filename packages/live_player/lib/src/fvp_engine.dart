@@ -417,6 +417,16 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     }
   }
 
+  /// A one-shot re-check of [ins]' frame rate, run a moment after a switch so
+  /// a live source whose frameRate probe lands after prepare is still
+  /// reported. [openSeq] guards against a newer open having taken over: only
+  /// the instance still showing the picture (the current player) is re-checked.
+  void _reopenFrameRateCheck(int openSeq, _PlayerInstance ins) {
+    if (_disposed || openSeq != _opens) return;
+    if (!identical(_currentPlayer, ins)) return;
+    _emitFrameRate(ins);
+  }
+
   /// The per-open properties of [ins]: headers, proxy and the decoder order.
   void _applyInstanceProperties(_PlayerInstance ins, EngineMedia media) {
     ins.player
@@ -522,8 +532,14 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       if (media.onDemand && duration > 0) {
         _add(EngineDuration(Duration(milliseconds: duration)));
       }
-      final fps = _videoFrameRate(nextIns);
-      if (fps != null) _add(EngineFrameRate(fps));
+      // Report the frame rate now if the probe already filled it; a live
+      // source's frameRate often lands after prepare, so a delayed re-check
+      // below picks it up once the probe completes.
+      _emitFrameRate(nextIns);
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 800))
+            .then((_) => _reopenFrameRateCheck(openSeq, nextIns)),
+      );
 
       _emitSize(nextIns);
       _startTicker();
