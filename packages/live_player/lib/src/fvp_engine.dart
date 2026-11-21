@@ -460,7 +460,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Future<void> _onAppResumed() async {
     if (_disposed || !_hasSource || _audioOnly) return;
     try {
-      await _releaseTexture();
+      _textureId.value = null;
       await _createTexture(_opens);
       _emitSize();
     } on Object {
