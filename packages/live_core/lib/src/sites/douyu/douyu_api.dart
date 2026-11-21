@@ -10,6 +10,7 @@ import 'package:live_core/src/live_site.dart';
 import 'package:live_core/src/play_line.dart';
 import 'package:live_core/src/quality_label.dart';
 import 'package:live_core/src/site_error.dart';
+import 'package:live_core/src/sites/douyu/douyu_signature.dart';
 import 'package:meta/meta.dart';
 
 const _site = 'douyu';
@@ -247,6 +248,26 @@ abstract final class DouyuApi {
 
   /// Origin of the web player.
   static const String origin = 'https://www.douyu.com';
+
+  /// The android client identity the signed app endpoints (`Livenc`) accept:
+  /// the `aid` header, the `channel` id, and the device user agent the app
+  /// signs requests with. The `auth` header is computed over the request's
+  /// canonical form fields ([followRoomAuth]).
+  static const String androidAid = 'android1';
+  static const String androidChannel = '121';
+  static const String androidUserAgent =
+      'android/7.4.1.1 (android 11; ; Redmi Note 8 Pro)';
+
+  /// The `auth` header for the `getFollowRoomListByRid` form request at
+  /// [time] (unix seconds): the MD5 over the canonical source of [rids] with
+  /// the android `aid`/`client_sys`/`time` injected ([DouyuSignature.headerAuth]).
+  static String followRoomAuth(String rids, {required int time}) =>
+      DouyuSignature.headerAuth(
+        '/Livenc/UserRelation/getFollowRoomListByRid',
+        time,
+        androidAid,
+        {'rids': rids},
+      );
 
   /// Partitions that produce no replay (时光机): the platform refuses audio
   /// (voice-only) rooms and heavily reviews the borderline categories, so a

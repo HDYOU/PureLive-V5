@@ -480,12 +480,22 @@ final class DouyuSite extends LiveSite
 
   /// One chunk of 20 rids; the room id is the rid as sent.
   Future<Map<String, LiveRoom>> _batchStatus(List<String> chunk) async {
+    final time = _now().millisecondsSinceEpoch ~/ 1000;
+    final auth = DouyuApi.followRoomAuth(chunk.join(','), time: time);
     final response = await _send(
       LiveRequest.form(
         site: _site,
         url: Uri.https(_apiv2, '/Livenc/UserRelation/getFollowRoomListByRid'),
-        fields: {'rids': chunk.join(',')},
-        headers: const {'user-agent': DouyuApi.userAgent, 'origin': DouyuApi.origin},
+        fields: {'rids': chunk.join(','), 'rsAvg': '540'},
+        query: const {'client_sys': 'android'},
+        headers: {
+          'user-agent': DouyuApi.androidUserAgent,
+          'origin': DouyuApi.origin,
+          'aid': DouyuApi.androidAid,
+          'channel': DouyuApi.androidChannel,
+          'time': '$time',
+          'auth': auth,
+        },
         timeout: const Duration(seconds: 3),
       ),
     );
