@@ -199,6 +199,18 @@ ReplaySample _hoverBatch(List<String> rids, {Object? data, int status = 200}) =>
   })),
 );
 
+/// A GET `getHistoryList` (the login's recent rooms); matching is on the
+/// `filterLive`/`view` query.
+ReplaySample _history({Object? data, int status = 200}) => ReplaySample(
+  method: 'GET',
+  url: Uri.parse('https://www.douyu.com/japi/watchHistory/apinc/getHistoryList?filterLive=1&view=0'),
+  status: status,
+  bytes: utf8.encode(jsonEncode(data ?? const {
+    'error': 0,
+    'data': <Object>[],
+  })),
+);
+
 LivePlayQuality _quality(int rate, List<String> cdns) =>
     LivePlayQuality(quality: '$rate', id: rate, data: DouyuPlayData(rate, cdns));
 
@@ -1169,6 +1181,71 @@ void main() {
       final setup = _setup([], extra: [failing, ok]);
       final updates = await setup.site.refreshFollowBatch([...first, ...second].map(_room).toList());
       expect(updates, {'douyu:51': updates['douyu:51']!}, reason: 'the failed first chunk drops its rooms');
+    });
+
+    test('with a login: the history settles the hover\'s undecided room by its videoLoop', () async {
+      final vault = MemoryCookieVault()..set('douyu', 'dy_did=did; acf_auth=t');
+      final hover = _hoverBatch(['1', '2'], data: {
+        'code': 0,
+        'data': [
+          // Ordinary partition, live: undecided by the hover.
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': 'https://c.douyu.com/h1.png', 'hot': 9, 'showStatus': 1, 'showDetail': 'hover-nd'},
+          // Live, answered by the hover.
+          {'roomId': 2, 'roomName': '唱歌', 'nickName': 'C', 'roomCover': 'https://c.douyu.com/h2.png', 'hot': 3, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final history = _history(data: {
+        'error': 0,
+        'data': [
+          // Settles the undecided room 1: a replay by videoLoop.
+          {'rid': 1, 'roomName': '重播中', 'nickName': '主播', 'avatar': 'https://a.douyu.com/1.jpg', 'roomSrc': 'https://c.douyu.com/1.png', 'hotNum': 42, 'isLive': 1, 'videoLoop': 1},
+          // Room 2 is not recent: the hover answer stands.
+          {'rid': 7, 'roomName': '别人', 'nickName': 'X', 'avatar': '', 'roomSrc': '', 'hotNum': 1, 'isLive': 1, 'videoLoop': 0},
+        ],
+      });
+      final setup = _setup([], cookies: vault, extra: [hover, history]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2').copyWith(area: '唱歌'),
+      ]);
+      expect(updates.keys, {'douyu:1', 'douyu:2'}, reason: 'the history settles 1; 2 stands by the hover');
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.replay, reason: 'videoLoop 1 settles the undecided room');
+      expect(updates['douyu:1']!.watching, '42', reason: 'the history\'s hotNum replaces the hover\'s hot');
+      expect(updates['douyu:1']!.cover, 'https://c.douyu.com/1.png', reason: 'the history\'s roomSrc');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live, reason: 'a no-replay partition is live');
+      expect(setup.http.requests.map((r) => r.url.path).where((p) => p == '/japi/watchHistory/apinc/getHistoryList'), hasLength(1));
+    });
+
+    test('without a login: the history is not fetched, the hover answer stands', () async {
+      final hover = _hoverBatch(['1'], data: {
+        'code': 0,
+        'data': [
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final setup = _setup([], extra: [hover]);
+      final updates = await setup.site.refreshFollowBatch([_room('1').copyWith(area: '英雄联盟'), _room('2')]);
+      expect(updates, isEmpty, reason: 'undecided, no login: the room stays as the caller has it');
+      expect(_paths(setup.http), isNot(contains('/japi/watchHistory/apinc/getHistoryList')));
+    });
+
+    test('a failed history keeps the hover answers', () async {
+      final vault = MemoryCookieVault()..set('douyu', 'dy_did=did; acf_auth=t');
+      final hover = _hoverBatch(['1', '2'], data: {
+        'code': 0,
+        'data': [
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+          {'roomId': 2, 'roomName': '唱歌', 'nickName': 'C', 'roomCover': '', 'hot': 3, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final failingHistory = _history(status: 500);
+      final setup = _setup([], cookies: vault, extra: [hover, failingHistory]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2').copyWith(area: '唱歌'),
+      ]);
+      expect(updates.keys, {'douyu:2'}, reason: 'the failed history keeps only the hover answer');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live);
     });
   });
 

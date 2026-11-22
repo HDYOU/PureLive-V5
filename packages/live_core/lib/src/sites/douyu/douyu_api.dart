@@ -619,6 +619,51 @@ abstract final class DouyuApi {
     );
   }
 
+  /// `japi/watchHistory/apinc/getHistoryList?filterLive=1&view=0`: the user's
+  /// recent rooms, live and replay, each with `videoLoop` — the platform's
+  /// own replay flag, so a `videoLoop == 1` room is decided without the
+  /// stored partition. Only `isLive == 1` answers; every entry is `data`'s
+  /// shape (`rid`, `roomName`, `nickName`, `avatar`, `roomSrc`, `hotNum`,
+  /// `isLive`, `videoLoop`). Rooms without a `videoLoop` answer are left
+  /// out (the caller falls back to its own rule for them), and the caller
+  /// keeps only the rids it asked for. A non-2xx or an `error != 0` answer
+  /// is a `SiteError`, as every other Douyu call.
+  static Map<String, LiveRoom> historyRooms(String body, {int status = 200}) {
+    final root = _checked(body, status: status, what: 'getHistoryList');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(root['data'])) {
+      if (_object(item) case final entry? when _roomId(entry['rid']) != null && jsonInt(entry['isLive']) == 1) {
+        if (entry['videoLoop'] == null) continue;
+        final room = _historyRoom(entry);
+        rooms[room.roomId] = room;
+      }
+    }
+    return rooms;
+  }
+
+  /// One answered history room: the fields a follow batch backfills on a
+  /// stored room; [LiveRoom.liveStatus] is never null (the answer's
+  /// `videoLoop` decides between live and replay).
+  static LiveRoom _historyRoom(Map<String, dynamic> entry) {
+    final id = _roomId(entry['rid'])!;
+    final replay = jsonInt(entry['videoLoop']) == 1;
+    final nick = jsonString(entry['nickName']) ?? '';
+    final title = jsonString(entry['roomName']) ?? '';
+    final hot = jsonString(entry['hotNum']);
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
+      avatar: normalizeImageUrl(entry['avatar']),
+      cover: normalizeImageUrl(entry['roomSrc']),
+      watching: hot ?? '0',
+      popularity: hot ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: replay ? LiveStatus.replay : LiveStatus.live,
+    );
+  }
+
   /// One `room_list` entry of the follow answer, in its own field names; the
   /// caller has checked that `room_id` is a valid rid.
   static LiveRoom _followRoom(Map<String, dynamic> entry) {

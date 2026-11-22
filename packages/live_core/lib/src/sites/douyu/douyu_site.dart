@@ -456,8 +456,15 @@ final class DouyuSite extends LiveSite
   /// live in a no-replay partition ([DouyuApi.noReplayPartition]), and
   /// undecided in an ordinary one — an undecided room stays as the caller
   /// has it, so the caller refreshes it one by one. `showStatus != 1` is
-  /// offline. A chunk that fails is skipped (the caller refreshes its rooms
-  /// one by one).
+  /// offline.
+  ///
+  /// With a saved login, one extra request settles what the hover answer
+  /// cannot: the user's recent rooms (`getHistoryList`, live and replay)
+  /// carry the platform's `videoLoop` flag, so a recent room is decided by
+  /// the flag and backfilled over the hover answer (a hover answer still
+  /// stands when the history does not know the room). Without a login the
+  /// history is not fetched. A chunk that fails is skipped (the caller
+  /// refreshes its rooms one by one).
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
@@ -489,6 +496,29 @@ final class DouyuSite extends LiveSite
         );
       }
     }
+    // A saved login settles the hover's undecided rooms: the user's recent
+    // rooms say `videoLoop`, so a recent room is decided by the flag and
+    // backfilled over the hover answer. The history's rids are filtered
+    // down to the ones just asked for; without a login it is not fetched.
+    if (_account().isNotEmpty) {
+      try {
+        final history = await _historyRooms();
+        for (final MapEntry(:key, :value) in history.entries) {
+          final stored = byRid[key];
+          if (stored == null) continue;
+          final hover = updates[stored.identityKey];
+          updates[stored.identityKey] = (hover ?? stored).copyWith(
+            liveStatus: value.liveStatus,
+            watching: value.watching,
+            cover: value.cover,
+            avatar: value.avatar,
+          );
+        }
+      } on SiteError {
+        // A failed history keeps the hover answers; the caller refreshes
+        // the undecided rooms one by one.
+      }
+    }
     return updates;
   }
 
@@ -508,6 +538,15 @@ final class DouyuSite extends LiveSite
       status: response.status,
       noReplayArea: (rid) => byRid[rid]?.area ?? '',
     );
+  }
+
+  /// The user's recent rooms, live and replay (the login's own answer): the
+  /// status of every room it answers is settled by the platform's
+  /// `videoLoop` flag. A failure keeps the hover answers; it is never
+  /// disguised as an offline room.
+  Future<Map<String, LiveRoom>> _historyRooms() async {
+    final response = await _api(Uri.https(_www, '/japi/watchHistory/apinc/getHistoryList', {'filterLive': '1', 'view': '0'}));
+    return DouyuApi.historyRooms(response.text, status: response.status);
   }
 
   // Streams -------------------------------------------------------------------
