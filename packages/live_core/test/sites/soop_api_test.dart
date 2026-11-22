@@ -320,7 +320,9 @@ void main() {
       // SoopRoomData now. cover: 3.x's cache buster is the clock. data and
       // danmakuData are compared below.
       _expectParity(room.toJson(), expected, changed: {'userId', 'cover', 'data', 'danmakuData'}, reason: 'live');
-      expect(room.userId, isNull);
+      // userId is now the broadcast number (broad_no), was null in 3.x.
+      final data0 = room.data! as SoopRoomData;
+      expect(room.userId, data0.bno.isEmpty ? isNull : data0.bno);
       expect(room.cover, '${expected['cover']}'.replaceFirst('{now}', '${_now.millisecondsSinceEpoch}'));
       expect(room.link, 'https://play.sooplive.co.kr/khm11903');
       // New keys (3.x wrote neither): BTIME 455474 s before the recording

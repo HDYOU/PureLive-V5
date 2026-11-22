@@ -677,10 +677,10 @@ void main() {
       bytes: utf8.encode('ok'),
     );
 
-    LiveRoom _room(String id, {String? area}) => LiveRoom(
+    LiveRoom _room(String id, {String? area, String? userId}) => LiveRoom(
       platform: 'soop',
       roomId: id,
-      userId: id,
+      userId: userId,
       area: area ?? 'default',
     );
 
@@ -695,13 +695,17 @@ void main() {
       final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
       addTearDown(vault.dispose);
       final recent = _recentAnswer([
-        {'user_id': 'a1', 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': 'https://img.example/a.jpg', 'is_live': true, 'total_view_cnt': 120},
-        {'user_id': 'b2', 'user_nick': 'B', 'broad_title': 'VOD B', 'broad_img': 'https://img.example/b.jpg', 'is_live': false, 'total_view_cnt': 5},
+        {'user_id': 'a1', 'broad_no': '298777531', 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': 'https://img.example/a.jpg', 'is_live': true, 'total_view_cnt': 120},
+        {'user_id': 'b2', 'broad_no': '298778305', 'user_nick': 'B', 'broad_title': 'VOD B', 'broad_img': 'https://img.example/b.jpg', 'is_live': false, 'total_view_cnt': 5},
       ]);
       final watch1 = _watchAnswer();
       final watch2 = _watchAnswer();
       final setup = _setup([], cookies: vault, extra: [recent, watch1, watch2]);
-      final updates = await setup.site.refreshFollowBatch([_room('a1'), _room('b2'), _room('c3')]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('a1', userId: '298777531'),
+        _room('b2', userId: '298778305'),
+        _room('c3', userId: '298780000'),
+      ]);
       // a1 is live, backfilled
       expect(updates['soop:a1']!.liveStatus, LiveStatus.live);
       expect(updates['soop:a1']!.watching, '120');
@@ -710,12 +714,12 @@ void main() {
       expect(updates['soop:b2']!.watching, '5');
       // c3 is not in the recent list: not in updates, but set_watch_record fired
       expect(updates.containsKey('soop:c3'), isFalse);
-      // verify set_watch_record was requested for c3
+      // verify set_watch_record was requested for c3 with its broad_no
       final watchRequests = setup.http.requests.where((r) => r.url.path == '/api/set_watch_record.php').toList();
       expect(watchRequests, isNotEmpty);
       final c3Form = Uri.splitQueryString(utf8.decode(watchRequests.last.body!));
       expect(c3Form['szBjId'], 'c3');
-      expect(c3Form['nBroadNo'], '0');
+      expect(c3Form['nBroadNo'], '298780000');
     });
 
     test('a failed recent request throws and no watch-record requests are fired', () async {

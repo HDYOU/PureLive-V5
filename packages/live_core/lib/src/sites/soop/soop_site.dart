@@ -364,8 +364,8 @@ final class SoopSite extends LiveSite
   }
 
   /// `POST live.sooplive.com/api/set_watch_record.php` for one room.
-  /// `szBjId` is the streamer id; `nBroadNo` is 0 when the room is not
-  /// currently live (the platform accepts 0 for a new record).
+  /// `szBjId` is the streamer id; `nBroadNo` is the room's `broad_no`
+  /// (stored in [LiveRoom.userId]), or `'0'` when unknown.
   Future<void> _setWatchRecord(LiveRoom room) async {
     try {
       await _send(
@@ -374,7 +374,7 @@ final class SoopSite extends LiveSite
           url: Uri.https(_live, '/api/set_watch_record.php'),
           fields: {
             'szBjId': room.roomId,
-            'nBroadNo': '0',
+            'nBroadNo': room.userId ?? '0',
           },
           headers: SoopApi.apiHeaders(cookie: _cookie()),
           timeout: const Duration(seconds: 3),

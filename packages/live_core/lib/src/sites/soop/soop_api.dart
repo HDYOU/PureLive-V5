@@ -325,12 +325,14 @@ abstract final class SoopApi {
       if (_object(raw) case final item?) {
         final userId = item['user_id']?.toString() ?? '';
         if (userId.isEmpty) continue;
+        final broadNo = jsonString(item['broad_no']);
         final isLive = item['is_live'] == true;
         final title = jsonString(item['broad_title_translate']) ?? jsonString(item['broad_title']) ?? '';
         final cover = normalizeImageUrl(item['broad_img']);
         rooms['$_site:$userId'] = LiveRoom(
           platform: _site,
           roomId: userId,
+          userId: broadNo,
           nick: decodeHtmlEntities(jsonString(item['user_nick']) ?? ''),
           title: decodeHtmlEntities(title),
           cover: cover,
@@ -463,6 +465,7 @@ abstract final class SoopApi {
     final room = LiveRoom(
       roomId: id,
       platform: _site,
+      userId: bno.isEmpty ? null : bno,
       title: _displayTranslated(fields, 'TITLE_TRANSLATE', 'TITLE'),
       nick: _display(fields['BJNICK']),
       avatar: bj.length < 2 ? '' : 'https://stimg.sooplive.co.kr/LOGO/${bj.substring(0, 2)}/$bj/$bj.jpg',
@@ -855,9 +858,11 @@ abstract final class SoopApi {
       subscribers: item['subscription_only'],
       grade: item['broad_grade'] ?? item['grade'],
     );
+    final broadNo = jsonString(item['broad_no']);
     return withAgeCover(LiveRoom(
       roomId: id,
       platform: _site,
+      userId: broadNo,
       title: _displayTranslated(item, 'broad_title_translate', 'broad_title'),
       nick: _display(item['user_nick']),
       avatar: avatar.isEmpty ? SoopApi.avatar(id) : avatar,
