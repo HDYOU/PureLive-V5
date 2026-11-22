@@ -557,6 +557,60 @@ abstract final class DouyuApi {
     return rooms;
   }
 
+  /// `wgapi/live/webbackends/hoverRoomInfo`: a GET with `rids` (comma
+  /// separated, at most 50). The answer's `data` is a list of rooms, each with
+  /// `roomId`, `roomName`, `nickName`, `roomCover`, `hot`, `showStatus` and
+  /// `showDetail`. It has no `videoLoop` field: a `showStatus == 1` room is
+  /// replay when the platform's naming convention matches
+  /// ([_isReplayByNameAndTitle]: the anchor name has 赛事/官方 AND the room
+  /// title has 重播/录播/回放), else live; any other status is offline.
+  ///
+  /// The result is the fields a follow batch can backfill on a stored room
+  /// ([LiveRoom.copyWith]): the status, the viewer count, the cover and the
+  /// notice. The answer is keyed by the room id as sent; `roomName` and
+  /// `nickName` are not backfilled (the stored room keeps its own title and
+  /// nick) and the answer has no partition, so the no-replay partition check
+  /// is out of scope.
+  static Map<String, LiveRoom> hoverRoomInfo(String body, {int status = 200}) {
+    final root = _checked(body, status: status, what: 'hoverRoomInfo');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(root['data'])) {
+      if (_object(item) case final entry? when _roomId(entry['roomId']) != null) {
+        final room = _hoverRoom(entry);
+        rooms[room.roomId] = room;
+      }
+    }
+    return rooms;
+  }
+
+  /// One answered hover room: the fields a follow batch backfills on a stored
+  /// room, as a [LiveRoom] keyed by its rid (the caller copies it over the
+  /// stored room with [LiveRoom.copyWith]).
+  static LiveRoom _hoverRoom(Map<String, dynamic> entry) {
+    final id = _roomId(entry['roomId'])!;
+    final on = jsonInt(entry['showStatus']) == 1;
+    final nick = jsonString(entry['nickName']) ?? '';
+    final title = jsonString(entry['roomName']) ?? '';
+    final replay = on && _isReplayByNameAndTitle(nick, title);
+    final hot = jsonString(entry['hot']);
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
+      cover: normalizeImageUrl(entry['roomCover']),
+      watching: hot ?? '0',
+      popularity: hot ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: replay
+          ? LiveStatus.replay
+          : on
+              ? LiveStatus.live
+              : LiveStatus.offline,
+      notice: decodeHtmlEntities(jsonString(entry['showDetail']) ?? ''),
+    );
+  }
+
   /// One `room_list` entry of the follow answer, in its own field names; the
   /// caller has checked that `room_id` is a valid rid.
   static LiveRoom _followRoom(Map<String, dynamic> entry) {

@@ -14,11 +14,10 @@ import 'package:meta/meta.dart';
 
 const _site = 'douyu';
 const _www = 'www.douyu.com';
-const _apiv2 = 'apiv2.douyucdn.cn';
 
 /// How many rids the batch follow status takes at once: the platform refuses
 /// more than this in one request.
-const _batchRids = 20;
+const _batchRids = 50;
 
 /// Room addresses accepted by the detail requests: a rid, a 靓号 (vip
 /// number) or an alias.
@@ -447,11 +446,16 @@ final class DouyuSite extends LiveSite
   @override
   Future<bool> getLiveStatus({required String roomId}) async => (await _detail(roomId)).isLiveNow;
 
-  /// The answered follow rooms by rid: `getFollowRoomListByRid` takes at most
-  /// 20 rids, so the requested rooms are split into chunks of 20, fetched
-  /// concurrently, and the answered rooms (only those that are not live) are
-  /// merged, keyed by the requested rid. A chunk that fails is skipped (the
-  /// caller refreshes its rooms one by one).
+  /// The answered follow rooms, backfilled on the stored rooms:
+  /// `hoverRoomInfo` takes at most 50 rids in one GET, so the requested rooms
+  /// are split into chunks of 50, fetched concurrently, and the answered
+  /// fields (status, viewer count, cover, notice) are copied over the stored
+  /// room with [LiveRoom.copyWith]. The answer has no `videoLoop`, so a live
+  /// room is replay only when the platform's naming convention matches
+  /// (an anchor name with 赛事/官方 and a title with 重播/录播/回放);
+  /// the no-replay partition check is out of scope (the answer carries no
+  /// partition). A chunk that fails is skipped (the caller refreshes its
+  /// rooms one by one).
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
@@ -460,46 +464,43 @@ final class DouyuSite extends LiveSite
     final chunks = <List<String>>[
       for (var i = 0; i < requested.length; i += _batchRids) requested.sublist(i, min(i + _batchRids, requested.length)),
     ];
-    final answered = <String, LiveRoom>{
-      for (final result in await Future.wait([
-        for (final chunk in chunks)
-          _batchStatus(chunk).then(
-            (status) => status,
-            onError: (Object _) => const <String, LiveRoom>{},
-          ),
-      ]))
-        ...result,
+    final byRid = <String, LiveRoom>{
+      for (final room in rooms)
+        if (_digits.hasMatch(room.roomId)) room.roomId: room,
     };
     final updates = <String, LiveRoom>{};
-    for (final room in rooms) {
-      final match = answered[room.roomId];
-      if (match != null) updates[room.identityKey] = match;
+    for (final result in await Future.wait([
+      for (final chunk in chunks)
+        _batchStatus(chunk).then(
+          (answered) => answered,
+          onError: (Object _) => const <String, LiveRoom>{},
+        ),
+    ])) {
+      for (final MapEntry(:key, :value) in result.entries) {
+        final stored = byRid[key];
+        if (stored == null) continue;
+        updates[stored.identityKey] = stored.copyWith(
+          liveStatus: value.liveStatus,
+          watching: value.watching,
+          cover: value.cover,
+          notice: value.notice,
+        );
+      }
     }
     return updates;
   }
 
-  /// One chunk of 20 rids; the room id is the rid as sent.
+  /// One chunk of up to 50 rids: a GET `hoverRoomInfo`, answered by rid.
   Future<Map<String, LiveRoom>> _batchStatus(List<String> chunk) async {
-    final time = _now().millisecondsSinceEpoch ~/ 1000;
-    final auth = DouyuApi.followRoomAuth(chunk.join(','), time: time);
     final response = await _send(
-      LiveRequest.form(
+      LiveRequest.get(
         site: _site,
-        url: Uri.https(_apiv2, '/Livenc/UserRelation/getFollowRoomListByRid'),
-        fields: {'rids': chunk.join(','), 'rsAvg': '540'},
-        query: const {'client_sys': 'android'},
-        headers: {
-          'user-agent': DouyuApi.androidUserAgent,
-          'origin': DouyuApi.origin,
-          'aid': DouyuApi.androidAid,
-          'channel': DouyuApi.androidChannel,
-          'time': '$time',
-          'auth': auth,
-        },
+        url: Uri.https(_www, '/wgapi/live/webbackends/hoverRoomInfo', {'rids': chunk.join(',')}),
+        headers: DouyuApi.apiHeaders(_identity().cookie),
         timeout: const Duration(seconds: 3),
       ),
     );
-    return DouyuApi.followRoomList(response.text, status: response.status);
+    return DouyuApi.hoverRoomInfo(response.text, status: response.status);
   }
 
   // Streams -------------------------------------------------------------------
