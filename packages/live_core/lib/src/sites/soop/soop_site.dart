@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -58,7 +59,12 @@ const _pages = {'live', 'vod', 'main', 'my', 'all', 'player'};
 /// `SiteError`s; nothing is disguised as an offline room.
 final class SoopSite extends LiveSite
     with LiveSiteLinks
-    implements LiveSiteRoomRefresher, LiveSiteRecordRoomResolver, LivePlayUrlResolver, LivePlayRecoveryResolver {
+    implements
+      LiveSiteRoomRefresher,
+      LiveSiteFollowBatchRefresher,
+      LiveSiteRecordRoomResolver,
+      LivePlayUrlResolver,
+      LivePlayRecoveryResolver {
   /// Creates the adapter. [_cookies] holds the user's cookie, if any; [now]
   /// (the cover's cache buster) is injectable for tests.
   new(this.http, {this._cookies, DateTime Function()? now, this.cdnCandidates = SoopApi.webCdns})
@@ -304,6 +310,81 @@ final class SoopSite extends LiveSite
   @override
   Future<bool> getLiveStatus({required String roomId}) async =>
       (await getRoomDetailForRefresh(roomId: roomId)).isLiveNow;
+
+  // Follow batch ---------------------------------------------------------------
+
+  /// Follow-card batch refresh: requires a login cookie.
+  ///
+  /// 1. Fetches the user's recent rooms (`myapi.sooplive.com/api/recent`),
+  ///    which answers the live state of rooms the user has watched recently.
+  /// 2. For each room in [rooms] that is in the recent list, backfills the
+  ///    status, watching count and title.
+  /// 3. For each room in [rooms] that is *not* in the recent list, fires a
+  ///    fire-and-forget `set_watch_record` POST so the platform registers
+  ///    the view (the requests run in parallel and are not awaited).
+  ///
+  /// Without a cookie the method returns an empty map immediately.
+  @override
+  Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
+    final cookie = _cookie();
+    if (cookie.isEmpty) return const {};
+    final eligible = rooms.where((room) => _roomIdPattern.hasMatch(room.roomId)).toList();
+    if (eligible.length < 2) return const {};
+
+    // 1. recent rooms
+    final recentResponse = await _get(Uri.https('myapi.sooplive.com', '/api/recent'));
+    final recent = SoopApi.recentRooms(recentResponse.text, status: recentResponse.status);
+
+    // 2. backfill from the recent list
+    final updates = <String, LiveRoom>{};
+    final noSeen = <LiveRoom>[];
+    for (final room in eligible) {
+      final key = room.identityKey;
+      final answered = recent[key];
+      if (answered == null) {
+        noSeen.add(room);
+        continue;
+      }
+      updates[key] = room.copyWith(
+        liveStatus: answered.liveStatus,
+        watching: answered.watching,
+        title: answered.title,
+      );
+    }
+
+    // 3. fire set_watch_record for rooms not in the recent list, in parallel,
+    //    without awaiting the results.
+    if (noSeen.isNotEmpty) {
+      for (final room in noSeen) {
+        unawaited(_setWatchRecord(room));
+      }
+    }
+
+    return updates;
+  }
+
+  /// `POST live.sooplive.com/api/set_watch_record.php` for one room.
+  /// `szBjId` is the streamer id; `nBroadNo` is 0 when the room is not
+  /// currently live (the platform accepts 0 for a new record).
+  Future<void> _setWatchRecord(LiveRoom room) async {
+    try {
+      await _send(
+        LiveRequest.form(
+          site: _site,
+          url: Uri.https(_live, '/api/set_watch_record.php'),
+          fields: {
+            'szBjId': room.roomId,
+            'nBroadNo': '0',
+          },
+          headers: SoopApi.apiHeaders(cookie: _cookie()),
+          timeout: const Duration(seconds: 3),
+        ),
+      );
+    } on Object {
+      // A failed watch-record is silently ignored; it does not affect the
+      // refresh result.
+    }
+  }
 
   // Streams -------------------------------------------------------------------
 

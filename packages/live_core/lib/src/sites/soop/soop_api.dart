@@ -309,6 +309,39 @@ abstract final class SoopApi {
     ];
   }
 
+  /// `GET myapi.sooplive.com/api/recent`: the user's recent rooms, live and
+  /// VOD. Each entry has `user_id` (the streamer id), `is_live`, and the
+  /// translated title when available.
+  ///
+  /// Returns a map keyed by `'soop:<user_id>'` with the recent-room state:
+  /// live rooms get [LiveStatus.live], VOD gets [LiveStatus.offline].
+  /// A request with no cookie or a 401/403 throws [SiteError].
+  static Map<String, LiveRoom> recentRooms(String body, {int status = 200}) {
+    final root = _root(body, status: status, what: 'recent');
+    final list = root['data'];
+    if (list is! List) throw ApiChanged(_site, 'recent: no data list (${_snippet(body)})');
+    final rooms = <String, LiveRoom>{};
+    for (final raw in list) {
+      if (_object(raw) case final item?) {
+        final userId = item['user_id']?.toString() ?? '';
+        if (userId.isEmpty) continue;
+        final isLive = item['is_live'] == true;
+        final title = jsonString(item['broad_title_translate']) ?? jsonString(item['broad_title']) ?? '';
+        final cover = normalizeImageUrl(item['broad_img']);
+        rooms['$_site:$userId'] = LiveRoom(
+          platform: _site,
+          roomId: userId,
+          nick: decodeHtmlEntities(jsonString(item['user_nick']) ?? ''),
+          title: decodeHtmlEntities(title),
+          cover: cover,
+          watching: onlineViewers(item),
+          liveStatus: isLive ? LiveStatus.live : LiveStatus.offline,
+        );
+      }
+    }
+    return rooms;
+  }
+
   // Audience ------------------------------------------------------------------
 
   /// Concurrent viewers of a list entry or `CHANNEL` (3.x's

@@ -658,4 +658,77 @@ void main() {
     );
     await expectLater(server.site.getRoomDetail(roomId: 'khm11903'), throwsA(isA<NetworkFailure>()));
   });
+
+  group('follow batch', () {
+    const _recent = 'https://myapi.sooplive.com/api/recent';
+    const _watch = 'https://live.sooplive.co.kr/api/set_watch_record.php';
+
+    ReplaySample _recentAnswer(List<Map<String, Object>> entries, {int status = 200}) => ReplaySample(
+      method: 'GET',
+      url: Uri.parse(_recent),
+      status: status,
+      bytes: utf8.encode(jsonEncode({'data': entries})),
+    );
+
+    ReplaySample _watchAnswer() => ReplaySample(
+      method: 'POST',
+      url: Uri.parse(_watch),
+      status: 200,
+      bytes: utf8.encode('ok'),
+    );
+
+    LiveRoom _room(String id, {String? area}) => LiveRoom(
+      platform: 'soop',
+      roomId: id,
+      userId: id,
+      area: area ?? 'default',
+    );
+
+    test('without a cookie: no requests, empty result', () async {
+      final setup = _setup([]);
+      final updates = await setup.site.refreshFollowBatch([_room('a1'), _room('b2')]);
+      expect(updates, isEmpty);
+      expect(setup.http.requests, isEmpty);
+    });
+
+    test('with a cookie: rooms in the recent list are backfilled; others fire set_watch_record', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final recent = _recentAnswer([
+        {'user_id': 'a1', 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': 'https://img.example/a.jpg', 'is_live': true, 'total_view_cnt': 120},
+        {'user_id': 'b2', 'user_nick': 'B', 'broad_title': 'VOD B', 'broad_img': 'https://img.example/b.jpg', 'is_live': false, 'total_view_cnt': 5},
+      ]);
+      final watch1 = _watchAnswer();
+      final watch2 = _watchAnswer();
+      final setup = _setup([], cookies: vault, extra: [recent, watch1, watch2]);
+      final updates = await setup.site.refreshFollowBatch([_room('a1'), _room('b2'), _room('c3')]);
+      // a1 is live, backfilled
+      expect(updates['soop:a1']!.liveStatus, LiveStatus.live);
+      expect(updates['soop:a1']!.watching, '120');
+      // b2 is VOD (offline), backfilled
+      expect(updates['soop:b2']!.liveStatus, LiveStatus.offline);
+      expect(updates['soop:b2']!.watching, '5');
+      // c3 is not in the recent list: not in updates, but set_watch_record fired
+      expect(updates.containsKey('soop:c3'), isFalse);
+      // verify set_watch_record was requested for c3
+      final watchRequests = setup.http.requests.where((r) => r.url.path == '/api/set_watch_record.php').toList();
+      expect(watchRequests, isNotEmpty);
+      final c3Form = Uri.splitQueryString(utf8.decode(watchRequests.last.body!));
+      expect(c3Form['szBjId'], 'c3');
+      expect(c3Form['nBroadNo'], '0');
+    });
+
+    test('a failed recent request throws and no watch-record requests are fired', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final failingRecent = ReplaySample(
+        method: 'GET',
+        url: Uri.parse(_recent),
+        status: 500,
+        bytes: utf8.encode('boom'),
+      );
+      final setup = _setup([], cookies: vault, extra: [failingRecent, _watchAnswer()]);
+      expect(() => setup.site.refreshFollowBatch([_room('a1'), _room('b2')]), throwsA(isA<SiteError>()));
+    });
+  });
 }
