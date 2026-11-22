@@ -1055,42 +1055,71 @@ void main() {
           }),
         ],
       );
+      // Stored partition per rid: 1 is no-replay (live), 2/3/4 are ordinary.
       final updates = await setup.site.refreshFollowBatch([
-        _room('1').copyWith(title: 'stored1'),
-        _room('2').copyWith(title: 'stored2'),
-        _room('3').copyWith(title: 'stored3'),
-        _room('4').copyWith(title: 'stored4'),
+        _room('1').copyWith(title: 'stored1', area: '唱歌'),
+        _room('2').copyWith(title: 'stored2', area: '英雄联盟'),
+        _room('3').copyWith(title: 'stored3', area: ''),
+        _room('4').copyWith(title: 'stored4', area: ''),
       ]);
-      expect(updates.keys, {'douyu:1', 'douyu:2', 'douyu:3', 'douyu:4'}, reason: 'every answered room backfills');
-      expect(updates['douyu:1']!.liveStatus, LiveStatus.live);
+      expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'undecided live rooms in ordinary partitions are skipped');
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.live, reason: 'a live room in a no-replay partition is live');
       expect(updates['douyu:1']!.watching, '5', reason: 'hot is the viewer count');
       expect(updates['douyu:1']!.cover, 'https://c.douyu.com/1.png');
       expect(updates['douyu:1']!.notice, 'nd1');
       expect(updates['douyu:1']!.title, 'stored1', reason: 'the stored room keeps its own title');
+      expect(updates['douyu:1']!.area, '唱歌', reason: 'the stored room keeps its own partition');
       expect(updates['douyu:3']!.liveStatus, LiveStatus.offline, reason: 'showStatus 2 is offline');
       expect(setup.http.requests.single.url.path, '/wgapi/live/webbackends/hoverRoomInfo');
       expect(setup.http.requests.single.url.queryParameters['rids'], '1,2,3,4');
       expect(setup.http.requests.single.method, 'GET');
     });
 
-    test('a live room by the naming convention is a replay; an ordinary live room stays live', () async {
+    test('the status of a live room follows the stored partition: replay, live or undecided', () async {
       final setup = _setup(
         [],
         extra: [
-          _hoverBatch(['1', '2'], data: {
+          _hoverBatch(['1', '2', '3'], data: {
             'code': 0,
             'data': [
-              // 赛事 anchor + 重播 title: a live room by the naming convention is a replay.
+              // 赛事 anchor + 重播 title: replay, whatever the partition.
               {'roomId': 1, 'roomName': 'LPL 重播', 'nickName': 'LPL赛事', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
-              // Ordinary live: stays live.
+              // Ordinary partition: live in a no-replay partition, undecided otherwise.
               {'roomId': 2, 'roomName': '今晚开播', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+              // Offline: the partition never matters.
+              {'roomId': 3, 'roomName': '休息中', 'nickName': '主播', 'roomCover': '', 'hot': 0, 'showStatus': 2, 'showDetail': ''},
             ],
           }),
         ],
       );
-      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2')]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: ''), // a replay by convention in an ordinary partition
+        _room('2').copyWith(area: '唱歌'), // live in a no-replay partition
+        _room('3').copyWith(area: ''),
+      ]);
+      expect(updates.keys, {'douyu:1', 'douyu:2', 'douyu:3'});
       expect(updates['douyu:1']!.liveStatus, LiveStatus.replay, reason: 'the naming convention marks it a replay');
-      expect(updates['douyu:2']!.liveStatus, LiveStatus.live, reason: 'an ordinary live room is live');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live, reason: 'a live room in a no-replay partition is live');
+      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline);
+    });
+
+    test('an undecided live room (ordinary partition, no convention) is skipped', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _hoverBatch(['1'], data: {
+            'code': 0,
+            'data': [
+              {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+            ],
+          }),
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2'), // not answered
+      ]);
+      expect(updates, isEmpty, reason: 'the live room is undecided and the rest is not answered');
     });
 
     test('more than 50 rooms: two chunks in one batch, merged; a failed chunk drops its rooms', () async {

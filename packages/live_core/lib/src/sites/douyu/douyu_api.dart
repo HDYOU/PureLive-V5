@@ -560,23 +560,28 @@ abstract final class DouyuApi {
   /// `wgapi/live/webbackends/hoverRoomInfo`: a GET with `rids` (comma
   /// separated, at most 50). The answer's `data` is a list of rooms, each with
   /// `roomId`, `roomName`, `nickName`, `roomCover`, `hot`, `showStatus` and
-  /// `showDetail`. It has no `videoLoop` field: a `showStatus == 1` room is
-  /// replay when the platform's naming convention matches
-  /// ([_isReplayByNameAndTitle]: the anchor name has 赛事/官方 AND the room
-  /// title has 重播/录播/回放), else live; any other status is offline.
+  /// `showDetail`. It has no `videoLoop` and no partition, so the status of a
+  /// `showStatus == 1` room depends on the room's partition: a replay by the
+  /// naming convention ([_isReplayByNameAndTitle]) is [LiveStatus.replay], a
+  /// room in a no-replay partition ([noReplayPartition]) is [LiveStatus.live],
+  /// and anything else is left undecided — the platform's `showStatus == 1`
+  /// there may be a replay, so the caller skips it and refreshes the room one
+  /// by one. `showStatus != 1` is [LiveStatus.offline].
+  ///
+  /// [noReplayArea] is the stored room's partition (`area`), the only
+  /// partition signal a follow batch has (the answer carries none).
   ///
   /// The result is the fields a follow batch can backfill on a stored room
   /// ([LiveRoom.copyWith]): the status, the viewer count, the cover and the
-  /// notice. The answer is keyed by the room id as sent; `roomName` and
-  /// `nickName` are not backfilled (the stored room keeps its own title and
-  /// nick) and the answer has no partition, so the no-replay partition check
-  /// is out of scope.
-  static Map<String, LiveRoom> hoverRoomInfo(String body, {int status = 200}) {
+  /// notice. The answer is keyed by the room id as sent; a room left
+  /// undecided is absent, as is every room the answer does not return.
+  static Map<String, LiveRoom> hoverRoomInfo(String body, {required String Function(String rid) noReplayArea, int status = 200}) {
     final root = _checked(body, status: status, what: 'hoverRoomInfo');
     final rooms = <String, LiveRoom>{};
     for (final item in _list(root['data'])) {
       if (_object(item) case final entry? when _roomId(entry['roomId']) != null) {
-        final room = _hoverRoom(entry);
+        final room = _hoverRoom(entry, noReplayArea);
+        if (room.liveStatus == null) continue;
         rooms[room.roomId] = room;
       }
     }
@@ -584,15 +589,22 @@ abstract final class DouyuApi {
   }
 
   /// One answered hover room: the fields a follow batch backfills on a stored
-  /// room, as a [LiveRoom] keyed by its rid (the caller copies it over the
-  /// stored room with [LiveRoom.copyWith]).
-  static LiveRoom _hoverRoom(Map<String, dynamic> entry) {
+  /// room. [LiveRoom.liveStatus] is null while undecided (the room's
+  /// partition is a replay partition, and the naming convention did not
+  /// mark it a replay); the caller skips it.
+  static LiveRoom _hoverRoom(Map<String, dynamic> entry, String Function(String rid) noReplayArea) {
     final id = _roomId(entry['roomId'])!;
     final on = jsonInt(entry['showStatus']) == 1;
     final nick = jsonString(entry['nickName']) ?? '';
     final title = jsonString(entry['roomName']) ?? '';
-    final replay = on && _isReplayByNameAndTitle(nick, title);
     final hot = jsonString(entry['hot']);
+    final status = !on
+        ? LiveStatus.offline
+        : _isReplayByNameAndTitle(nick, title)
+            ? LiveStatus.replay
+            : noReplayPartition(noReplayArea(id))
+                ? LiveStatus.live
+                : null;
     return LiveRoom(
       roomId: id,
       platform: _site,
@@ -602,11 +614,7 @@ abstract final class DouyuApi {
       watching: hot ?? '0',
       popularity: hot ?? '',
       audienceMetricType: AudienceMetricType.popularity,
-      liveStatus: replay
-          ? LiveStatus.replay
-          : on
-              ? LiveStatus.live
-              : LiveStatus.offline,
+      liveStatus: status,
       notice: decodeHtmlEntities(jsonString(entry['showDetail']) ?? ''),
     );
   }

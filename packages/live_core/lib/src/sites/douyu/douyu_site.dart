@@ -450,12 +450,14 @@ final class DouyuSite extends LiveSite
   /// `hoverRoomInfo` takes at most 50 rids in one GET, so the requested rooms
   /// are split into chunks of 50, fetched concurrently, and the answered
   /// fields (status, viewer count, cover, notice) are copied over the stored
-  /// room with [LiveRoom.copyWith]. The answer has no `videoLoop`, so a live
-  /// room is replay only when the platform's naming convention matches
-  /// (an anchor name with 赛事/官方 and a title with 重播/录播/回放);
-  /// the no-replay partition check is out of scope (the answer carries no
-  /// partition). A chunk that fails is skipped (the caller refreshes its
-  /// rooms one by one).
+  /// room with [LiveRoom.copyWith]. The status of an answered
+  /// `showStatus == 1` room is decided by the stored room's partition
+  /// (the answer has none): replay by the platform's naming convention,
+  /// live in a no-replay partition ([DouyuApi.noReplayPartition]), and
+  /// undecided in an ordinary one — an undecided room stays as the caller
+  /// has it, so the caller refreshes it one by one. `showStatus != 1` is
+  /// offline. A chunk that fails is skipped (the caller refreshes its rooms
+  /// one by one).
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
@@ -471,14 +473,14 @@ final class DouyuSite extends LiveSite
     final updates = <String, LiveRoom>{};
     for (final result in await Future.wait([
       for (final chunk in chunks)
-        _batchStatus(chunk).then(
+        _batchStatus(chunk, byRid).then(
           (answered) => answered,
           onError: (Object _) => const <String, LiveRoom>{},
         ),
     ])) {
       for (final MapEntry(:key, :value) in result.entries) {
         final stored = byRid[key];
-        if (stored == null) continue;
+        if (stored == null || value.liveStatus == null) continue;
         updates[stored.identityKey] = stored.copyWith(
           liveStatus: value.liveStatus,
           watching: value.watching,
@@ -491,7 +493,8 @@ final class DouyuSite extends LiveSite
   }
 
   /// One chunk of up to 50 rids: a GET `hoverRoomInfo`, answered by rid.
-  Future<Map<String, LiveRoom>> _batchStatus(List<String> chunk) async {
+  /// [byRid] supplies each room's stored partition to the undecided check.
+  Future<Map<String, LiveRoom>> _batchStatus(List<String> chunk, Map<String, LiveRoom> byRid) async {
     final response = await _send(
       LiveRequest.get(
         site: _site,
@@ -500,7 +503,11 @@ final class DouyuSite extends LiveSite
         timeout: const Duration(seconds: 3),
       ),
     );
-    return DouyuApi.hoverRoomInfo(response.text, status: response.status);
+    return DouyuApi.hoverRoomInfo(
+      response.text,
+      status: response.status,
+      noReplayArea: (rid) => byRid[rid]?.area ?? '',
+    );
   }
 
   // Streams -------------------------------------------------------------------
