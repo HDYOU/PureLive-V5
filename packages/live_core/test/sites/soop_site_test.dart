@@ -734,5 +734,21 @@ void main() {
       final setup = _setup([], cookies: vault, extra: [failingRecent, _watchAnswer()]);
       expect(() => setup.site.refreshFollowBatch([_room('a1'), _room('b2')]), throwsA(isA<SiteError>()));
     });
+
+    test('a room without a broad_no (userId null) does not fire set_watch_record', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final recent = _recentAnswer([
+        {'user_id': 'a1', 'broad_no': 298777531, 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': '', 'is_live': true, 'total_view_cnt': 10},
+      ]);
+      final watch = _watchAnswer();
+      final setup = _setup([], cookies: vault, extra: [recent, watch]);
+      // a1 is in the recent list; b2 has no userId -> no watch record for b2
+      final updates = await setup.site.refreshFollowBatch([_room('a1', userId: '298777531'), _room('b2')]);
+      expect(updates.containsKey('soop:a1'), isTrue);
+      expect(updates.containsKey('soop:b2'), isFalse);
+      // no set_watch_record request was made (b2 has no userId)
+      expect(setup.http.requests.where((r) => r.url.path == '/api/set_watch_record.php'), isEmpty);
+    });
   });
 }

@@ -349,10 +349,13 @@ final class SoopSite extends LiveSite
     }
 
     // 3. fire set_watch_record for rooms not in the recent list, in parallel,
-    //    without awaiting the results.
+    //    without awaiting the results. Only when the room has a known
+    //    broad_no (userId); without it the watch record is meaningless.
     if (noSeen.isNotEmpty) {
       for (final room in noSeen) {
-        unawaited(_setWatchRecord(room));
+        if (room.userId != null && room.userId!.isNotEmpty) {
+          unawaited(_setWatchRecord(room));
+        }
       }
     }
 
