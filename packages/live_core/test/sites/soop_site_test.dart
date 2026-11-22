@@ -695,8 +695,8 @@ void main() {
       final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
       addTearDown(vault.dispose);
       final recent = _recentAnswer([
-        {'user_id': 'a1', 'broad_no': '298777531', 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': 'https://img.example/a.jpg', 'is_live': true, 'total_view_cnt': 120},
-        {'user_id': 'b2', 'broad_no': '298778305', 'user_nick': 'B', 'broad_title': 'VOD B', 'broad_img': 'https://img.example/b.jpg', 'is_live': false, 'total_view_cnt': 5},
+        {'user_id': 'a1', 'broad_no': 298777531, 'user_nick': 'A', 'broad_title': 'Live A', 'broad_img': 'https://img.example/a.jpg', 'is_live': true, 'total_view_cnt': 120},
+        {'user_id': 'b2', 'broad_no': 298778305, 'user_nick': 'B', 'broad_title': 'VOD B', 'broad_img': 'https://img.example/b.jpg', 'is_live': false, 'total_view_cnt': 5},
       ]);
       final watch1 = _watchAnswer();
       final watch2 = _watchAnswer();
