@@ -312,9 +312,13 @@ abstract final class SoopApi {
   /// `GET myapi.sooplive.com/api/recent`: the user's recent rooms, live and
   /// VOD. Each entry has `user_id` (the streamer id), `is_live`, and the
   /// translated title when available.
+  /// `GET myapi.sooplive.com/api/recent`: the user's recent rooms, live and
+  /// VOD. The data structure is the same as the area lists (same `_card`
+  /// fields), so each entry is parsed through [_card].
   ///
-  /// Returns a map keyed by `'soop:<user_id>'` with the recent-room state:
-  /// live rooms get [LiveStatus.live], VOD gets [LiveStatus.offline].
+  /// Returns a map keyed by `'soop:<user_id>'`. The `liveStatus` is decided
+  /// by the platform's `is_live` flag: `true` is [LiveStatus.live],
+  /// `false` (a VOD entry) is [LiveStatus.offline].
   /// A request with no cookie or a 401/403 throws [SiteError].
   static Map<String, LiveRoom> recentRooms(String body, {int status = 200}) {
     final root = _root(body, status: status, what: 'recent');
@@ -323,22 +327,15 @@ abstract final class SoopApi {
     final rooms = <String, LiveRoom>{};
     for (final raw in list) {
       if (_object(raw) case final item?) {
-        final userId = item['user_id']?.toString() ?? '';
-        if (userId.isEmpty) continue;
-        final broadNo = jsonString(item['broad_no']);
-        final isLive = item['is_live'] == true;
-        final title = jsonString(item['broad_title_translate']) ?? jsonString(item['broad_title']) ?? '';
-        final cover = normalizeImageUrl(item['broad_img']);
-        rooms['$_site:$userId'] = LiveRoom(
-          platform: _site,
-          roomId: userId,
-          userId: broadNo,
-          nick: decodeHtmlEntities(jsonString(item['user_nick']) ?? ''),
-          title: decodeHtmlEntities(title),
-          cover: cover,
-          watching: onlineViewers(item),
-          liveStatus: isLive ? LiveStatus.live : LiveStatus.offline,
+        final card = _card(
+          item,
+          cover: item['broad_img'],
+          avatar: normalizeImageUrl(item['user_profile_img']),
+          area: _display(jsonString(item['broad_cate_name']) ?? item['standard_broad_cate_name']),
         );
+        if (card == null) continue;
+        final isLive = item['is_live'] == true;
+        rooms[card.identityKey] = card.copyWith(liveStatus: isLive ? LiveStatus.live : LiveStatus.offline);
       }
     }
     return rooms;

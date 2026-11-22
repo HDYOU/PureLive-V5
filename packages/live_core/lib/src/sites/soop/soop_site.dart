@@ -345,11 +345,7 @@ final class SoopSite extends LiveSite
         noSeen.add(room);
         continue;
       }
-      updates[key] = room.copyWith(
-        liveStatus: answered.liveStatus,
-        watching: answered.watching,
-        title: answered.title,
-      );
+      updates[key] = answered;
     }
 
     // 3. fire set_watch_record for rooms not in the recent list, in parallel,
