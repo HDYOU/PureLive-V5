@@ -1652,7 +1652,7 @@ List<SettingsEntry> _build() {
       'force_reopen_on_resume',
       Settings.forceReopenOnResume,
       AppIcons.settingsRefreshOnResume,
-      desc: 'settings_force_reopen_on_resume_subtitle',
+      desc: 'force_reopen_on_resume_subtitle',
       keywords: ['后台', '恢复', '黑屏'],
     )
     ..group = 'settings_group_network'
