@@ -197,6 +197,11 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
   Future<void> _pickPlatform() async {
     final tabs = _platformTabs;
     if (tabs == null) return;
+    final group = _controller.group;
+    int countOf(String id) =>
+        [for (final room in _controller.rooms)
+          if (groupOf(room) == group && onPlatform(room, id)) room].length;
+    final counts = [for (final id in _platforms) countOf(id)];
     final screen = MediaQuery.sizeOf(context);
     final side = screen.width >= 600;
     final tall =
@@ -207,7 +212,7 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
       context,
       side: side,
       openHeight: tall ? platformPickerOpenHeight : null,
-      builder: (context) => PlatformPicker(ids: _platforms, current: tabs.index),
+      builder: (context) => PlatformPicker(ids: _platforms, current: tabs.index, counts: counts),
     );
     if (picked != null && mounted && _platformTabs == tabs) tabs.animateTo(picked);
   }

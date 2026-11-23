@@ -17,8 +17,9 @@ const double platformPickerOpenHeight = 0.71;
 /// "平台显示" opens the settings that hide and order them. The same content
 /// rises from the bottom on phones and sits on the right on wide screens.
 class PlatformPicker extends StatelessWidget {
-  /// Creates the picker of [ids] with [current] selected.
-  const new({required this.ids, required this.current, super.key});
+  /// Creates the picker of [ids] with [current] selected. When [counts] is
+  /// provided each tile shows its room count after the platform name.
+  const new({required this.ids, required this.current, this.counts, super.key});
 
   static int _columns(double width) =>
       GridColumns.count(width: width, minItemWidth: 84, spacing: 8, padding: 12, min: 3, max: 6);
@@ -39,6 +40,9 @@ class PlatformPicker extends StatelessWidget {
 
   /// The index of the platform shown.
   final int current;
+
+  /// Optional per-platform room counts, indexed the same as [ids].
+  final List<int>? counts;
 
   @override
   Widget build(BuildContext context) {
@@ -89,12 +93,13 @@ class PlatformPicker extends StatelessWidget {
                     mainAxisSpacing: 4,
                     mainAxisExtent: _tileHeight(MediaQuery.textScalerOf(context)),
                   ),
-                  itemCount: ids.length,
-                  itemBuilder: (context, index) => _PlatformTile(
-                    id: ids[index],
-                    selected: index == current,
-                    onTap: () => Navigator.pop(context, index),
-                  ),
+                    itemCount: ids.length,
+                    itemBuilder: (context, index) => _PlatformTile(
+                      id: ids[index],
+                      selected: index == current,
+                      count: counts?.elementAt(index),
+                      onTap: () => Navigator.pop(context, index),
+                    ),
                 );
               },
             ),
@@ -106,10 +111,11 @@ class PlatformPicker extends StatelessWidget {
 }
 
 class _PlatformTile extends StatelessWidget {
-  const new({required this.id, required this.selected, required this.onTap});
+  const new({required this.id, required this.selected, required this.onTap, this.count});
 
   final String id;
   final bool selected;
+  final int? count;
   final VoidCallback onTap;
 
   @override
@@ -155,22 +161,42 @@ class _PlatformTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 6),
-                // A long Latin name (SHOWROOM, YouTube Live) narrows a
-                // little rather than losing its end to an ellipsis.
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    platformName(id, fallback: id.toUpperCase()),
-                    maxLines: 1,
-                    textAlign: TextAlign.center,
-                    style: context.textStyles.t13.copyWith(
-                      height: 1.4,
-                      color: selected ? scheme.onSecondaryContainer : scheme.onSurface,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
+              const SizedBox(height: 6),
+              // A long Latin name (SHOWROOM, YouTube Live) narrows a
+              // little rather than losing its end to an ellipsis.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Builder(
+                  builder: (context) {
+                    final c = count;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          platformName(id, fallback: id.toUpperCase()),
+                          maxLines: 1,
+                          style: context.textStyles.t13.copyWith(
+                            height: 1.4,
+                            color: selected ? scheme.onSecondaryContainer : scheme.onSurface,
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                          ),
+                        ),
+                        if (c != null && c > 0) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '$c',
+                            style: context.textStyles.t13.copyWith(
+                              height: 1.4,
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
+              ),
               ],
             ),
           ),
