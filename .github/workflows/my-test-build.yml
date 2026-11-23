@@ -290,10 +290,11 @@ jobs:
       - name: Packages and native bundles
         run: |
           set -euo pipefail
+          # Reset the SDK's tracked files to HEAD (cache may leave stray modifications)
+          git -C "$(dirname "$(dirname "$(which flutter)")")" reset --hard
           python3 tools/flutter_sdk/prepare.py --apply
           python3 tools/flutter_sdk/prepare.py --test
           flutter --version
-          # flutter pub get --enforce-lockfile
           flutter pub get
           bash tools/ffmpeg_kit/fetch.sh android
 
