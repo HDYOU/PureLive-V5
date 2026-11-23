@@ -17,6 +17,7 @@ import 'package:pure_live/routes/app_navigator.dart';
 import 'package:pure_live/routes/route_args.dart';
 import 'package:pure_live/routes/route_path.dart';
 import 'package:pure_live/shared/rooms/paging.dart';
+import 'package:pure_live/shared/rooms/platform_picker.dart';
 import 'package:pure_live/shared/rooms/room_cards.dart';
 import 'package:pure_live/shared/rooms/room_grid.dart';
 import 'package:pure_live/shared/rooms/room_live_alert.dart';
@@ -185,11 +186,30 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
       tabs: [
         for (final id in _platforms)
           TabLabel(
+            leading: PlatformLogo(id, size: 20),
             label: id == allPlatforms ? i18n('site_all') : platformName(id, fallback: sites.maybeOf(id)?.name),
             count: countOf(id),
           ),
       ],
     );
+  }
+
+  Future<void> _pickPlatform() async {
+    final tabs = _platformTabs;
+    if (tabs == null) return;
+    final screen = MediaQuery.sizeOf(context);
+    final side = screen.width >= 600;
+    final tall =
+        !side &&
+        PlatformPicker.heightOf(_platforms.length, width: screen.width, textScaler: MediaQuery.textScalerOf(context)) >
+            screen.height * platformPickerOpenHeight;
+    final picked = await showAdaptivePanel<int>(
+      context,
+      side: side,
+      openHeight: tall ? platformPickerOpenHeight : null,
+      builder: (context) => PlatformPicker(ids: _platforms, current: tabs.index),
+    );
+    if (picked != null && mounted && _platformTabs == tabs) tabs.animateTo(picked);
   }
 
   @override
@@ -210,6 +230,12 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
             Expanded(child: _platformTabBar()),
+            IconButton(
+              key: const ValueKey('favorite-all-platforms'),
+              tooltip: i18n('popular_all_platforms'),
+              icon: const Icon(AppIcons.dropDown, size: 22),
+              onPressed: _pickPlatform,
+            ),
           ],
         );
       } else {
@@ -229,7 +255,20 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
                 bottom: hasPlatforms && !oneRow
                     ? PreferredSize(
                         preferredSize: const Size.fromHeight(kTextTabBarHeight),
-                        child: Align(alignment: AlignmentDirectional.centerStart, child: _platformTabBar()),
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Row(
+                            children: [
+                              Expanded(child: _platformTabBar()),
+                              IconButton(
+                                key: const ValueKey('favorite-all-platforms'),
+                                tooltip: i18n('popular_all_platforms'),
+                                icon: const Icon(AppIcons.dropDown, size: 22),
+                                onPressed: _pickPlatform,
+                              ),
+                            ],
+                          ),
+                        ),
                       )
                     : null,
               ),
