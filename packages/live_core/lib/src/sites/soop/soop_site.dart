@@ -315,12 +315,12 @@ final class SoopSite extends LiveSite
 
   /// Follow-card batch refresh: requires a login cookie.
   ///
-  /// 1. Fetches the user's followed rooms (`myapi.sooplive.com/api/favorite`).
-  /// 2. For each room in [rooms] that is in the favorite list, backfills the
-  ///    status, watching count and title.
-  /// 3. For each room *not* in the favorite list (the user has no follows),
-  ///    falls back to a `POST /api/favorite` with `user_id=<roomId>` to
-  ///    individually confirm the streamer.
+  /// 1. Fetches the user's followed streamers (`myapi.sooplive.com/api/favorite`).
+  /// 2. For each room in [rooms] that is in the favorite list, backfills via
+  ///    [LiveRoom.copyWith].
+  /// 3. For each room *not* in the favorite list, fires a fire-and-forget
+  ///    `POST /api/favorite` with `user_id=<roomId>` to add it to the
+  ///    user's favorites (so a later refresh finds it).
   ///
   /// Without a cookie the method returns an empty map immediately.
   @override
@@ -332,44 +332,63 @@ final class SoopSite extends LiveSite
 
     // 1. favorite rooms
     final favoriteResponse = await _get(Uri.https('myapi.sooplive.com', '/api/favorite'));
-    final favorites = SoopApi.favoriteRooms(favoriteResponse.text, status: favoriteResponse.status);
+    final backfills = SoopApi.favoriteBackfill(favoriteResponse.text, status: favoriteResponse.status);
 
-    // 2. backfill from the favorite list
+    // 2. backfill via copyWith
     final updates = <String, LiveRoom>{};
     final noSeen = <LiveRoom>[];
     for (final room in eligible) {
       final key = room.identityKey;
-      final answered = favorites[key];
-      if (answered == null) {
+      final backfill = backfills[key];
+      if (backfill == null) {
         noSeen.add(room);
         continue;
       }
-      updates[key] = answered;
+      final status = backfill['liveStatus'] as LiveStatus?;
+      final watching = backfill['watching'] as String?;
+      final title = backfill['title'] as String?;
+      final nick = backfill['nick'] as String?;
+      final cover = backfill['cover'] as String?;
+      final startedAt = backfill['startedAt'] as DateTime?;
+      final userId = backfill['userId'] as String?;
+      final restriction = backfill['restriction'] as LiveRestriction?;
+      updates[key] = room.copyWith(
+        liveStatus: status,
+        watching: watching,
+        onlineViewers: watching,
+        title: title,
+        nick: nick,
+        cover: cover,
+        startedAt: startedAt,
+        userId: userId,
+        restriction: restriction,
+      );
     }
 
-    // 3. for rooms not in the favorite list, individually POST /api/favorite
-    //    with the streamer's user_id to confirm their status.
+    // 3. fire-and-forget: POST /api/favorite for rooms not in the list
     for (final room in noSeen) {
-      try {
-        final response = await _send(
-          LiveRequest.form(
-            site: _site,
-            url: Uri.https('myapi.sooplive.com', '/api/favorite'),
-            fields: {'user_id': room.roomId},
-            headers: SoopApi.apiHeaders(cookie: cookie),
-            timeout: const Duration(seconds: 3),
-          ),
-        );
-        final card = SoopApi.favoriteRooms(response.text, status: response.status);
-        final answered = card[room.identityKey];
-        if (answered != null) updates[room.identityKey] = answered;
-      } on SiteError {
-        // A failed individual check drops that room; the caller refreshes
-        // it via getRoomDetailForRefresh.
-      }
+      unawaited(_addFavorite(room, cookie));
     }
 
     return updates;
+  }
+
+  /// `POST myapi.sooplive.com/api/favorite` with `user_id=<roomId>`.
+  /// Fire-and-forget: the response is ignored.
+  Future<void> _addFavorite(LiveRoom room, String cookie) async {
+    try {
+      await _send(
+        LiveRequest.form(
+          site: _site,
+          url: Uri.https('myapi.sooplive.com', '/api/favorite'),
+          fields: {'user_id': room.roomId},
+          headers: SoopApi.apiHeaders(cookie: cookie),
+          timeout: const Duration(seconds: 3),
+        ),
+      );
+    } on Object {
+      // A failed favorite add is silently ignored.
+    }
   }
 
   // Streams -------------------------------------------------------------------

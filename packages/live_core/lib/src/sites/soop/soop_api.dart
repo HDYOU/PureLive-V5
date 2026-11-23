@@ -341,29 +341,55 @@ abstract final class SoopApi {
     return rooms;
   }
 
-  /// `GET myapi.sooplive.com/api/favorite`: the user's followed rooms, same
-  /// shape as [recentRooms] (`data` is a list of the same card fields).
-  /// Returns a map keyed by `'soop:<user_id>'` (the card's identity key).
-  /// A POST answer (no follows yet) or a 401/403 throws [SiteError].
-  static Map<String, LiveRoom> favoriteRooms(String body, {int status = 200}) {
+  /// `GET myapi.sooplive.com/api/favorite`: the user's followed streamers.
+  /// Each entry has a top-level `user_id`, `user_nick`, `is_live`,
+  /// `total_view_cnt`, and a nested `broad_info[0]` with the stream card
+  /// fields (`broad_no`, `broad_img`, `broad_title`, `broad_start`, ...).
+  ///
+  /// Returns a map keyed by `'soop:<user_id>'` (lower-cased). Each value is
+  /// the backfill fields to apply via [LiveRoom.copyWith] on the requested
+  /// room: `liveStatus`, `watching`, `title`, `nick`, `cover`, `startedAt`,
+  /// `userId` (the `broad_no`).
+  static Map<String, Map<String, Object?>> favoriteBackfill(String body, {int status = 200}) {
     final root = _root(body, status: status, what: 'favorite');
     final list = root['data'];
     if (list is! List) throw ApiChanged(_site, 'favorite: no data list (${_snippet(body)})');
-    final rooms = <String, LiveRoom>{};
+    final result = <String, Map<String, Object?>>{};
     for (final raw in list) {
       if (_object(raw) case final item?) {
-        final card = _card(
-          item,
-          cover: item['broad_img'],
-          avatar: normalizeImageUrl(item['user_profile_img']),
-          area: _display(jsonString(item['broad_cate_name']) ?? item['standard_broad_cate_name']),
-        );
-        if (card == null) continue;
+        final id = jsonString(item['user_id']);
+        if (id == null) continue;
         final isLive = item['is_live'] == true;
-        rooms[card.identityKey] = card.copyWith(liveStatus: isLive ? LiveStatus.live : LiveStatus.offline);
+        final broadInfo = _list(item['broad_info']).firstWhere(
+          (o) => _object(o) != null,
+          orElse: () => null,
+        );
+        final info = _object(broadInfo);
+        final viewers = onlineViewers(info ?? item);
+        final updates = <String, Object?>{
+          'liveStatus': isLive ? LiveStatus.live : LiveStatus.offline,
+          'watching': viewers,
+          'nick': _display(jsonString(item['user_nick'])),
+        };
+        if (info != null) {
+          final broadNo = jsonString(info['broad_no']);
+          if (broadNo != null && broadNo != '0') updates['userId'] = broadNo;
+          final title = _displayTranslated(info, 'broad_title_translate', 'broad_title');
+          if (title.isNotEmpty) updates['title'] = title;
+          final cover = normalizeImageUrl(info['broad_img']);
+          if (cover.isNotEmpty) updates['cover'] = cover;
+          final start = koreanTime(info['broad_start']);
+          if (start != null) updates['startedAt'] = start;
+          final restriction = restrictionOf(
+            password: info['is_password'],
+            subscribers: info['subscription_only'],
+          );
+          if (restriction != null) updates['restriction'] = restriction;
+        }
+        result['$_site:${id.toLowerCase()}'] = updates;
       }
     }
-    return rooms;
+    return result;
   }
 
   // Audience ------------------------------------------------------------------
