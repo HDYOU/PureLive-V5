@@ -805,6 +805,8 @@
     "font_weight_thin": "Thin",
     "force_destroy_player": "Force Stop Player",
     "force_destroy_player_subtitle": "Completely stop playback process",
+    "force_reopen_on_resume": "Reopen video on resume",
+    "force_reopen_on_resume_subtitle": "Reopen the video source when the app returns from background to fix black screen",
     "fullscreen": "Fullscreen",
     "general": "General",
     "get_room_info_failed_retry": "Failed to get room info, please retry",

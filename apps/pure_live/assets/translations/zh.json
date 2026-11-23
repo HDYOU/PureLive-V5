@@ -804,6 +804,8 @@
     "font_weight_thin": "极细",
     "force_destroy_player": "播放器强制销毁",
     "force_destroy_player_subtitle": "彻底关闭播放进程以节省资源",
+    "force_reopen_on_resume": "后台恢复时重开视频",
+    "force_reopen_on_resume_subtitle": "应用从后台恢复时重新打开视频源，解决黑屏问题",
     "fullscreen": "全屏",
     "general": "通用",
     "get_room_info_failed_retry": "获取直播间信息失败,请重新获取",

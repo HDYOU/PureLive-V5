@@ -488,6 +488,9 @@ abstract final class Settings {
   /// NVIDIA RTX video super resolution.
   static const enableRtxVsr = BoolSetting('enableRtxVsr', section: 'player', defaultValue: false);
 
+  /// Force-reopen the video source when the app resumes from the background.
+  static const forceReopenOnResume = BoolSetting('forceReopenOnResume', section: 'player', defaultValue: false);
+
   /// Hard stop on exit.
   static const useHardStopOnExit = BoolSetting('useHardStopOnExit', section: 'player', defaultValue: false);
 
@@ -2184,6 +2187,7 @@ abstract final class Settings {
     useSystemPip,
     floatOverlayTipShown,
     enableRtxVsr,
+    forceReopenOnResume,
     useHardStopOnExit,
     enablePortraitStreamAdaptation,
     portraitAdaptiveHeight,

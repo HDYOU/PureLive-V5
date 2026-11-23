@@ -56,6 +56,7 @@ MpvEngineConfig tvEngineConfig(SettingsStore settings, {bool allowLiveRewind = t
   rtxVideoSuperResolution: settings.get(Settings.enableRtxVsr),
   volumeGainDb: settings.get(Settings.volumeBoostDb),
   liveRewindEnabled: allowLiveRewind && settings.get(Settings.livePlayRewind),
+  forceReopenOnResume: settings.get(Settings.forceReopenOnResume),
 );
 
 /// The basic TV room (pure_live_TV `LivePlayPage` and `PlayerKeyScope`;

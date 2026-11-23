@@ -1647,6 +1647,14 @@ List<SettingsEntry> _build() {
       keywords: ['NVIDIA', 'RTX', '超分'],
       when: _windows,
     )
+    ..toggle(
+      'force_reopen_on_resume',
+      'force_reopen_on_resume',
+      Settings.forceReopenOnResume,
+      AppIcons.settingsRefreshOnResume,
+      desc: 'settings_force_reopen_on_resume_subtitle',
+      keywords: ['后台', '恢复', '黑屏'],
+    )
     ..group = 'settings_group_network'
     ..add(
       'player_proxy_link',
@@ -2311,4 +2319,5 @@ const List<Setting<Object>> kernelSettings = [
   Settings.audioOutputDriver,
   Settings.videoHardwareDecoder,
   Settings.enableRtxVsr,
+  Settings.forceReopenOnResume,
 ];

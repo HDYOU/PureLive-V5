@@ -97,6 +97,7 @@ const Map<String, Object> v3Defaults = {
   'floatPlay': false,
   'windowsPipAlwaysOnTop': false,
   'enableRtxVsr': false,
+  'forceReopenOnResume': false,
   'useHardStopOnExit': false,
   'enablePortraitStreamAdaptation': true,
   'portraitAdaptiveHeight': true,
