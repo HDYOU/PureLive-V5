@@ -341,6 +341,31 @@ abstract final class SoopApi {
     return rooms;
   }
 
+  /// `GET myapi.sooplive.com/api/favorite`: the user's followed rooms, same
+  /// shape as [recentRooms] (`data` is a list of the same card fields).
+  /// Returns a map keyed by `'soop:<user_id>'` (the card's identity key).
+  /// A POST answer (no follows yet) or a 401/403 throws [SiteError].
+  static Map<String, LiveRoom> favoriteRooms(String body, {int status = 200}) {
+    final root = _root(body, status: status, what: 'favorite');
+    final list = root['data'];
+    if (list is! List) throw ApiChanged(_site, 'favorite: no data list (${_snippet(body)})');
+    final rooms = <String, LiveRoom>{};
+    for (final raw in list) {
+      if (_object(raw) case final item?) {
+        final card = _card(
+          item,
+          cover: item['broad_img'],
+          avatar: normalizeImageUrl(item['user_profile_img']),
+          area: _display(jsonString(item['broad_cate_name']) ?? item['standard_broad_cate_name']),
+        );
+        if (card == null) continue;
+        final isLive = item['is_live'] == true;
+        rooms[card.identityKey] = card.copyWith(liveStatus: isLive ? LiveStatus.live : LiveStatus.offline);
+      }
+    }
+    return rooms;
+  }
+
   // Audience ------------------------------------------------------------------
 
   /// Concurrent viewers of a list entry or `CHANNEL` (3.x's

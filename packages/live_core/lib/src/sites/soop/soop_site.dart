@@ -315,13 +315,12 @@ final class SoopSite extends LiveSite
 
   /// Follow-card batch refresh: requires a login cookie.
   ///
-  /// 1. Fetches the user's recent rooms (`myapi.sooplive.com/api/recent`),
-  ///    which answers the live state of rooms the user has watched recently.
-  /// 2. For each room in [rooms] that is in the recent list, backfills the
+  /// 1. Fetches the user's followed rooms (`myapi.sooplive.com/api/favorite`).
+  /// 2. For each room in [rooms] that is in the favorite list, backfills the
   ///    status, watching count and title.
-  /// 3. For each room in [rooms] that is *not* in the recent list, fires a
-  ///    fire-and-forget `set_watch_record` POST so the platform registers
-  ///    the view (the requests run in parallel and are not awaited).
+  /// 3. For each room *not* in the favorite list (the user has no follows),
+  ///    falls back to a `POST /api/favorite` with `user_id=<roomId>` to
+  ///    individually confirm the streamer.
   ///
   /// Without a cookie the method returns an empty map immediately.
   @override
@@ -331,16 +330,16 @@ final class SoopSite extends LiveSite
     final eligible = rooms.where((room) => _roomIdPattern.hasMatch(room.roomId)).toList();
     if (eligible.length < 2) return const {};
 
-    // 1. recent rooms
-    final recentResponse = await _get(Uri.https('myapi.sooplive.com', '/api/recent'));
-    final recent = SoopApi.recentRooms(recentResponse.text, status: recentResponse.status);
+    // 1. favorite rooms
+    final favoriteResponse = await _get(Uri.https('myapi.sooplive.com', '/api/favorite'));
+    final favorites = SoopApi.favoriteRooms(favoriteResponse.text, status: favoriteResponse.status);
 
-    // 2. backfill from the recent list
+    // 2. backfill from the favorite list
     final updates = <String, LiveRoom>{};
     final noSeen = <LiveRoom>[];
     for (final room in eligible) {
       final key = room.identityKey;
-      final answered = recent[key];
+      final answered = favorites[key];
       if (answered == null) {
         noSeen.add(room);
         continue;
@@ -348,41 +347,29 @@ final class SoopSite extends LiveSite
       updates[key] = answered;
     }
 
-    // 3. fire set_watch_record for rooms not in the recent list, in parallel,
-    //    without awaiting the results. Only when the room has a known
-    //    broad_no (userId); without it the watch record is meaningless.
-    if (noSeen.isNotEmpty) {
-      for (final room in noSeen) {
-        if (room.userId != null && room.userId!.isNotEmpty) {
-          unawaited(_setWatchRecord(room));
-        }
+    // 3. for rooms not in the favorite list, individually POST /api/favorite
+    //    with the streamer's user_id to confirm their status.
+    for (final room in noSeen) {
+      try {
+        final response = await _send(
+          LiveRequest.form(
+            site: _site,
+            url: Uri.https('myapi.sooplive.com', '/api/favorite'),
+            fields: {'user_id': room.roomId},
+            headers: SoopApi.apiHeaders(cookie: cookie),
+            timeout: const Duration(seconds: 3),
+          ),
+        );
+        final card = SoopApi.favoriteRooms(response.text, status: response.status);
+        final answered = card[room.identityKey];
+        if (answered != null) updates[room.identityKey] = answered;
+      } on SiteError {
+        // A failed individual check drops that room; the caller refreshes
+        // it via getRoomDetailForRefresh.
       }
     }
 
     return updates;
-  }
-
-  /// `POST live.sooplive.com/api/set_watch_record.php` for one room.
-  /// `szBjId` is the streamer id; `nBroadNo` is the room's `broad_no`
-  /// (stored in [LiveRoom.userId]), or `'0'` when unknown.
-  Future<void> _setWatchRecord(LiveRoom room) async {
-    try {
-      await _send(
-        LiveRequest.form(
-          site: _site,
-          url: Uri.https(_live, '/api/set_watch_record.php'),
-          fields: {
-            'szBjId': room.roomId,
-            'nBroadNo': room.userId ?? '0',
-          },
-          headers: SoopApi.apiHeaders(cookie: _cookie()),
-          timeout: const Duration(seconds: 3),
-        ),
-      );
-    } on Object {
-      // A failed watch-record is silently ignored; it does not affect the
-      // refresh result.
-    }
   }
 
   // Streams -------------------------------------------------------------------
