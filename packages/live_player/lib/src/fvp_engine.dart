@@ -49,6 +49,7 @@ final class FvpEngineConfig {
     this.hardwareDecoding = true,
     this.volumeGainDb = 0,
     this.prepareTimeoutMs = 8000,
+    this.forceReopenOnResume = false,
   });
 
   /// The platform the decoder names are for.
@@ -70,6 +71,11 @@ final class FvpEngineConfig {
   /// (a dead CDN, a slow network) then does not hold the player black; the
   /// session can retry or fail it.
   final int prepareTimeoutMs;
+
+  /// When true, the fvp engine reopens the current source after the app
+  /// returns from the background (the texture or decoder may have been
+  /// dropped). Off by default.
+  final bool forceReopenOnResume;
 }
 
 /// The video decoders libmdk tries, in order: when decoding by hardware the
@@ -225,10 +231,12 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     final resolved = config ?? const FvpEngineConfig();
     try {
       final engine = FvpEngine._(resolved);
-      // When the app returns from the background, libmdk's texture may have
-      // been dropped; the observer reopens so the picture comes back.
-      engine._lifecycleObserver.bind(engine);
-      WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+      if (resolved.forceReopenOnResume) {
+        // When the app returns from the background, libmdk's texture may have
+        // been dropped; the observer reopens so the picture comes back.
+        engine._lifecycleObserver.bind(engine);
+        WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+      }
       return engine;
     } on Object catch (error, stack) {
       throw PlayerException(

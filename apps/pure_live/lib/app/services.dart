@@ -106,6 +106,7 @@ final class AppServices {
           platform: fvpPlatformOf(defaultTargetPlatform) ?? FvpPlatform.linux,
           hardwareDecoding: settings.get(Settings.enableCodec),
           volumeGainDb: settings.get(Settings.volumeBoostDb),
+          forceReopenOnResume: settings.get(Settings.forceReopenOnResume),
         ),
       ),
     };
