@@ -293,7 +293,8 @@ jobs:
           python3 tools/flutter_sdk/prepare.py --apply
           python3 tools/flutter_sdk/prepare.py --test
           flutter --version
-          flutter pub get --enforce-lockfile
+          # flutter pub get --enforce-lockfile
+          flutter pub get
           bash tools/ffmpeg_kit/fetch.sh android
 
       - name: 打包 APK
