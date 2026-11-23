@@ -71,9 +71,11 @@ final class FollowRefresher {
     final batches = <List<LiveRoom>>[];
     final groups = <String, List<LiveRoom>>{};
     for (final room in queue) {
-      if (sites.maybeOf(room.platform) is! LiveSiteFollowBatchRefresher) continue;
+      final site = sites.maybeOf(room.platform);
+      if (site is! LiveSiteFollowBatchRefresher) continue;
+      final batchSize = (site as LiveSiteFollowBatchRefresher).refreshFollowBatchSize();
       final group = groups.putIfAbsent(room.platform, () => [])..add(room);
-      if (group.length == 20) {
+      if (group.length == batchSize) {
         batches.add(group);
         groups.remove(room.platform);
       }

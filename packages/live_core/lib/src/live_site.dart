@@ -66,6 +66,9 @@ abstract class LiveSite {
   /// Whether the platform is voice only ([SiteIds.voiceLive]): its picture
   /// is never a real one (A07.20).
   bool get isVoiceLive => SiteIds.voiceLive.contains(id);
+
+  /// The number of rooms per follow batch; 20 by default.
+  int refreshFollowBatchSize() => 20;
 }
 
 /// The platforms whose danmaku reports super chats or paid messages like
@@ -411,6 +414,10 @@ abstract interface class LiveSiteRoomRefresher {
 
 /// Optional follow-card batching for verified room identities.
 abstract interface class LiveSiteFollowBatchRefresher {
+  /// The number of rooms per batch; [refreshFollowBatch] receives at most
+  /// this many rooms.
+  int refreshFollowBatchSize();
+
   /// Returns only confirmed rooms, keyed by the requested identity key.
   /// Missing entries are refreshed individually by the caller.
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms);
