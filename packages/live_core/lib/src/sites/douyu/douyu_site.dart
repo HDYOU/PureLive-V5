@@ -465,6 +465,8 @@ final class DouyuSite extends LiveSite
   /// stands when the history does not know the room). Without a login the
   /// history is not fetched. A chunk that fails is skipped (the caller
   /// refreshes its rooms one by one).
+  int refreshFollowBatchSize() => 99999;
+
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
