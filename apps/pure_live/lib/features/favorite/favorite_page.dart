@@ -99,11 +99,19 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
     setState(_syncPlatforms);
   }
 
-  /// One platform tab per platform with follows, keeping the platform shown
-  /// by id (3.x `_FavoriteSiteTabs`); a platform that lost its last follow
-  /// falls back to "all".
+  /// One platform tab per platform with at least one room in the current
+  /// group; a platform that loses its last room falls back to "all".
   void _syncPlatforms() {
-    final platforms = _controller.rooms.isEmpty ? const <String>[] : _controller.platforms;
+    final all = _controller.rooms.isEmpty ? const <String>[] : _controller.platforms;
+    // Filter to platforms that have rooms in the active group.
+    final group = _controller.group;
+    final platforms = all.isEmpty
+        ? const <String>[]
+        : [for (final id in all)
+            if (id == allPlatforms ||
+                [for (final r in _controller.rooms)
+                  if (groupOf(r) == group && onPlatform(r, id)) r].isNotEmpty)
+            id];
     if (listEquals(platforms, _platforms) && (_platformTabs != null || platforms.isEmpty)) return;
     final old = _platformTabs;
     _platforms = platforms;
@@ -214,7 +222,7 @@ class _FavoritePageState extends ConsumerState<FavoritePage> with TickerProvider
       openHeight: tall ? platformPickerOpenHeight : null,
       builder: (context) => PlatformPicker(ids: _platforms, current: tabs.index, counts: counts),
     );
-    if (picked != null && mounted && _platformTabs == tabs) tabs.animateTo(picked);
+    if (picked != null && picked < _platforms.length && mounted && _platformTabs == tabs) tabs.animateTo(picked);
   }
 
   @override
