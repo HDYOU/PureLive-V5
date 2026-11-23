@@ -480,6 +480,7 @@ final class DouyuSite extends LiveSite
         if (_digits.hasMatch(room.roomId)) room.roomId: room,
     };
     final updates = <String, LiveRoom>{};
+    final answeredRids = <String>{};
     for (final result in await Future.wait([
       for (final chunk in chunks)
         _batchStatus(chunk, byRid).then(
@@ -489,7 +490,9 @@ final class DouyuSite extends LiveSite
     ])) {
       for (final MapEntry(:key, :value) in result.entries) {
         final stored = byRid[key];
-        if (stored == null || value.liveStatus == null) continue;
+        if (stored == null) continue;
+        answeredRids.add(key);
+        if (value.liveStatus == null) continue;
         updates[stored.identityKey] = stored.copyWith(
           liveStatus: value.liveStatus,
           watching: value.watching,
@@ -513,16 +516,18 @@ final class DouyuSite extends LiveSite
       }
       final noSeen = <String, LiveRoom>{};
       for (final room in rooms) {
-        if (!_digits.hasMatch(room.roomId)) continue;
-        if (!followed.containsKey(room.roomId)) {
-          noSeen[room.roomId] = room;
+        final rid = room.roomId;
+        if (!_digits.hasMatch(rid)) continue;
+        if (answeredRids.contains(rid)) continue;
+        if (!followed.containsKey(rid)) {
+          noSeen[rid] = room;
         }
       }
       for (final MapEntry(:key, :value) in followed.entries) {
+        if (answeredRids.contains(key)) continue;
         final stored = byRid[key];
         if (stored == null) continue;
-        final hover = updates[stored.identityKey];
-        updates[stored.identityKey] = (hover ?? stored).copyWith(
+        updates[stored.identityKey] = stored.copyWith(
           liveStatus: value.liveStatus,
           watching: value.watching,
           cover: value.cover,
