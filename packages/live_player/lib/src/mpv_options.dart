@@ -36,6 +36,7 @@ final class MpvEngineConfig {
     this.rtxVideoSuperResolution = false,
     this.volumeGainDb = 0,
     this.liveRewindEnabled = false,
+    this.forceReopenOnResume = false,
   });
 
   /// The platform the defaults are for.
@@ -72,6 +73,11 @@ final class MpvEngineConfig {
   /// sound before the output, so a stream that already peaks near full scale
   /// can clip: it is the user's choice, off by default.
   final int volumeGainDb;
+
+  /// When true, the mpv engine reopens the current source after the app
+  /// returns from the background (the decoder may have been paused or the
+  /// render surface dropped). Off by default.
+  final bool forceReopenOnResume;
 
   /// The largest [volumeGainDb] (mpv's own `volume-gain-max` is 12).
   static const maxVolumeGainDb = 12;
