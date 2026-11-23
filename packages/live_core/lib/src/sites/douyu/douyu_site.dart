@@ -587,7 +587,8 @@ final class DouyuSite extends LiveSite
 
   /// The CSRF token `ctn` for signed app endpoints: from the cookie's
   /// `acf_ccn` if present, otherwise fetched from the CSRF API (the token
-  /// is in the `Set-Cookie` response header, not the body).
+  /// is in the `Set-Cookie` response header, not the body). A fetched token
+  /// is merged into the stored cookie so subsequent calls reuse it.
   Future<String> _csrfToken(String account) async {
     for (final part in account.split(';')) {
       final trimmed = part.trim();
@@ -601,7 +602,15 @@ final class DouyuSite extends LiveSite
     );
     final setCookie = response.header('set-cookie') ?? '';
     final match = RegExp(r'acf_ccn=([^;]+)').firstMatch(setCookie);
-    return match?.group(1) ?? '';
+    final ctn = match?.group(1) ?? '';
+    if (ctn.isNotEmpty) {
+      final store = _login;
+      if (store != null) {
+        final merged = DouyuApi.mergeSetCookie(account, [setCookie]);
+        await store.saveRenewed(merged, _now());
+      }
+    }
+    return ctn;
   }
 
   // Streams -------------------------------------------------------------------
