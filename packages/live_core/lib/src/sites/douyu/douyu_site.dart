@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 
@@ -498,27 +499,40 @@ final class DouyuSite extends LiveSite
         );
       }
     }
-    // A saved login settles the hover's undecided rooms: the user's recent
-    // rooms say `videoLoop`, so a recent room is decided by the flag and
-    // backfilled over the hover answer. The history's rids are filtered
-    // down to the ones just asked for; without a login it is not fetched.
-    if (_account().isNotEmpty) {
+    // A saved login settles the hover's undecided rooms: the user's followed
+    // rooms say `videoLoop`, so a followed room is decided by the flag and
+    // backfilled over the hover answer. Without a login it is not fetched.
+    final account = _account();
+    if (account.isNotEmpty) {
+      Map<String, LiveRoom> followed;
       try {
-        final history = await _historyRooms();
-        for (final MapEntry(:key, :value) in history.entries) {
-          final stored = byRid[key];
-          if (stored == null) continue;
-          final hover = updates[stored.identityKey];
-          updates[stored.identityKey] = (hover ?? stored).copyWith(
-            liveStatus: value.liveStatus,
-            watching: value.watching,
-            cover: value.cover,
-            avatar: value.avatar,
-          );
-        }
+        followed = await _followRooms(account);
       } on SiteError {
-        // A failed history keeps the hover answers; the caller refreshes
+        // A failed follow list keeps the hover answers; the caller refreshes
         // the undecided rooms one by one.
+        return updates;
+      }
+      final noSeen = <String, LiveRoom>{};
+      for (final room in rooms) {
+        if (!_digits.hasMatch(room.roomId)) continue;
+        if (!followed.containsKey(room.roomId)) {
+          noSeen[room.roomId] = room;
+        }
+      }
+      for (final MapEntry(:key, :value) in followed.entries) {
+        final stored = byRid[key];
+        if (stored == null) continue;
+        final hover = updates[stored.identityKey];
+        updates[stored.identityKey] = (hover ?? stored).copyWith(
+          liveStatus: value.liveStatus,
+          watching: value.watching,
+          cover: value.cover,
+          avatar: value.avatar,
+        );
+      }
+      // 不在关注列表里的房间，并行设置关注（不等待结果）
+      for (final room in noSeen.values) {
+        unawaited(_addFollow(account, room.roomId));
       }
     }
     return updates;
@@ -542,13 +556,52 @@ final class DouyuSite extends LiveSite
     );
   }
 
-  /// The user's recent rooms, live and replay (the login's own answer): the
-  /// status of every room it answers is settled by the platform's
-  /// `videoLoop` flag. A failure keeps the hover answers; it is never
-  /// disguised as an offline room.
-  Future<Map<String, LiveRoom>> _historyRooms() async {
-    final response = await _api(Uri.https(_www, '/japi/watchHistory/apinc/getHistoryList', {'filterLive': '1', 'view': '0'}));
-    return DouyuApi.historyRooms(response.text, status: response.status);
+  /// The user's followed rooms (the login's own answer): the `follow/list`
+  /// answer's `videoLoop` flag settles the replay/live status of every room
+  /// it answers. A failure keeps the hover answers; it is never disguised as
+  /// an offline room.
+  Future<Map<String, LiveRoom>> _followRooms(String account) async {
+    final response = await _api(
+      Uri.https(_www, '/wgapi/livenc/liveweb/follow/list', {'page': '1', 'sort': '0', 'cid1': '0', 'fliterLive': '1'}),
+      referer: 'https://www.douyu.com/',
+    );
+    return DouyuApi.followList(response.text, status: response.status);
+  }
+
+  /// `POST /wgapi/livenc/liveweb/follow/add`: sets a follow for [rid].
+  /// Fire-and-forget: the caller does not await the result.
+  Future<void> _addFollow(String account, String rid) async {
+    try {
+      final ctn = await _csrfToken(account);
+      await _send(
+        LiveRequest.form(
+          site: _site,
+          url: Uri.https(_www, '/wgapi/livenc/liveweb/follow/add'),
+          fields: {'rid': rid, 'ctn': ctn},
+          headers: {...DouyuApi.apiHeaders(_identity().cookie), 'referer': 'https://www.douyu.com/'},
+        ),
+      );
+    } on Object {
+      // Fire-and-forget: a failed follow never disturbs the batch refresh.
+    }
+  }
+
+  /// The CSRF token `ctn` for signed app endpoints: from the cookie's
+  /// `acf_ccn` if present, otherwise fetched from the CSRF API.
+  Future<String> _csrfToken(String account) async {
+    for (final part in account.split(';')) {
+      final trimmed = part.trim();
+      if (trimmed.startsWith('acf_ccn=')) {
+        return trimmed.substring('acf_ccn='.length);
+      }
+    }
+    final response = await _api(
+      Uri.https(_www, '/wgapi/livenc/liveweb/csrfApi/getCsrfCookie'),
+      referer: 'https://www.douyu.com/',
+    );
+    final root = (await Isolate.run(() => jsonDecode(response.text))) as Map<String, dynamic>?;
+    final ctn = (root?['data'] as Map<String, dynamic>?)?['acf_ccn'];
+    return ctn is String ? ctn : '';
   }
 
   // Streams -------------------------------------------------------------------

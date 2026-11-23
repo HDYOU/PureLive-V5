@@ -994,4 +994,70 @@ void main() {
     expect(() => DouyuApi.roomList('{"error":0,"data":{"rl":{}}}', page: 1), throwsA(isA<ApiChanged>()));
     expect(() => DouyuApi.descriptor('{"error":0,"data":{}}', now: DateTime.utc(2026)), throwsA(isA<ApiChanged>()));
   });
+
+  test('followList parses data.list with videoLoop and game_name', () {
+    final body = jsonEncode({
+      'error': 0,
+      'data': {
+        'list': [
+          {
+            'room_id': 2140934,
+            'room_name': 'Live Title',
+            'nickname': 'Streamer',
+            'show_status': 1,
+            'online': '173.5万',
+            'room_src': 'https://rpic.douyucdn.cn/cover.avif',
+            'avatar_small': 'https://apic.douyucdn.cn/avatar.jpg',
+            'game_name': '网游竞技',
+            'close_notice': 'hello',
+            'videoLoop': 0,
+          },
+          {
+            'room_id': 9999,
+            'room_name': 'Replay Title',
+            'nickname': 'Replayer',
+            'show_status': 1,
+            'online': '0',
+            'room_src': 'https://rpic.douyucdn.cn/old.avif',
+            'avatar_small': 'https://apic.douyucdn.cn/old.jpg',
+            'game_name': '单机热游',
+            'close_notice': null,
+            'videoLoop': 1,
+          },
+          {
+            'room_id': 777,
+            'room_name': 'Offline',
+            'nickname': 'Offline Streamer',
+            'show_status': 0,
+            'online': '0',
+            'videoLoop': 0,
+          },
+        ],
+      },
+    });
+    final rooms = DouyuApi.followList(body);
+    expect(rooms, hasLength(3));
+    final live = rooms['2140934'];
+    expect(live, isNotNull);
+    expect(live!.liveStatus, LiveStatus.live);
+    expect(live.area, '网游竞技');
+    expect(live.watching, '173.5万');
+    expect(live.avatar, 'https://apic.douyucdn.cn/avatar.jpg');
+    expect(live.cover, 'https://rpic.douyucdn.cn/cover.avif');
+    expect(live.notice, 'hello');
+    final replay = rooms['9999'];
+    expect(replay, isNotNull);
+    expect(replay!.liveStatus, LiveStatus.replay);
+    expect(replay.area, '单机热游');
+    final offline = rooms['777'];
+    expect(offline, isNotNull);
+    expect(offline!.liveStatus, LiveStatus.offline);
+  });
+
+  test('followList error envelope throws', () {
+    expect(
+      () => DouyuApi.followList('{"error":-1,"msg":"token expired"}'),
+      throwsA(isA<SiteError>()),
+    );
+  });
 }

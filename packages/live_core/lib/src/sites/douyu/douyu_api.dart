@@ -557,6 +557,23 @@ abstract final class DouyuApi {
     return rooms;
   }
 
+  /// `GET wgapi/livenc/liveweb/follow/list`: the user's followed rooms.
+  /// `data.list` is an array of rooms with `room_id`, `show_status`, `online`,
+  /// `nickname`, `room_name`, `avatar_small`, `room_src`, `game_name`,
+  /// `close_notice`, `videoLoop`. Returns a map keyed by rid.
+  /// `videoLoop` settles live vs replay directly.
+  static Map<String, LiveRoom> followList(String body, {int status = 200}) {
+    final root = _checked(body, status: status, what: 'follow/list');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(_object(root['data'])?['list'])) {
+      if (_object(item) case final entry? when _roomId(entry['room_id']) != null) {
+        final room = _followListRoom(entry);
+        rooms[room.roomId] = room;
+      }
+    }
+    return rooms;
+  }
+
   /// `wgapi/live/webbackends/hoverRoomInfo`: a GET with `rids` (comma
   /// separated, at most 50). The answer's `data` is a list of rooms, each with
   /// `roomId`, `roomName`, `nickName`, `roomCover`, `hot`, `showStatus` and
@@ -687,6 +704,39 @@ abstract final class DouyuApi {
       popularity: online ?? '',
       audienceMetricType: AudienceMetricType.popularity,
       liveStatus: replayByConvention
+          ? LiveStatus.replay
+          : on
+          ? LiveStatus.live
+          : LiveStatus.offline,
+      introduction: closeNotice,
+      notice: closeNotice,
+    );
+  }
+
+  /// One `list` entry of the `follow/list` answer, in its own field names;
+  /// the caller has checked that `room_id` is a valid rid.
+  static LiveRoom _followListRoom(Map<String, dynamic> entry) {
+    final id = _roomId(entry['room_id']);
+    final online = jsonString(entry['online']);
+    final on = jsonInt(entry['show_status']) == 1;
+    final closeNotice = jsonString(entry['close_notice']);
+    final nick = jsonString(entry['nickname']) ?? '';
+    final title = jsonString(entry['room_name']) ?? '';
+    final videoLoop = jsonInt(entry['videoLoop']) == 1;
+    final replay = on && videoLoop;
+    final area = jsonString(entry['game_name']) ?? '';
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
+      avatar: normalizeImageUrl(entry['avatar_small']),
+      cover: normalizeImageUrl(entry['room_src']),
+      area: area,
+      watching: online ?? '0',
+      popularity: online ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: replay
           ? LiveStatus.replay
           : on
           ? LiveStatus.live
