@@ -323,6 +323,8 @@ final class SoopSite extends LiveSite
   ///    user's favorites (so a later refresh finds it).
   ///
   /// Without a cookie the method returns an empty map immediately.
+  int refreshFollowBatchSize() => 99999;
+
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final cookie = _cookie();
