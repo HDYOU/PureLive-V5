@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show AppLifecycleState;
+import 'package:flutter/widgets.dart' show WidgetsBinding, WidgetsBindingObserver;
 import 'package:live_media/live_media.dart';
 import 'package:live_player/src/buffering_probe.dart';
 import 'package:live_player/src/diagnostics.dart';
@@ -116,10 +118,15 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         ),
       );
       report('engine-ready');
-      return MpvEngine._(player, controller, resolved, id, (phase) {
+      final engine = MpvEngine._(player, controller, resolved, id, (phase) {
         if (phase == 'open-request') open++;
         report(phase);
       }, onBufferingSnapshot: onBufferingSnapshot);
+      if (resolved.forceReopenOnResume) {
+        engine._lifecycleObserver.watch(engine);
+        WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+      }
+      return engine;
     } on Object {
       report('create-failed');
       // The caller never received an engine, so this factory still owns Player.
@@ -165,6 +172,8 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   final int _diagnosticEngine;
   final void Function(String phase) _trace;
   var _diagnosticOpens = 0;
+  EngineMedia? _lastMedia;
+  final _lifecycleObserver = _MpvLifecycleObserver();
 
   bool get _android => config.platform == MpvPlatform.android;
 
@@ -248,6 +257,7 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   @override
   Future<void> open(EngineMedia media) async {
+    _lastMedia = media;
     _roomGainDb = media.volumeGainDb?.clamp(-12, 12);
     _diagnosticOpens++;
     _trace('open-request');
@@ -330,9 +340,24 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   @override
   Future<void> stop() {
     _hasSource = false;
+    _lastMedia = null;
     _bufferingProbe.reset();
     _trace('stop-request');
     return player.stop().then((_) => _trace('stop-complete'));
+  }
+
+  /// Reopens the source after the app returns from the background, when the
+  /// decoder or render surface may have been dropped. Controlled by
+  /// [MpvEngineConfig.forceReopenOnResume]; off by default.
+  Future<void> _onAppResumed() async {
+    if (!config.forceReopenOnResume) return;
+    final media = _lastMedia;
+    if (_disposed || !_hasSource || media == null) return;
+    try {
+      await open(media);
+    } on Object {
+      // A failed reopen keeps the last picture state; the next open recovers it.
+    }
   }
 
   @override
@@ -396,6 +421,7 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _opens++;
     _bufferingProbe.close();
     _gate.close();
+    WidgetsBinding.instance.removeObserver(_lifecycleObserver);
     final listener = _frameListener;
     if (listener != null) controller.frameRevision.removeListener(listener);
     for (final subscription in _subscriptions) {
@@ -414,3 +440,20 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 /// An [EngineFactory] creating [MpvEngine]s with [config].
 EngineFactory mpvEngineFactory([MpvEngineConfig? config]) =>
     () => MpvEngine.create(config: config);
+
+/// Watches the app's lifecycle and asks [MpvEngine] to reopen its source when
+/// it comes back to the foreground (only active with
+/// [MpvEngineConfig.forceReopenOnResume]).
+final class _MpvLifecycleObserver extends WidgetsBindingObserver {
+  MpvEngine? _engine;
+
+  /// Watches [engine]'s lifecycle.
+  void watch(MpvEngine engine) {
+    _engine = engine;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_engine?._onAppResumed());
+  }
+}
