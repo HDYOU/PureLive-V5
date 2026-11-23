@@ -776,6 +776,15 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       }
       final mdkBuild = mdkVersion == null ? null : 'mdk-$mdkVersion';
 
+      // The source's frame rate; libmdk fills it as the video track is
+      // probed. Emit an event when it first appears or changes.
+      double? fps = video?.codec.frameRate;
+      if (fps != null && (fps.isNaN || fps.isInfinite || fps <= 0)) fps = null;
+      if (fps != null && fps != ins.lastFrameRate) {
+        ins.lastFrameRate = fps;
+        _add(EngineFrameRate(fps));
+      }
+
       return PlaybackStats(
         width: video?.codec.width,
         height: video?.codec.height,
