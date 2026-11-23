@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 
@@ -587,7 +586,8 @@ final class DouyuSite extends LiveSite
   }
 
   /// The CSRF token `ctn` for signed app endpoints: from the cookie's
-  /// `acf_ccn` if present, otherwise fetched from the CSRF API.
+  /// `acf_ccn` if present, otherwise fetched from the CSRF API (the token
+  /// is in the `Set-Cookie` response header, not the body).
   Future<String> _csrfToken(String account) async {
     for (final part in account.split(';')) {
       final trimmed = part.trim();
@@ -599,9 +599,9 @@ final class DouyuSite extends LiveSite
       Uri.https(_www, '/wgapi/livenc/liveweb/csrfApi/getCsrfCookie'),
       referer: 'https://www.douyu.com/',
     );
-    final root = (await Isolate.run(() => jsonDecode(response.text))) as Map<String, dynamic>?;
-    final ctn = (root?['data'] as Map<String, dynamic>?)?['acf_ccn'];
-    return ctn is String ? ctn : '';
+    final setCookie = response.header('set-cookie') ?? '';
+    final match = RegExp(r'acf_ccn=([^;]+)').firstMatch(setCookie);
+    return match?.group(1) ?? '';
   }
 
   // Streams -------------------------------------------------------------------
