@@ -162,6 +162,20 @@ abstract final class HomeRailMetrics {
   static const double destinationHeight = 68;
 }
 
+/// The bottom height [HomeMobileView] takes from the page while the
+/// navigation is shown: the bar and its gap in the glass layout, nothing in
+/// the plain one (there the bar sits outside the body). Hiding the navigation
+/// gives that height back to the body, so a list within this distance of its
+/// end is dragged up by the change.
+double homeNavigationReserve(BuildContext context, {required bool glass, required bool compact}) {
+  if (!glass) return 0;
+  return (compact ? GlassMetrics.barHeightCompact : GlassMetrics.barHeight) +
+      GlassMetrics.barGap(
+        safeBottom: MediaQuery.viewPaddingOf(context).bottom,
+        ios: defaultTargetPlatform == TargetPlatform.iOS,
+      );
+}
+
 /// The tablet and desktop layout (3.x `HomeTabletView`): a side rail with
 /// the menu, the tool buttons with their names (search, watch history, link
 /// parser, multi-view), a short line, then the destinations, the recording

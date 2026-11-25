@@ -57,6 +57,10 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
   bool _hideNavigation = false;
   bool _navigationCanHide = false;
   double _navigationDistance = 0;
+
+  /// What hiding the navigation gives back to the body, from the layout
+  /// choices of the last build (see [homeNavigationReserve]).
+  double _navigationReserve = 0;
   Size? _lastLayoutSize;
   PageRoute<dynamic>? _route;
 
@@ -100,6 +104,14 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
     if (_navigationDistance.abs() < 12) return false;
     _navigationDistance = 0;
     final hide = delta > 0;
+    if (hide && _navigationReserve > 0) {
+      // Reclaiming the bar's height shrinks the list by as much: while the
+      // list is within that distance of its end the clamp would pull the
+      // content up with it, one frame of shiver at the end of a glide. The
+      // bar then stays (or comes back) for that last screenful.
+      final metrics = notification.metrics;
+      if (metrics.pixels > metrics.maxScrollExtent - _navigationReserve) return false;
+    }
     if (hide != _hideNavigation) setState(() => _hideNavigation = hide);
     return false;
   }
@@ -218,6 +230,7 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
         builder: (context, constraints) {
           final rail = isHomeRailWidth(constraints.maxWidth) && !bottomOnWide;
           _navigationCanHide = autoHide && !rail;
+          _navigationReserve = rail ? 0 : homeNavigationReserve(context, glass: glass, compact: compact);
           if (!_navigationCanHide || _lastLayoutSize != constraints.biggest) _hideNavigation = false;
           _lastLayoutSize = constraints.biggest;
           final menus = visibleHomeMenus(saved);

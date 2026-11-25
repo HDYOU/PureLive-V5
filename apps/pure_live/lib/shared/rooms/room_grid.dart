@@ -554,12 +554,59 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
 
   void _feedChanged() {
     if (!mounted) return;
+    if (_gliding) {
+      // The page rebuilds every card and banner it shows; doing that in the
+      // frames of a fling's tail costs the very frames the eye is on there,
+      // which reads as a hitch right where the list comes to rest. The
+      // request is already in flight, so the answer keeps until it rests.
+      _rebuildPending = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _flushRebuild());
+      return;
+    }
+    _rebuild();
+  }
+
+  void _rebuild() {
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _fillViewport();
       _fillAutoPage();
     });
+  }
+
+  /// A fling or a wheel's glide is moving the list; a finger is not a glide
+  /// (a drag's own rebuilds keep up with it).
+  bool get _gliding {
+    if (!_scroll.hasClients) return false;
+    return _scroll.position.isScrollingNotifier.value && !_dragging;
+  }
+
+  void _flushRebuild() {
+    if (!mounted || !_rebuildPending || _gliding) return;
+    _rebuildPending = false;
+    _rebuild();
+  }
+
+  /// The list's notifications: the next page near the phone list's end, and
+  /// whether a finger or a glide is moving it.
+  bool _roomScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+      _dragging = true;
+    } else if (notification is ScrollEndNotification) {
+      _dragging = false;
+      _flushRebuild();
+    }
+    if (_desktop) return false;
+    final after = notification.metrics.extentAfter;
+    if (after > loadMoreTail) {
+      // The end is far again: the next approach may ask once more.
+      _moreAsked = false;
+    } else if (!_moreAsked) {
+      _moreAsked = _loadMore();
+    }
+    return false;
   }
 
   bool get _desktop => usesDesktopPages(MediaQuery.sizeOf(context).width);
@@ -617,6 +664,14 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
   /// its extent there. `_feed.rooms` also rebuilds the visible list on every
   /// read, which the per-frame path must not do. One request per approach.
   bool _moreAsked = false;
+
+  /// Whether a finger is on the list (from its notifications, see
+  /// [_roomScroll]).
+  bool _dragging = false;
+
+  /// A feed change arrived while the list was gliding: the page takes it when
+  /// the glide rests (see [_feedChanged]).
+  bool _rebuildPending = false;
 
   // A list shorter than the screen cannot be scrolled to its end: ask for
   // more right away (3.x's footer needed a drag). The scroll path's latch
@@ -800,7 +855,12 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
             autofocus: true,
             child: Column(
               children: [
-                Expanded(child: list(_listPhysics)),
+                Expanded(
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _roomScroll,
+                    child: list(_listPhysics),
+                  ),
+                ),
                 PaginationBar(
                   page: _feed.page,
                   lastPage: _feed.hasMore ? null : _feed.lastPage(pageSize),
@@ -825,20 +885,8 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
         body = AppRefreshView(
           onRefresh: _pullRefresh,
           stopAtEnd: _feed.hasMore,
-          builder: (context, physics) => NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              if (notification.metrics.axis != Axis.vertical) return false;
-              final after = notification.metrics.extentAfter;
-              if (after > loadMoreTail) {
-                // The end is far again: the next approach may ask once more.
-                _moreAsked = false;
-              } else if (!_moreAsked) {
-                _moreAsked = _loadMore();
-              }
-              return false;
-            },
-            child: list(physics),
-          ),
+          builder: (context, physics) =>
+              NotificationListener<ScrollNotification>(onNotification: _roomScroll, child: list(physics)),
         );
       }
     }
