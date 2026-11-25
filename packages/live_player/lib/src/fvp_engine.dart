@@ -154,21 +154,32 @@ class _PlayerInstance {
   /// Re-applies the persistent libmdk properties to [player].
   void configure() {
     player
-      // A hardware video decoder without the extra shader resources.
-      ..setProperty('video.decoder', 'shader_resource=0')
-      // Accept the experimental stream formats and segment files 3.x plays
-      // (its own player set these on creation).
-      ..setProperty('avformat.strict', 'experimental')
-      ..setProperty('avformat.safe', '0')
-      // A live line that drops is reconnected by libmdk itself; the session
-      // still sees the stall through the position and its buffering flags.
+      // 网络与重连
       ..setProperty('avio.reconnect', '1')
       ..setProperty('avio.reconnect_delay_max', '7')
-      // An RTSP line rides over TCP, and the extension picker accepts every
-      // segment file type.
+      ..setProperty('avio.connection_timeout', '3000')
+      ..setProperty('avio.read_timeout', '5000')
+      // 解封装兼容
+      ..setProperty('avformat.strict', 'experimental')
+      ..setProperty('avformat.safe', '0')
       ..setProperty('avformat.rtsp_transport', 'tcp')
       ..setProperty('avformat.extension_picky', '0')
-      ..setProperty('avformat.allowed_segment_extensions', 'ALL');
+      ..setProperty('avformat.allowed_segment_extensions', 'ALL')
+      // 直播缓冲低延迟
+      ..setProperty('avio.buffer_size', '262144')
+      ..setProperty('player.buffer.duration', '800')
+      ..setProperty('player.buffer.size', '1048576')
+      ..setProperty('hls.live_start_index', '-3')
+      // 禁用字幕，解决 thread.subtitle 报错
+      ..setProperty('subtitle.enabled', '0')
+      ..setProperty('subtitle.auto', '0')
+      ..setProperty('subtitle.render', '0')
+      ..setProperty('avformat.allowed_media_types', 'video,audio')
+      // 解码与同步
+      ..setProperty('video.decoder', 'shader_resource=0')
+      ..setProperty('avsync', 'video')
+      ..setProperty('avsync.drift', '0')
+      ..setProperty('video.postprocess', '0');
   }
 
   /// Cancels this instance's stream subscriptions.
@@ -290,8 +301,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   /// The settings that stay on a player between sources.
   void _initCurrentPlayer() {
-    final ins = _PlayerInstance(mdk.Player(), config, 'current');
-    ins.configure();
+    // Double insurance against the subtitle thread: disable all subtitle
+    // tracks on the player instance (the property in configure() is the
+    // first layer; this call is the second, after setMedia the 1st track
+    // would otherwise be selected automatically).
+    final ins = _PlayerInstance(mdk.Player(), config, 'current')
+      ..configure()
+      ..player.setActiveTracks(mdk.MediaType.subtitle, []);
     _currentPlayer = ins;
     debugPrint('[FvpEngine] init currentPlayer ok');
   }
@@ -462,8 +478,9 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
     debugPrint('[FvpEngine][seq=$openSeq] open start uri=${media.uri}');
     // 1. 创建 nextPlayer（预加载实例）。
-    final nextIns = _PlayerInstance(mdk.Player(), config, 'next');
-    nextIns.configure();
+    final nextIns = _PlayerInstance(mdk.Player(), config, 'next')
+      ..configure()
+      ..player.setActiveTracks(mdk.MediaType.subtitle, []);
     _nextPlayer = nextIns;
 
     try {
