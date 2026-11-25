@@ -654,6 +654,9 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
   /// the tallest of its states (the spinner is 20, the last page's words 14).
   static const double footerRowHeight = 48;
 
+  /// The plain footer's height: the 12 over the row, the row, the 24 under it.
+  static const double _phoneFooterSlot = 12 + footerRowHeight + 24;
+
   /// Whether the phone list already asked for more rooms on this approach to
   /// its end, until the end moved at least [loadMoreTail] away again.
   ///
@@ -846,7 +849,22 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                     ),
                   ),
                   if (desktop ? _hiddenNote(context) : _phoneFooter(context) case final footer?)
-                    SliverToBoxAdapter(child: footer),
+                    // The footer trails the last row: while the list scrolls
+                    // it is out of view but still inside the cache extent, so
+                    // it is built and laid out on every frame it spends
+                    // there. Past the cache it keeps its slot and its
+                    // children are not built. Only the plain footer has a
+                    // fixed height — the hidden note's varies with its text,
+                    // so a note keeps the widget itself.
+                    SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        final offscreen = constraints.remainingCacheExtent <= 0;
+                        if (offscreen && _feed.hiddenCount == 0) {
+                          return const SliverToBoxAdapter(child: SizedBox(height: _phoneFooterSlot));
+                        }
+                        return SliverToBoxAdapter(child: footer);
+                      },
+                    ),
                 ],
               ),
             );
