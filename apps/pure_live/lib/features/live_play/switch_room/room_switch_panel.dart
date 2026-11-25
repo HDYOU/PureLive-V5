@@ -422,6 +422,14 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
     }
     final now = widget.now();
     final mixed = mixesPlatforms(rooms);
+    // The room's widget key, and the index of a key still in the list: with
+    // the lookup a rebuild that keeps most rooms (a refresh landing a room on
+    // air, a group being filtered) moves the element of a card that shifted
+    // index instead of building it anew, which resubscribes its cover. The
+    // rooms grid carries the same lookup (`SliverChildBuilderDelegate(...,
+    // findChildIndexCallback: ...)`).
+    Key keyOf(LiveRoom room) => ValueKey('switch-room-${room.platform}-${room.roomId}');
+    final indices = <Key, int>{for (var i = 0; i < rooms.length; i++) keyOf(rooms[i]): i};
     RoomSwitchTileData data(LiveRoom room) =>
         RoomSwitchTileData.of(room, policy: policy, now: now, history: group == RoomSwitchGroup.history);
     void open(LiveRoom room) => _open(room, all);
@@ -433,60 +441,94 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
               math.max(0, constraints.maxWidth - roomSwitchGridPadding * 2 - roomSwitchGridSpacing * (columns - 1)) /
               columns;
           final footer = math.max(roomSwitchCardFooter, MediaQuery.textScalerOf(context).scale(12) * 1.34 + 10);
-          return GridView.builder(
+          // A `CustomScrollView` rather than `GridView.builder`: the builder
+          // takes the delegate's defaults, which wrap every card in its own
+          // `RepaintBoundary` (one offset layer per card, on every frame of a
+          // scroll) and leave a card that only moved index to be rebuilt from
+          // scratch. Measured on the rooms grid at 3x: twelve cards on screen
+          // make seventeen offset layers with the boundaries against five
+          // without, +0.6 ms of raster per frame and nothing on the UI thread.
+          // Nothing inside a card animates by itself — the ink of a tap is
+          // clipped inside the card and the cover fades in once — so there is
+          // no repaint a card's own boundary would save.
+          return CustomScrollView(
             key: const ValueKey('switch-grid'),
             controller: _scroll,
-            padding: const EdgeInsets.all(roomSwitchGridPadding),
             physics: const PureLiveScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              // A whole number of logical pixels a row, as the rooms grid
-              // does (`RoomGridGeometry.of`): the card is `width * 9 / 16`
-              // plus a caption, a fraction such as 128.4, so each row would
-              // sit at its own sub-pixel phase and its text and cover would
-              // re-rasterise out of step with the other rows.
-              mainAxisExtent: roomSwitchCardHeight(
-                width: constraints.maxWidth,
-                height: constraints.maxHeight,
-                columns: columns,
-                footer: footer,
-              ).ceilToDouble(),
-              mainAxisSpacing: roomSwitchGridSpacing,
-              crossAxisSpacing: roomSwitchGridSpacing,
-            ),
-            itemCount: rooms.length,
-            itemBuilder: (context, index) {
-              final room = rooms[index];
-              return RoomSwitchCard(
-                key: ValueKey('switch-room-${room.platform}-${room.roomId}'),
-                data: data(room),
-                coverWidth: width,
-                footer: footer,
-                showPlatform: mixed,
-                onTap: () => open(room),
-                onLongPress: () => unawaited(_menu(room)),
-              );
-            },
+            semanticChildCount: rooms.length,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.all(roomSwitchGridPadding),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    // A whole number of logical pixels a row, as the rooms grid
+                    // does (`RoomGridGeometry.of`): the card is `width * 9 / 16`
+                    // plus a caption, a fraction such as 128.4, so each row would
+                    // sit at its own sub-pixel phase and its text and cover would
+                    // re-rasterise out of step with the other rows.
+                    mainAxisExtent: roomSwitchCardHeight(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      columns: columns,
+                      footer: footer,
+                    ).ceilToDouble(),
+                    mainAxisSpacing: roomSwitchGridSpacing,
+                    crossAxisSpacing: roomSwitchGridSpacing,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final room = rooms[index];
+                      return RoomSwitchCard(
+                        key: keyOf(room),
+                        data: data(room),
+                        coverWidth: width,
+                        footer: footer,
+                        showPlatform: mixed,
+                        onTap: () => open(room),
+                        onLongPress: () => unawaited(_menu(room)),
+                      );
+                    },
+                    findChildIndexCallback: (key) => indices[key],
+                    childCount: rooms.length,
+                    addRepaintBoundaries: false,
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
-      RoomSwitchLayout.list => ListView.builder(
+      RoomSwitchLayout.list => CustomScrollView(
         key: const ValueKey('switch-list'),
         controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 2),
         physics: const PureLiveScrollPhysics(),
-        // Whole rows, for the same sub-pixel reason as the grid.
-        itemExtent: (roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6)).ceilToDouble(),
-        itemCount: rooms.length,
-        itemBuilder: (context, index) {
-          final room = rooms[index];
-          return RoomSwitchRow(
-            key: ValueKey('switch-room-${room.platform}-${room.roomId}'),
-            data: data(room),
-            onTap: () => open(room),
-            onLongPress: () => unawaited(_menu(room)),
-          );
-        },
+        semanticChildCount: rooms.length,
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            // Whole rows, for the same sub-pixel reason as the grid, and no
+            // card layer for the same reason as the grid's comment above.
+            sliver: SliverFixedExtentList(
+              itemExtent: (roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6))
+                  .ceilToDouble(),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final room = rooms[index];
+                  return RoomSwitchRow(
+                    key: keyOf(room),
+                    data: data(room),
+                    onTap: () => open(room),
+                    onLongPress: () => unawaited(_menu(room)),
+                  );
+                },
+                findChildIndexCallback: (key) => indices[key],
+                childCount: rooms.length,
+                addRepaintBoundaries: false,
+              ),
+            ),
+          ),
+        ],
       ),
     };
   }

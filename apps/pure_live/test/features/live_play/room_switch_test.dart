@@ -521,7 +521,9 @@ void main() {
       expect(rect.width, 393);
       expect(find.text('切换直播间'), findsOneWidget);
       expect(_key('switch-refresh'), findsNothing, reason: 'no follows refresh linked, no button');
-      final grid = tester.widget<GridView>(_key('switch-grid'));
+      final grid = tester.widget<SliverGrid>(
+        find.descendant(of: _key('switch-grid'), matching: find.byType(SliverGrid)),
+      );
       expect((grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount).crossAxisCount, _v3Columns(393));
       // c6: the room being watched on top, not among the choices.
       expect(find.descendant(of: _key('switch-watching'), matching: find.textContaining('主播6')), findsOneWidget);
