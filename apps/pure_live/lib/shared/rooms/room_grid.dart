@@ -836,6 +836,11 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                               unawaited(AppNavigator.toLiveRoomDetail(liveRoom: rooms[index], playlist: _feed.rooms)),
                         ),
                         findChildIndexCallback: (key) => roomIndices[key],
+                        // Nothing in a card asks to be kept alive, and each
+                        // card would otherwise carry the four elements that
+                        // listen for it, per room, on every pass of the
+                        // element tree while scrolling.
+                        addAutomaticKeepAlives: false,
                         childCount: rooms.length,
                       ),
                     ),
