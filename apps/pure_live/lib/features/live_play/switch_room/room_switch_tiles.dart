@@ -192,9 +192,16 @@ class _Marks extends StatelessWidget {
 /// The cover: the picture (or a placeholder), dimmed when off air, the
 /// marks at the top left and, with [title], the title along the bottom.
 class _Cover extends StatelessWidget {
-  const new({required this.data, this.title = false, this.short = false});
+  const new({required this.data, required this.width, this.title = false, this.short = false});
 
   final RoomSwitchTileData data;
+
+  /// The cover's logical width, from the grid's cell or the row's 112: the
+  /// picture decodes at that width × the device's pixel ratio, one size for
+  /// every card of the grid, instead of a `LayoutBuilder` per card asking for
+  /// its own (a second layout pass per item while the list scrolls).
+  final double width;
+
   final bool title;
   final bool short;
 
@@ -212,13 +219,11 @@ class _Cover extends StatelessWidget {
         if (data.cover.isEmpty)
           placeholder(context)
         else
-          LayoutBuilder(
-            builder: (context, constraints) => LiveNetworkImage(
-              url: data.cover,
-              placeholder: placeholder,
-              error: placeholder,
-              memCacheWidth: (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context)).round().clamp(160, 720),
-            ),
+          LiveNetworkImage(
+            url: data.cover,
+            placeholder: placeholder,
+            error: placeholder,
+            memCacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).round().clamp(160, 720),
           ),
         if (data.state == RoomSwitchState.offline)
           const ColoredBox(key: ValueKey('switch-dim'), color: OnVideoColors.dim),
@@ -269,6 +274,7 @@ class RoomSwitchCard extends StatelessWidget {
     required this.data,
     required this.onTap,
     required this.onLongPress,
+    required this.coverWidth,
     this.footer = roomSwitchCardFooter,
     this.showPlatform = false,
     super.key,
@@ -276,6 +282,9 @@ class RoomSwitchCard extends StatelessWidget {
 
   /// What it shows.
   final RoomSwitchTileData data;
+
+  /// The grid's cell width: the cover decodes at that size.
+  final double coverWidth;
 
   /// Picks the room.
   final VoidCallback onTap;
@@ -294,49 +303,64 @@ class RoomSwitchCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final offline = data.state == RoomSwitchState.offline;
-    return Material(
-      color: scheme.surfaceContainerLow,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.55)),
+    final radius = BorderRadius.circular(12);
+    // The rounded background and its line are drawn by the decoration, the
+    // cover by the `ClipRRect`, and the ink by a transparent `Material`
+    // whose `InkWell` clips its own splash: no shape is clipped as a whole,
+    // so every card keeps a plain rectangle layer while the list scrolls
+    // (a clipped `Material` saved a layer around each card, one per card on
+    // screen, on every frame of a scroll).
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: radius,
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.55)),
       ),
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: _Cover(data: data, title: true)),
-            SizedBox(
-              height: footer,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        data.nick,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelMedium?.emphasis.copyWith(
-                          color: offline ? scheme.onSurfaceVariant : scheme.onSurface,
-                        ),
-                      ),
-                    ),
-                    if (showPlatform) ...[
-                      const SizedBox(width: 6),
-                      Text(
-                        data.platform,
-                        maxLines: 1,
-                        style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ],
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _Cover(data: data, width: coverWidth, title: true),
                 ),
-              ),
+                SizedBox(
+                  height: footer,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            data.nick,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelMedium?.emphasis.copyWith(
+                              color: offline ? scheme.onSurfaceVariant : scheme.onSurface,
+                            ),
+                          ),
+                        ),
+                        if (showPlatform) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            data.platform,
+                            maxLines: 1,
+                            style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -376,7 +400,7 @@ class RoomSwitchRow extends StatelessWidget {
               height: 63,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: _Cover(data: data, short: true),
+                child: _Cover(data: data, width: 112, short: true),
               ),
             ),
             const SizedBox(width: 12),

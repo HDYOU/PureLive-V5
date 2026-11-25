@@ -228,21 +228,44 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
 
   void _open(LiveRoom room, List<LiveRoom> group) => widget.onPick(room, group);
 
+  /// The groups, kept while their inputs stay the same. The page rebuilds the
+  /// panel whenever the room changes (its detail is polled), and
+  /// [roomSwitchLists] copies and sorts every follow, filters the history and
+  /// re-ranks them: a few milliseconds spent in the middle of a scroll, each
+  /// time. The same lists also let the grid's items keep their elements.
+  RoomSwitchLists? _lists;
+  Object? _listsKey;
+
+  RoomSwitchLists? _groupLists(AudiencePolicy policy) {
+    final follows = _follows;
+    final history = _history;
+    if (follows == null || history == null) return _lists = null;
+    final room = widget.controller.room;
+    final key = Object.hash(
+      identityHashCode(follows),
+      identityHashCode(history),
+      identityHashCode(widget.source),
+      room.roomId,
+      room.platform,
+      room.effectiveLiveStatus,
+      policy.rank,
+    );
+    if (key == _listsKey) return _lists;
+    _listsKey = key;
+    return _lists = roomSwitchLists(
+      follows: follows,
+      history: history,
+      source: widget.source,
+      current: room,
+      rank: policy.rank,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final layout = RoomSwitchLayout.of(watchSetting(ref, Settings.roomSwitcherLayout));
     final policy = watchAudiencePolicy(ref);
-    final follows = _follows;
-    final history = _history;
-    final lists = follows == null || history == null
-        ? null
-        : roomSwitchLists(
-            follows: follows,
-            history: history,
-            source: widget.source,
-            current: widget.controller.room,
-            rank: policy.rank,
-          );
+    final lists = _groupLists(policy);
     final group = (lists ?? RoomSwitchLists.empty).initial(_picked);
     final hook = RoomSwitchPanel.follows;
     return RoomSidePanel(
@@ -353,6 +376,9 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
       RoomSwitchLayout.grid => LayoutBuilder(
         builder: (context, constraints) {
           final columns = roomSwitchColumns(constraints.maxWidth);
+          final width =
+              math.max(0, constraints.maxWidth - roomSwitchGridPadding * 2 - roomSwitchGridSpacing * (columns - 1)) /
+              columns;
           final footer = math.max(roomSwitchCardFooter, MediaQuery.textScalerOf(context).scale(12) * 1.34 + 10);
           return GridView.builder(
             key: const ValueKey('switch-grid'),
@@ -375,6 +401,7 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
               return RoomSwitchCard(
                 key: ValueKey('switch-room-${room.platform}-${room.roomId}'),
                 data: data(room),
+                coverWidth: width,
                 footer: footer,
                 showPlatform: mixed,
                 onTap: () => open(room),
