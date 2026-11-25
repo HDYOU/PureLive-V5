@@ -23,8 +23,13 @@ final class PlaybackTelemetry extends ValueNotifier<PlaybackStats?> with Widgets
   /// Native evidence is unavailable immediately after its source identity changes.
   PlaybackStats? get current => _lastIdentity == _identity() ? value : null;
 
-  /// Short average of valid samples, including a genuinely measured zero.
-  double? get downloadAverage => _downloads.isEmpty ? null : _downloads.reduce((a, b) => a + b) / _downloads.length;
+  /// Short median of valid samples, including a genuinely measured zero.
+  ///
+  /// A median rather than a mean: both engines' speed readings can spike for
+  /// a single poll (libmdk once reported 3.3 Gbps for a 1.2 Mbps source, mpv
+  /// refills a starved cache in bursts), and one spike would drag a mean of
+  /// three samples far off the real speed.
+  double? get downloadAverage => _downloads.isEmpty ? null : ([..._downloads]..sort())[_downloads.length ~/ 2];
 
   @override
   void addListener(VoidCallback listener) {

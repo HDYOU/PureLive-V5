@@ -11,20 +11,31 @@ void main() {
     test('the decoder order: the platform hardware ones first, software behind them', () {
       // 3.x's hardware-decoder order: the platform's hardware decoders first,
       // then FFmpeg's software decoders and the stand-alone dav1d.
-      expect(
-        fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: true),
-        ['AMediaCodec', 'MediaCodec', 'FFmpeg', 'dav1d'],
-      );
+      expect(fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: true), [
+        'AMediaCodec',
+        'MediaCodec',
+        'FFmpeg',
+        'dav1d',
+      ]);
       expect(fvpVideoDecoders(FvpPlatform.ios, hardwareDecoding: true), ['VT', 'FFmpeg', 'dav1d']);
       expect(fvpVideoDecoders(FvpPlatform.macos, hardwareDecoding: true), ['VT', 'hap', 'FFmpeg', 'dav1d']);
-      expect(
-        fvpVideoDecoders(FvpPlatform.windows, hardwareDecoding: true),
-        ['MFT:d3d=11', 'D3D11', 'DXVA', 'CUDA', 'hap', 'FFmpeg', 'dav1d'],
-      );
-      expect(
-        fvpVideoDecoders(FvpPlatform.linux, hardwareDecoding: true),
-        ['VAAPI', 'CUDA', 'VDPAU', 'hap', 'FFmpeg', 'dav1d'],
-      );
+      expect(fvpVideoDecoders(FvpPlatform.windows, hardwareDecoding: true), [
+        'MFT:d3d=11',
+        'D3D11',
+        'DXVA',
+        'CUDA',
+        'hap',
+        'FFmpeg',
+        'dav1d',
+      ]);
+      expect(fvpVideoDecoders(FvpPlatform.linux, hardwareDecoding: true), [
+        'VAAPI',
+        'CUDA',
+        'VDPAU',
+        'hap',
+        'FFmpeg',
+        'dav1d',
+      ]);
       // 3.x's "硬件解码" off decodes with FFmpeg alone.
       expect(fvpVideoDecoders(FvpPlatform.android, hardwareDecoding: false), ['FFmpeg']);
     });
@@ -35,6 +46,17 @@ void main() {
         fvpHeaderLines(const {'User-Agent': 'PureLive/5.0', 'Referer': 'https://live.bilibili.com'}),
         'User-Agent: PureLive/5.0\r\nReferer: https://live.bilibili.com\r\n',
       );
+    });
+
+    test('the download speed takes the median, so one burst poll is ignored', () {
+      // libmdk's running bit rate tracks the read speed but a single poll can
+      // land far above the link (a 1.2 Mbps source once read 3.3 Gbps), and
+      // the mean of three samples would carry that spike into the panel.
+      expect(medianOf(const []), isNull);
+      expect(medianOf(const [2400000]), 2400000);
+      expect(medianOf(const [2000000, 2400000]), 2400000);
+      expect(medianOf(const [2000000, 3300000000.0, 2400000]), 2400000);
+      expect(medianOf(const [908688, 1565781, 2623251, 2400000, 3320394040.0]), 2400000);
     });
 
     test('the picture size: the sample aspect ratio, then a quarter turn', () {

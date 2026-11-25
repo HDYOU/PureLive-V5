@@ -126,6 +126,15 @@ String fvpHeaderLines(Map<String, String> headers) =>
   return (width: displayWidth, height: displayHeight);
 }
 
+/// The median of [values]: the middle one for an odd count, the upper of the
+/// two middle ones for an even count, and null for no values. The panel's
+/// “网速” row takes a median because a speed sample can spike for one poll.
+double? medianOf(List<double> values) {
+  if (values.isEmpty) return null;
+  final sorted = [...values]..sort();
+  return sorted[sorted.length ~/ 2];
+}
+
 /// One libmdk player with its subscriptions and its per-instance state. The
 /// engine keeps two of these: [_currentPlayer] (the picture being shown) and
 /// [_nextPlayer] (a prepare in progress that takes over on success).
@@ -155,6 +164,16 @@ class _PlayerInstance {
   ({int width, int height})? lastSize;
   double? lastFrameRate;
   var mediaInfoReported = false;
+
+  /// Recent read-throughput samples of `mediaInfo.bitRate`, in bits a
+  /// second. libmdk updates the value to a realtime figure while playing,
+  /// but a single sample bursts far above the link, so the engine reports a
+  /// median over these instead of the latest one.
+  final List<double> bitRates = [];
+
+  /// Consecutive polls that read no bit rate at all (a stall, or a source
+  /// that has not started reading yet), used to drop stale samples.
+  int bitRateMisses = 0;
 
   /// The texture made for this player, held until its first frame is drawn
   /// (the picture already on screen stays up until then).
@@ -1020,11 +1039,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       }
       final bufferSeconds = bufferedMs == null || bufferedMs <= 0 ? null : bufferedMs / 1000;
 
-      // The current download bit rate in bytes a second; libmdk updates
-      // `mediaInfo.bitRate` to the realtime value while playing. The panel
-      // smooths it over a few polls, as it does for mpv's cache-speed.
-      final bitrate = info.bitRate;
-      final downloadBytesPerSecond = bitrate > 0 ? bitrate / 8.0 : null;
+      // The download speed in bytes a second, for the panel's "网速" row.
+      // libmdk updates `mediaInfo.bitRate` to a realtime read throughput in
+      // bits a second while playing, but one poll can burst far above the
+      // link (a 1.2 Mbps source once read 3.3 Gbps), so the engine reports
+      // the median of the last few polls instead of the newest one.
+      final bitrate = _sampleReadRate(ins, info.bitRate);
+      final downloadBytesPerSecond = bitrate == null ? null : bitrate / 8.0;
 
       // libmdk's build version (the integer `MDK_version`); shown as
       // "mdk-N" next to the engine name where it is available. There is no
@@ -1059,6 +1080,32 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     } on Object {
       return const PlaybackStats();
     }
+  }
+
+  /// How many samples [readRateWindow] keeps for the median.
+  static const readRateWindow = 5;
+
+  /// libmdk's read throughput in bits a second, as the median of the last
+  /// [readRateWindow] polls; null until two samples are in.
+  ///
+  /// A source measured against a rate-capped link tracks its real speed
+  /// roughly, but individual polls land anywhere between a third and several
+  /// times the truth — a 1.2 Mbps file served at 2.4 Mbps reported 3.3 Gbps
+  /// for one poll — so the newest sample alone is unusable for a row that
+  /// updates once a second. A zero reading (a stall, a reconnect, or a source
+  /// that has not started reading) is not a speed, so enough consecutive
+  /// misses drop the old samples and the row falls back to “—”.
+  double? _sampleReadRate(_PlayerInstance ins, int bitRate) {
+    final samples = ins.bitRates;
+    if (bitRate <= 0) {
+      if (++ins.bitRateMisses >= readRateWindow) samples.clear();
+    } else {
+      ins.bitRateMisses = 0;
+      samples.add(bitRate.toDouble());
+      if (samples.length > readRateWindow) samples.removeAt(0);
+    }
+    if (samples.length < 2) return null;
+    return medianOf(samples);
   }
 
   /// How many video frames the source has moved past, for the panel's “已解码”
