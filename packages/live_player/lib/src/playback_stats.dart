@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:live_player/src/frame_rate.dart';
 import 'package:meta/meta.dart';
 
 /// How long one native property may take in [readPlaybackStats].
@@ -101,8 +102,10 @@ abstract interface class PlaybackStatsSource {
 /// Reads one [PlaybackStats] through [read] (a native property reader).
 ///
 /// Each property is read with [timeout]; a missing, blank, malformed or
-/// failed one is null. The frame rate is not read here: the session already
-/// exposes it as `PlaybackState.frameRate`.
+/// failed one is null. The frame rate is the container's (`container-fps`),
+/// parsed to what the panel shows; a source that only offers mpv's own
+/// estimate leaves it null, and the panel falls back to
+/// `PlaybackState.frameRate` (which the session's probe settles).
 Future<PlaybackStats> readPlaybackStats(
   Future<String> Function(String property) read, {
   Duration timeout = playbackStatsTimeout,
@@ -134,6 +137,7 @@ Future<PlaybackStats> readPlaybackStats(
     value('mpv-version'),
     value('ffmpeg-version'),
     value('audio-codec-name'),
+    value('container-fps'),
   ]);
   String? at(int index) => values[index];
   return PlaybackStats(
@@ -152,6 +156,7 @@ Future<PlaybackStats> readPlaybackStats(
     downloadBytesPerSecond: _nonNegativeDouble(at(13)),
     mpvVersion: at(14),
     ffmpegVersion: at(15),
+    frameRate: parseFrameRate(at(17) ?? ''),
   );
 }
 

@@ -35,6 +35,7 @@ void main() {
         'cache-speed': '375000',
         'mpv-version': 'mpv 0.41.0',
         'ffmpeg-version': '9.0.2',
+        'container-fps': '59.940060',
       };
       final stats = await readPlaybackStats((property) async => properties[property] ?? '');
       expect(stats.width, 2560);
@@ -52,6 +53,12 @@ void main() {
       expect(stats.downloadBytesPerSecond, 375000);
       expect(stats.mpvVersion, 'mpv 0.41.0');
       expect(stats.ffmpegVersion, '9.0.2');
+      expect(stats.frameRate, closeTo(59.94, 0.001));
+    });
+
+    test("a live FLV's container-fps of 1000 is no frame rate", () async {
+      final stats = await readPlaybackStats((property) async => property == 'container-fps' ? '1000.000000' : '');
+      expect(stats.frameRate, isNull);
     });
 
     test('a missing, blank, malformed or failed property is null', () async {

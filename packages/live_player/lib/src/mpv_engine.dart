@@ -125,6 +125,7 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       if (resolved.forceReopenOnResume) {
         engine._lifecycleObserver.watch(engine);
         WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+        engine._observing = true;
       }
       return engine;
     } on Object {
@@ -168,6 +169,13 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   var _externalAudio = false;
   var _disposed = false;
   var _opens = 0;
+
+  /// Whether an [open] is in progress; a resume must not stack a second one.
+  var _opening = false;
+
+  /// Whether the lifecycle observer was added, so [dispose] removes only what
+  /// it installed.
+  var _observing = false;
   static var _nextDiagnosticEngine = 0;
   final int _diagnosticEngine;
   final void Function(String phase) _trace;
@@ -184,7 +192,13 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   bool get reportsFrames => config.platform == MpvPlatform.windows;
 
   void _add(EngineEvent event) {
-    if (!_disposed) _events.add(event);
+    if (_disposed) return;
+    try {
+      _events.add(event);
+    } on Object {
+      // A sync listener's failure must not unwind into the native callback
+      // that delivered the event.
+    }
   }
 
   void _bind() {
@@ -257,8 +271,13 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   @override
   Future<void> open(EngineMedia media) async {
+    // A new source replaces the one the frame-rate probe of the previous open
+    // was reading; bumping the counter first means that probe gives up before
+    // any native work of this open can be mistaken for its own reading.
+    final open = ++_opens;
     _lastMedia = media;
     _roomGainDb = media.volumeGainDb?.clamp(-12, 12);
+    _opening = true;
     _diagnosticOpens++;
     _trace('open-request');
     _bufferingProbe.reset();
@@ -294,6 +313,7 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         stackTrace: stack,
       );
     } finally {
+      _opening = false;
       _gate.finishOpen();
     }
     if (media.audioOnly) {
@@ -308,7 +328,7 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _add(EngineBuffering(buffering: state.buffering));
     _watchBuffering(state.buffering);
     _add(EnginePlaying(playing: state.playing));
-    unawaited(_probeFrameRate(++_opens));
+    unawaited(_probeFrameRate(open));
   }
 
   /// U.2i: the frame rate of what this open plays, once known.
@@ -362,6 +382,8 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Future<void> stop() {
     _hasSource = false;
     _lastMedia = null;
+    // A probe of the stopped source must not report its frame rate afterwards.
+    _opens++;
     _bufferingProbe.reset();
     _trace('stop-request');
     return player.stop().then((_) => _trace('stop-complete'));
@@ -373,9 +395,18 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   Future<void> _onAppResumed() async {
     if (!config.forceReopenOnResume) return;
     final media = _lastMedia;
-    if (_disposed || !_hasSource || media == null) return;
+    if (_disposed || !_hasSource || _opening || media == null) return;
+    // A recording comes back where it stopped; a live line reconnects at its
+    // live edge. Reopening at `media.start` would replay a recording from the
+    // beginning, and resuming a paused source would start its audio again.
+    final playing = player.state.playing;
+    final position = player.state.position;
+    final reopen = media.onDemand && position > (media.start ?? Duration.zero)
+        ? media.copyWith(start: position)
+        : media;
     try {
-      await open(media);
+      await open(reopen);
+      if (!playing) await pause();
     } on Object {
       // A failed reopen keeps the last picture state; the next open recovers it.
     }
@@ -442,7 +473,10 @@ final class MpvEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _opens++;
     _bufferingProbe.close();
     _gate.close();
-    WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+    if (_observing) {
+      WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+      _observing = false;
+    }
     final listener = _frameListener;
     if (listener != null) controller.frameRevision.removeListener(listener);
     for (final subscription in _subscriptions) {
