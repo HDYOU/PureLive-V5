@@ -59,7 +59,15 @@ final class RoomGridGeometry {
       textScaler: MediaQuery.textScalerOf(context),
       fontSizes: fontSizes,
     );
-    return RoomGridGeometry._(columns, itemWidth, extent);
+    // A whole number of logical pixels per row: the card height is
+    // `itemWidth * 9 / 16` plus a caption, so it lands on a fraction such as
+    // 170.06, and each row would then sit at a different sub-pixel phase. In
+    // the last slow frames of a fling (and at rest on a fractional offset)
+    // every row's text and cover re-rasterises out of step with the others,
+    // which reads as the grid shivering. Ceil, never round down: the caption
+    // must not be clipped.
+    final aligned = extent.ceilToDouble();
+    return RoomGridGeometry._(columns, itemWidth, aligned);
   }
 
   /// The same as [RoomGridGeometry.of] with the desktop card-size setting
