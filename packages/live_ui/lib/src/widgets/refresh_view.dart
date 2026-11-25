@@ -328,8 +328,37 @@ class _RefreshTracker extends ChangeNotifier {
         tolerance: tolerance,
       );
     }
+    // A fling that would still be moving when it meets either edge is cut off
+    // there: the clamp in [applyBoundaryConditions] returns the overshoot, the
+    // position is pinned and the activity ends in that frame (measured on the
+    // room grid's end: 1186.8 px/s at 699.381, then 702.000 at 0.0 one frame
+    // later, i.e. 2.6 px of travel at full speed). Handing that fling a
+    // quadratic ease-out over the remaining distance instead keeps its speed
+    // continuous at the first frame and brings it to rest exactly on the edge.
+    if (simulation != null && !position.outOfRange) {
+      final pixels = position.pixels;
+      final edge = velocity > 0 && stopAtEnd && _mode != AppRefreshMode.refreshing
+          ? position.maxScrollExtent
+          : velocity < 0 && !_locked && _mode != AppRefreshMode.ready
+          ? position.minScrollExtent
+          : null;
+      if (edge != null && (edge - pixels).abs() > 0 && _meetsEdgeAtSpeed(simulation, edge, trailing: velocity > 0)) {
+        simulation = _LandingSimulation(from: pixels, to: edge, velocity: velocity);
+      }
+    }
     _lastSnapshot = snapshot;
     return simulation;
+  }
+
+  /// Whether [simulation], made for a fling towards [edge], crosses it while
+  /// still faster than [_landingSpeed]; only then is the clamp there visible.
+  bool _meetsEdgeAtSpeed(Simulation simulation, double edge, {required bool trailing}) {
+    for (var t = _probeStep; t <= _probeWindow; t += _probeStep) {
+      if (simulation.isDone(t)) return false;
+      final passed = trailing ? simulation.x(t) >= edge : simulation.x(t) <= edge;
+      if (passed) return simulation.dx(t).abs() > _landingSpeed;
+    }
+    return false;
   }
 
   /// Follows the list to [value] (easy_refresh's `_updateOffset`).
@@ -437,6 +466,47 @@ class _RefreshTracker extends ChangeNotifier {
     // The animation's end let go already (createBallisticSimulation).
     dragging = false;
   }
+}
+
+/// Speed at which a stop at the list's edge stops being visible (4 px a frame
+/// at 60 Hz).
+const double _landingSpeed = 240;
+
+/// The step and horizon of the edge probe in [_RefreshTracker].
+const double _probeStep = 0.008;
+const double _probeWindow = 2.5;
+
+/// The last stretch of a fling that would hit the end of the list too fast:
+/// a quadratic ease-out from [from] to [to] whose initial speed is exactly
+/// [velocity], so the change of deceleration does not show, and whose final
+/// speed is zero at [to], so the clamp there has nothing left to cut.
+final class _LandingSimulation extends Simulation {
+  new({required this.from, required this.to, required this.velocity})
+    : _reach = to - from,
+      _duration = (to - from).abs() <= 0 ? 0.0 : 2 * (to - from).abs() / velocity.abs();
+
+  final double from;
+  final double to;
+  final double velocity;
+  final double _reach;
+  final double _duration;
+
+  @override
+  double x(double time) {
+    if (_duration <= 0) return to;
+    final left = 1 - (time / _duration).clamp(0.0, 1.0);
+    return to - _reach * left * left;
+  }
+
+  @override
+  double dx(double time) {
+    if (_duration <= 0) return 0;
+    final left = 1 - (time / _duration).clamp(0.0, 1.0);
+    return 2 * _reach * left / _duration;
+  }
+
+  @override
+  bool isDone(double time) => _duration <= 0 || time >= _duration;
 }
 
 /// [BouncingScrollPhysics] with the refresh header's edges and

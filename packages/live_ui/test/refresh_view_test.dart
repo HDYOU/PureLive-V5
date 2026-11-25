@@ -313,6 +313,44 @@ void main() {
     expect(_position(tester).pixels, max);
   });
 
+  testWidgets('a fling into either end slows into it instead of being cut off there', (tester) async {
+    _k90(tester);
+    await tester.pumpWidget(_refreshList(onRefresh: () async => null, stopAtEnd: true));
+    final position = _position(tester);
+    Future<List<double>> run(double velocity) async {
+      final steps = <double>[];
+      (position as ScrollPositionWithSingleContext).goBallistic(velocity);
+      var frames = 0;
+      while (position.isScrollingNotifier.value && frames < 2000) {
+        final before = position.pixels;
+        await tester.pump(_frame);
+        frames++;
+        final moved = (position.pixels - before).abs();
+        if (moved > 0) steps.add(moved);
+      }
+      return steps;
+    }
+
+    final max = position.maxScrollExtent;
+    position.jumpTo(max - 300);
+    await tester.pump();
+    final toEnd = await run(3000);
+    // It lands exactly on the end, and the frame before it rests is already
+    // slow: the clamp used to take the full 3000 dp/s down to zero inside one
+    // frame (2.6 dp of travel at 1186 dp/s on the room grid).
+    expect(position.pixels, max);
+    expect(toEnd.last / _frame.inMicroseconds * 1e6, lessThan(400));
+    for (var i = 1; i < toEnd.length; i++) {
+      expect(toEnd[i], lessThan(toEnd[i - 1] + 0.001));
+    }
+
+    position.jumpTo(300);
+    await tester.pump();
+    final toTop = await run(-3000);
+    expect(position.pixels, 0);
+    expect(toTop.last / _frame.inMicroseconds * 1e6, lessThan(400));
+  });
+
   testWidgets('a finger pulls past the end and it springs back', (tester) async {
     _k90(tester);
     await tester.pumpWidget(_refreshList(onRefresh: () async => null, stopAtEnd: true));
