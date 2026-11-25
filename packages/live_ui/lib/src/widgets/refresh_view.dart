@@ -10,7 +10,6 @@ import 'package:live_ui/src/theme/live_colors.dart';
 import 'package:live_ui/src/theme/metrics.dart';
 import 'package:live_ui/src/theme/motion.dart';
 import 'package:live_ui/src/theme/text_styles.dart';
-import 'package:live_ui/src/widgets/scrolling.dart';
 import 'package:live_ui/src/widgets/status_view.dart';
 
 // Pull to refresh with 3.x's feel (docs/A-界面设计/A03-动效和手感/A03.1-主列表手感/brief.md, research
@@ -104,21 +103,8 @@ class AppRefreshView extends StatefulWidget {
 class AppRefreshViewState extends State<AppRefreshView> {
   late final _RefreshTracker _tracker = _RefreshTracker(onRefresh: () => widget.onRefresh())
     ..stopAtEnd = widget.stopAtEnd;
-  _RefreshScrollPhysics? _physics;
-  double _stopVelocity = 0;
+  late final ScrollPhysics _physics = _RefreshScrollPhysics(tracker: _tracker);
   _HeaderLayout? _layout;
-
-  /// The physics the list gets. A fling ends once it can no longer move the
-  /// list by a physical pixel a frame ([pixelStopVelocity] explains it and
-  /// has the measurements).
-  ScrollPhysics _scrollPhysics(BuildContext context) {
-    final stop = pixelStopVelocity(context);
-    if (_physics == null || stop != _stopVelocity) {
-      _stopVelocity = stop;
-      _physics = _RefreshScrollPhysics(tracker: _tracker, stopVelocity: stop);
-    }
-    return _physics!;
-  }
 
   /// Where the header is.
   AppRefreshMode get mode => _tracker.mode;
@@ -165,7 +151,7 @@ class AppRefreshViewState extends State<AppRefreshView> {
             ScrollConfiguration(
               // 3.x's `ERScrollBehavior`: the list springs back, so no stretch.
               behavior: ScrollConfiguration.of(context).copyWith(overscroll: false),
-              child: widget.builder(context, _scrollPhysics(context)),
+              child: widget.builder(context, _physics),
             ),
             Positioned(
               top: 0,
@@ -528,26 +514,13 @@ final class _LandingSimulation extends Simulation {
 /// the header at its height, closes it after a refresh and returns a list
 /// pulled past either end in about 0.35 s.
 class _RefreshScrollPhysics extends BouncingScrollPhysics {
-  const new({required this.tracker, this.stopVelocity = 0, super.parent = const AlwaysScrollableScrollPhysics()});
+  const new({required this.tracker, super.parent = const AlwaysScrollableScrollPhysics()});
 
   final _RefreshTracker tracker;
 
-  /// The speed a fling stops at instead of crawling to Flutter's own
-  /// [_stopVelocity]: one physical pixel a frame on the running display.
-  /// [Tolerance.distance] stays Flutter's, so a spring still settles within
-  /// a third of a logical pixel.
-  final double stopVelocity;
-
   @override
   _RefreshScrollPhysics applyTo(ScrollPhysics? ancestor) =>
-      _RefreshScrollPhysics(tracker: tracker, stopVelocity: stopVelocity, parent: buildParent(ancestor));
-
-  @override
-  Tolerance toleranceFor(ScrollMetrics position) {
-    final base = super.toleranceFor(position);
-    if (stopVelocity <= base.velocity) return base;
-    return Tolerance(distance: base.distance, velocity: stopVelocity);
-  }
+      _RefreshScrollPhysics(tracker: tracker, parent: buildParent(ancestor));
 
   @override
   SpringDescription get spring => AppMotion.refreshSpring;

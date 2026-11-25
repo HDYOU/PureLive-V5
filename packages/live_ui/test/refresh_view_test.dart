@@ -14,7 +14,6 @@ const _frame = Duration(microseconds: 8333);
 void _k90(WidgetTester tester) {
   tester.view.physicalSize = const Size(1200, 2607);
   tester.view.devicePixelRatio = 3;
-  tester.view.display.refreshRate = 120;
   addTearDown(tester.view.reset);
 }
 
@@ -94,61 +93,27 @@ void main() {
   // Flutter (3.47.5): docs/A-界面设计/A03-动效和手感/A03.1-主列表手感/record.md.
   const v3 = {500: (246.38, 2.167), 1000: (496.09, 2.517), 3000: (1494.86, 3.067), 6000: (2992.97, 3.408)};
 
-  testWidgets('a fling glides on 3.x deceleration and stops where a frame is a pixel', (tester) async {
+  testWidgets('a fling glides like 3.x: 500, 3000 and 6000 dp/s', (tester) async {
     _k90(tester);
     await tester.pumpWidget(_refreshList(onRefresh: () async => null));
-    // One physical pixel a frame at 120 Hz on a 3x screen: what the physics
-    // stops a fling at (_RefreshScrollPhysics.stopVelocity).
-    const stopSpeed = 40.0;
+    const stopSpeed = 20 / 3;
     final drag = math.log(1 / 0.135);
     for (final MapEntry(key: speed, value: (distance, seconds)) in v3.entries) {
       final velocity = speed.toDouble();
       _position(tester).jumpTo(8000);
       await tester.pump();
       final glide = await _glide(tester, velocity);
-      // 3.x's curve, v / drag, run down to [stopSpeed] instead of to
-      // Flutter's 6.67 dp/s.
-      // The frame that stops it moves the list its last pixel, so it may end
-      // up to a pixel past the curve, and a frame earlier than it.
-      expect(glide.distance, closeTo((velocity - stopSpeed) / drag, 1.0), reason: '$speed dp/s');
-      expect(glide.seconds, closeTo(math.log(velocity / stopSpeed) / drag, 0.03), reason: '$speed dp/s');
-      // What that costs against 3.x: the crawl 3.x finished with (its last
-      // frame was 0.06 dp at 120 Hz, and it spent a second under one).
-      expect(glide.distance, closeTo(distance - (stopSpeed - 20 / 3) / drag, 1.0), reason: '$speed dp/s');
-      expect(glide.seconds, closeTo(seconds - math.log(stopSpeed / (20 / 3)) / drag, 0.03), reason: '$speed dp/s');
-      if (table[speed] case (final limit, final _)?) {
-        // Where the curve would have ended: v / drag.
-        expect((glide.distance + stopSpeed / drag - limit).abs() / limit, lessThan(0.01), reason: '$speed dp/s');
+      // The same numbers as 3.x, frame for frame.
+      expect(glide.distance, closeTo(distance, 0.01), reason: '$velocity dp/s');
+      expect(glide.seconds, closeTo(seconds, 0.001), reason: '$velocity dp/s');
+      if (table[speed] case (final limit, final rounded)?) {
+        // The list stops (stopSpeed / drag) = 3.33 dp short of the limit.
+        expect((glide.distance + stopSpeed / drag - limit).abs() / limit, lessThan(0.01), reason: '$velocity dp/s');
+        // The table rounds the time to 0.1 s; the formula's own time.
+        final formula = math.log(velocity / stopSpeed) / drag;
+        expect((glide.seconds - formula).abs() / formula, lessThan(0.01), reason: '$velocity dp/s');
+        expect(glide.seconds, closeTo(rounded, 0.07), reason: '$velocity dp/s');
       }
-    }
-  });
-
-  testWidgets('no frame of a fling moves the list less than a physical pixel', (tester) async {
-    _k90(tester);
-    await tester.pumpWidget(_refreshList(onRefresh: () async => null));
-    for (final velocity in [500.0, 1500.0, 3000.0, 6000.0]) {
-      _position(tester).jumpTo(4000);
-      await tester.pump();
-      final position = _position(tester);
-      (position as ScrollPositionWithSingleContext).goBallistic(velocity);
-      var last = position.pixels;
-      final steps = <double>[];
-      var frames = 0;
-      while (position.isScrollingNotifier.value && frames < 2000) {
-        await tester.pump(_frame);
-        frames++;
-        steps.add((position.pixels - last).abs());
-        last = position.pixels;
-      }
-      // Every frame of the glide but the one that stops it moved the list by
-      // at least a physical pixel: no tail of sub-pixel frames re-rasterising
-      // the content at a new phase each frame.
-      // The frame that stops it may land a hair under a pixel (it is cut
-      // part way through); every frame before it moved a pixel or more.
-      final moving = steps.where((step) => step > 0).toList();
-      final under = moving.where((step) => step < 1 / 3 - 0.02).toList();
-      expect(under.length, lessThanOrEqualTo(1), reason: '$velocity dp/s: $under');
-      expect(moving.last, greaterThan(1 / 3 - 0.02), reason: '$velocity dp/s');
     }
   });
 

@@ -437,11 +437,7 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
             key: const ValueKey('switch-grid'),
             controller: _scroll,
             padding: const EdgeInsets.all(roomSwitchGridPadding),
-            // A fling stops where a frame is a pixel, like the rooms grid's
-            // (see [pixelStopVelocity]): Flutter's own stop speed leaves over
-            // a second of frames moving a fraction of a pixel, and every card
-            // of the grid re-rasterises its cover and words on each of them.
-            physics: PureLiveScrollPhysics(stopVelocity: pixelStopVelocity(context)),
+            physics: const PureLiveScrollPhysics(),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
               // A whole number of logical pixels a row, as the rooms grid
@@ -478,7 +474,7 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
         key: const ValueKey('switch-list'),
         controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: 2),
-        physics: PureLiveScrollPhysics(stopVelocity: pixelStopVelocity(context)),
+        physics: const PureLiveScrollPhysics(),
         // Whole rows, for the same sub-pixel reason as the grid.
         itemExtent: (roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6)).ceilToDouble(),
         itemCount: rooms.length,
