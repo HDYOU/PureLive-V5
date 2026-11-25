@@ -1053,10 +1053,29 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         bufferSeconds: bufferSeconds,
         downloadBytesPerSecond: downloadBytesPerSecond,
         frameRate: fps,
+        decodedFrames: _decodedFrames(ins, fps),
         mpvVersion: mdkBuild,
       );
     } on Object {
       return const PlaybackStats();
+    }
+  }
+
+  /// How many video frames the source has moved past, for the panel's “已解码”
+  /// row. libmdk keeps no frame counters — its renderer only drops frames when
+  /// it falls behind and does not count them — so the figure is derived the
+  /// way mpv's `estimated-frame-number` is: the media time the source has
+  /// played times its probed rate. A source with no known rate reports none,
+  /// and [PlaybackStats.droppedFrames] stays empty: libmdk never says how many
+  /// frames it dropped.
+  int? _decodedFrames(_PlayerInstance ins, double? fps) {
+    if (fps == null) return null;
+    try {
+      final position = ins.player.position;
+      if (position <= 0) return 0;
+      return (position * fps / 1000).round();
+    } on Object {
+      return null;
     }
   }
 

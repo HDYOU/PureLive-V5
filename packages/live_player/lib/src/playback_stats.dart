@@ -70,8 +70,9 @@ final class PlaybackStats {
   final int? droppedFrames;
 
   /// Frames decoded so far (`estimated-frame-number`, else
-  /// `estimated-frame-count`). The fvp engine does not report the decoded
-  /// frame count (libmdk has no such counter), so this stays null there.
+  /// `estimated-frame-count`). libmdk keeps no such counter, so the fvp engine
+  /// derives it like mpv's estimate: the media time the source has played
+  /// times its probed frame rate; null while the rate is unknown.
   final int? decodedFrames;
 
   /// Seconds of media in the demuxer cache (`demuxer-cache-duration`; the fvp

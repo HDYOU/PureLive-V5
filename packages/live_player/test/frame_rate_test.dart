@@ -77,9 +77,10 @@ void main() {
         engine.onOpen = (media) async {
           // libmdk knows the size and the rate once prepare returns, which
           // is while the session still fences the events of this open.
-          engine.emit(const EngineVideoSize(1920, 1080));
-          engine.emit(const EngineFrameRate(59.94));
-          engine.playing();
+          engine
+            ..emit(const EngineVideoSize(1920, 1080))
+            ..emit(const EngineFrameRate(59.94))
+            ..playing();
         };
         final session = PlaybackSession(engine: () async => engine, opener: MediaOpener());
         unawaited(
