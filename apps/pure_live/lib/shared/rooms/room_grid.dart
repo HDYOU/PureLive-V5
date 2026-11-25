@@ -815,14 +815,15 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                 slivers: [
                   SliverPadding(
                     padding: const EdgeInsets.all(roomGridPadding).withGlassBar(context),
-                    // No `RepaintBoundary` per card: measured at 3x with a
-                    // viewport of twelve cards, the default cost seventeen
-                    // offset layers against five, +0.6 ms of raster per frame,
-                    // and nothing on the UI thread either way. Nothing inside
-                    // a card animates on its own (the cover fades in once, when
-                    // it arrives), so there is no repaint for a card's own
-                    // boundary to save; the whole viewport repaints when it
-                    // scrolls anyway.
+                    // The card's own `RepaintBoundary` stays (the delegate's
+                    // default). The switch panel's grid measured it at the end
+                    // of a fling — the frames that creep under 2 px a frame,
+                    // where a hitch is what the eye sees: 1.50 ms a frame with
+                    // the layer against 1.94 ms without, three runs each. A
+                    // card without a layer of its own is recorded into the
+                    // viewport's single picture, so every frame of the creep
+                    // re-records every visible card; with one, the recording
+                    // is kept and the frame only shifts it.
                     sliver: SliverGrid(
                       gridDelegate: geometry.delegate(spacing: spacing, mainSpacing: mainSpacing),
                       delegate: SliverChildBuilderDelegate(
@@ -836,7 +837,6 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                         ),
                         findChildIndexCallback: (key) => roomIndices[key],
                         childCount: rooms.length,
-                        addRepaintBoundaries: false,
                       ),
                     ),
                   ),

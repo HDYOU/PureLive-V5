@@ -441,16 +441,20 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
               math.max(0, constraints.maxWidth - roomSwitchGridPadding * 2 - roomSwitchGridSpacing * (columns - 1)) /
               columns;
           final footer = math.max(roomSwitchCardFooter, MediaQuery.textScalerOf(context).scale(12) * 1.34 + 10);
-          // A `CustomScrollView` rather than `GridView.builder`: the builder
-          // takes the delegate's defaults, which wrap every card in its own
-          // `RepaintBoundary` (one offset layer per card, on every frame of a
-          // scroll) and leave a card that only moved index to be rebuilt from
-          // scratch. Measured on the rooms grid at 3x: twelve cards on screen
-          // make seventeen offset layers with the boundaries against five
-          // without, +0.6 ms of raster per frame and nothing on the UI thread.
-          // Nothing inside a card animates by itself — the ink of a tap is
-          // clipped inside the card and the cover fades in once — so there is
-          // no repaint a card's own boundary would save.
+          // A `CustomScrollView` rather than `GridView.builder`, for the
+          // `findChildIndexCallback` the builder does not take: a rebuild that
+          // keeps most rooms moves a card that shifted index instead of
+          // building it anew and resubscribing its cover.
+          //
+          // The card's own `RepaintBoundary` stays (the delegate's default).
+          // Measured on this panel's grid at the end of a 2200 px/s fling —
+          // the last 54 frames, the ones where the list creeps under 2 px a
+          // frame and a hitch is what the eye sees — a frame costs 1.50 ms
+          // with the layer against 1.94 ms without it (three runs each, the
+          // same cards and the same rebuilds in both). Without a layer of its
+          // own a card is recorded into the viewport's single picture, and
+          // every frame of the creep re-records all twelve of them; with one,
+          // the recording is kept and the frame only shifts it.
           return CustomScrollView(
             key: const ValueKey('switch-grid'),
             controller: _scroll,
@@ -491,7 +495,6 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
                     },
                     findChildIndexCallback: (key) => indices[key],
                     childCount: rooms.length,
-                    addRepaintBoundaries: false,
                   ),
                 ),
               ),
@@ -507,8 +510,9 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
         slivers: [
           SliverPadding(
             padding: const EdgeInsets.symmetric(vertical: 2),
-            // Whole rows, for the same sub-pixel reason as the grid, and no
-            // card layer for the same reason as the grid's comment above.
+            // Whole rows, for the same sub-pixel reason as the grid, and the
+            // row's own layer stays for the same reason as the grid's comment
+            // above.
             sliver: SliverFixedExtentList(
               itemExtent: (roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6))
                   .ceilToDouble(),
@@ -524,7 +528,6 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
                 },
                 findChildIndexCallback: (key) => indices[key],
                 childCount: rooms.length,
-                addRepaintBoundaries: false,
               ),
             ),
           ),
