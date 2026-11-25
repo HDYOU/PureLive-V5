@@ -524,6 +524,7 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
       _autoFillFrom = -1;
       _autoCapacity = null;
       _pendingAnchor = null;
+      _moreAsked = false;
       _fillScheduler.reset();
     }
     if (widget.pageSize != null && widget.pageSize != oldWidget.pageSize) {
@@ -569,7 +570,11 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
 
   int get _firstCount => _desktop ? _currentPageSize : phonePageSize;
 
-  Future<void> _refresh() => _feed.refresh(count: _firstCount);
+  /// A refresh replaces the list, so the end is new: the latch starts over.
+  Future<void> _refresh() {
+    _moreAsked = false;
+    return _feed.refresh(count: _firstCount);
+  }
 
   /// A pull's refresh: "刷新失败" with the reason in the header when it
   /// failed (the banner above the cards says so too).
@@ -579,16 +584,40 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     return error == null ? null : AppRefreshFailure(describeLoadError(error));
   }
 
-  void _loadMore() {
-    if (_desktop || !_feed.hasMore || _feed.busy || _feed.error != null) return;
+  /// Asks the feed for the phone list's next rooms; true when it was asked.
+  bool _loadMore() {
+    if (_desktop || !_feed.hasMore || _feed.busy || _feed.error != null) return false;
     unawaited(_feed.ensure(_feed.rooms.length + phonePageSize));
+    return true;
   }
 
+  /// How close to the end of the phone list (in logical pixels) the next page
+  /// is asked for.
+  static const double loadMoreTail = 600;
+
+  /// The height of the phone footer's one row: a `TextButton`'s 48, which is
+  /// the tallest of its states (the spinner is 20, the last page's words 14).
+  static const double footerRowHeight = 48;
+
+  /// Whether the phone list already asked for more rooms on this approach to
+  /// its end, until the end moved at least [loadMoreTail] away again.
+  ///
+  /// A fling's tail sends a scroll notification on every frame and the feed
+  /// answers within a few frames, so without this each answered page asked
+  /// for the next one at once: the list kept loading page after page just
+  /// where it was gliding to a stop, and each answer rebuilt it and changed
+  /// its extent there. `_feed.rooms` also rebuilds the visible list on every
+  /// read, which the per-frame path must not do. One request per approach.
+  bool _moreAsked = false;
+
   // A list shorter than the screen cannot be scrolled to its end: ask for
-  // more right away (3.x's footer needed a drag).
+  // more right away (3.x's footer needed a drag). The scroll path's latch
+  // does not apply: the end is already as close as it can be.
   void _fillViewport() {
-    if (_desktop || !_scroll.hasClients || _feed.rooms.isEmpty) return;
-    if (_scroll.position.maxScrollExtent <= 0) _loadMore();
+    if (_desktop || !_scroll.hasClients) return;
+    if (_scroll.position.maxScrollExtent > 0) return;
+    if (_feed.rooms.isEmpty) return;
+    _moreAsked = _loadMore();
   }
 
   // Automatic pages (V02.47): keep asking until the page fills the window.
@@ -665,7 +694,10 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     final desktop = _desktop;
     final sizes = pageSizesOf(settings, MediaQuery.sizeOf(context).width);
     final pageSize = _currentPageSize;
-    final hasContent = _feed.rooms.isNotEmpty;
+    // One read per build: the getter rebuilds the visible list (a filter over
+    // every fetched room, up to `maxRooms`), and the row below reads it twice.
+    final shown = _feed.rooms;
+    final hasContent = shown.isNotEmpty;
 
     final Widget body;
     if (!hasContent && (!_feed.loaded || (_feed.busy && _feed.error == null))) {
@@ -675,7 +707,7 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     } else if (!hasContent) {
       body = _status(desktop, _emptyStatus(desktop));
     } else {
-      final rooms = desktop ? _feed.pageRooms(_feed.page, pageSize) : _feed.rooms;
+      final rooms = desktop ? _feed.pageRooms(_feed.page, pageSize) : shown;
       // The physics come from the pull-to-refresh view on phones (3.x's
       // bounce, P02), else the app's own.
       Widget list(ScrollPhysics physics) {
@@ -787,7 +819,14 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
           stopAtEnd: _feed.hasMore,
           builder: (context, physics) => NotificationListener<ScrollNotification>(
             onNotification: (notification) {
-              if (notification.metrics.axis == Axis.vertical && notification.metrics.extentAfter < 600) _loadMore();
+              if (notification.metrics.axis != Axis.vertical) return false;
+              final after = notification.metrics.extentAfter;
+              if (after > loadMoreTail) {
+                // The end is far again: the next approach may ask once more.
+                _moreAsked = false;
+              } else if (!_moreAsked) {
+                _moreAsked = _loadMore();
+              }
               return false;
             },
             child: list(physics),
@@ -913,7 +952,24 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
     }
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [state, ?_hiddenNote(context)]),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // One row of a fixed height, whichever state shows in it: the
+          // "加载更多" button, the spinner and "没有更多数据" are 48, 20 and
+          // 14 high. The states swap exactly when the list rests at its end
+          // (the busy one as the last rooms arrive), and a row that shrinks
+          // there pulls the position back by the same pixels: the grid
+          // visibly jumps at the end of a scroll. Measured: settling 20 px
+          // above the end and shrinking the footer by 28 moved the position
+          // 718 → 710 in one frame.
+          SizedBox(
+            height: footerRowHeight,
+            child: Center(child: state),
+          ),
+          ?_hiddenNote(context),
+        ],
+      ),
     );
   }
 }
