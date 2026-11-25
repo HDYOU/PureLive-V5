@@ -147,45 +147,70 @@ class _PlayerInstance {
   var buffering = false;
   var audioOnly = false;
   var externalAudio = false;
+
+  /// Whether this source already reported its end, so a status flag that
+  /// stays set does not emit [EngineCompleted] again on every later status.
+  var ended = false;
+
   ({int width, int height})? lastSize;
   double? lastFrameRate;
   var mediaInfoReported = false;
 
+  /// The texture made for this player, held until its first frame is drawn
+  /// (the picture already on screen stays up until then).
+  int? pendingTextureId;
+
   /// Re-applies the persistent libmdk properties to [player].
   void configure() {
-    player
+    this
       // 网络与重连
-      ..setProperty('avio.reconnect', '1')
-      ..setProperty('avio.reconnect_delay_max', '7')
-      ..setProperty('avio.connection_timeout', '3000')
-      ..setProperty('avio.read_timeout', '5000')
+      .._set('avio.reconnect', '1')
+      .._set('avio.reconnect_delay_max', '7')
+      .._set('avio.connection_timeout', '3000')
+      .._set('avio.read_timeout', '5000')
       // 解封装兼容
-      ..setProperty('avformat.strict', 'experimental')
-      ..setProperty('avformat.safe', '0')
-      ..setProperty('avformat.rtsp_transport', 'tcp')
-      ..setProperty('avformat.extension_picky', '0')
-      ..setProperty('avformat.allowed_segment_extensions', 'ALL')
+      .._set('avformat.strict', 'experimental')
+      .._set('avformat.safe', '0')
+      .._set('avformat.rtsp_transport', 'tcp')
+      .._set('avformat.extension_picky', '0')
+      .._set('avformat.allowed_segment_extensions', 'ALL')
       // 直播缓冲低延迟
-      ..setProperty('avio.buffer_size', '262144')
-      ..setProperty('player.buffer.duration', '800')
-      ..setProperty('player.buffer.size', '1048576')
-      ..setProperty('hls.live_start_index', '-3')
+      .._set('avio.buffer_size', '262144')
+      .._set('player.buffer.duration', '800')
+      .._set('player.buffer.size', '1048576')
+      .._set('hls.live_start_index', '-3')
       // 禁用字幕，解决 thread.subtitle 报错
-      ..setProperty('subtitle.enabled', '0')
-      ..setProperty('subtitle.auto', '0')
-      ..setProperty('subtitle.render', '0')
-      ..setProperty('avformat.allowed_media_types', 'video,audio')
+      .._set('subtitle.enabled', '0')
+      .._set('subtitle.auto', '0')
+      .._set('subtitle.render', '0')
+      .._set('avformat.allowed_media_types', 'video,audio')
       // 解码与同步
-      ..setProperty('video.decoder', 'shader_resource=0')
-      ..setProperty('avsync', 'video')
-      ..setProperty('avsync.drift', '0')
-      ..setProperty('video.postprocess', '0');
+      .._set('video.decoder', 'shader_resource=0')
+      .._set('avsync', 'video')
+      .._set('avsync.drift', '0')
+      .._set('video.postprocess', '0');
+  }
+
+  /// Sets [name] on [player], and in debug reads it back.
+  ///
+  /// libmdk's `setProperty` returns nothing and drops a key it does not know,
+  /// so a misspelled property would otherwise configure nothing at all without
+  /// a trace. The read-back is debug only; release builds pay for one call.
+  void _set(String name, String value) {
+    player.setProperty(name, value);
+    assert(() {
+      final applied = player.getProperty(name);
+      if (applied != value) {
+        debugPrint('[$tag] libmdk ignored property $name=$value (read back ${applied ?? 'null'})');
+      }
+      return true;
+    }(), 'The property is read back so a key libmdk does not know leaves a trace.');
   }
 
   /// Cancels this instance's stream subscriptions.
   void disposeSubscriptions() {
     for (final subscription in subscriptions) {
-      subscription.cancel();
+      unawaited(subscription.cancel());
     }
     subscriptions.clear();
   }
@@ -194,12 +219,10 @@ class _PlayerInstance {
   /// resources. Errors are logged, never thrown: teardown must not fail.
   Future<void> safeDispose() async {
     disposeSubscriptions();
+    pendingTextureId = null;
     try {
-      await player.updateTexture(width: -1);
-    } catch (e, st) {
-      debugPrint('[$tag] safeDispose updateTexture error: $e\n$st');
-    }
-    try {
+      // `disposeAsync` releases the texture itself (an updateTexture with
+      // width -1), so there is no call of it here.
       await player.disposeAsync();
     } catch (e, st) {
       debugPrint('[$tag] safeDispose disposeAsync error: $e\n$st');
@@ -247,6 +270,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         // been dropped; the observer reopens so the picture comes back.
         engine._lifecycleObserver.bind(engine);
         WidgetsBinding.instance.addObserver(engine._lifecycleObserver);
+        engine._observerAdded = true;
       }
       return engine;
     } on Object catch (error, stack) {
@@ -276,12 +300,44 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   late final ValueNotifier<Size?> _frameSize = ValueNotifier<Size?>(null);
 
   Timer? _ticker;
+  Timer? _commitTimer;
   var _disposed = false;
   var _opens = 0; // A sequence number: a stale async open cannot clobber a newer state.
   var _volume = 1.0;
-  var _gainDb = 0;
+
+  /// This room's gain in dB; null falls back to [FvpEngineConfig.volumeGainDb].
+  int? _gainDb;
+
+  /// The speed the session asked for, re-applied to every player this engine
+  /// creates (a new native player starts at 1x).
+  var _rate = 1.0;
   EngineMedia? _lastMedia;
-  var _lifecycleObserver = _TextureLifecycleObserver();
+
+  /// The players whose textures may still be on screen while their
+  /// replacements render a first frame; released once a replacement's texture
+  /// is shown. A list, not one, because a slow prepare can supersede a switch
+  /// before it commits.
+  final List<_PlayerInstance> _fadings = [];
+
+  /// Instances whose open timed out while libmdk's prepare was still running.
+  /// They are released once prepare settles, or by [dispose] when it never
+  /// does.
+  final Set<_PlayerInstance> _abandoned = {};
+
+  final _lifecycleObserver = _TextureLifecycleObserver();
+  var _observerAdded = false;
+  String? _lastLoggedError;
+  DateTime? _lastLoggedErrorAt;
+
+  /// libmdk's build version as "mdk-N"; null when it cannot be read. Fixed
+  /// for a build, so it is read once.
+  static final String? _mdkBuild = () {
+    try {
+      return 'mdk-${mdk.version()}';
+    } on Object {
+      return null;
+    }
+  }();
 
   @override
   Stream<EngineEvent> get events => _events.stream;
@@ -296,7 +352,14 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   ValueListenable<Size?> get frameSize => _frameSize;
 
   void _add(EngineEvent event) {
-    if (!_disposed) _events.add(event);
+    if (_disposed) return;
+    try {
+      _events.add(event);
+    } on Object catch (error, stack) {
+      // A listener threw synchronously inside a libmdk callback; swallowing it
+      // keeps the exception out of the native event loop.
+      debugPrint('[FvpEngine] event listener error: $error\n$stack');
+    }
   }
 
   /// The settings that stay on a player between sources.
@@ -340,8 +403,12 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         ins.player.onEvent.listen((event) {
           if (_disposed) return;
           // The first decoded frame tells the picture's size when the probe
-          // did not (libmdk fills `mediaInfo.video` at load).
-          if (event.category == 'decoder.video') _emitSize(ins);
+          // did not (libmdk fills `mediaInfo.video` at load), and it is the
+          // moment the texture of a switch can be shown without a black gap.
+          if (event.category == 'decoder.video') {
+            _emitSize(ins);
+            _commitTexture(ins);
+          }
           _logEvent(event, ins.tag);
         }),
       );
@@ -351,6 +418,11 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (status.test(mdk.MediaStatus.invalid) && ins.hasSource) {
       ins.hasSource = false;
       _stopTicker();
+      try {
+        ins.player.state = mdk.PlaybackState.stopped;
+      } on Object {
+        // The player may already be gone.
+      }
       _add(
         const EngineError(
           PlayerException(
@@ -362,7 +434,12 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       );
       return;
     }
-    if (status.test(mdk.MediaStatus.end)) _add(const EngineCompleted());
+    // `end` is a flag that stays set, so the status callbacks after it would
+    // report the completion again.
+    if (status.test(mdk.MediaStatus.end) && ins.hasSource && !ins.ended) {
+      ins.ended = true;
+      _add(const EngineCompleted());
+    }
     final buffering = status.test(mdk.MediaStatus.buffering) || status.test(mdk.MediaStatus.stalled);
     if (buffering != ins.buffering) {
       ins.buffering = buffering;
@@ -378,7 +455,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   void _logEvent(mdk.MediaEvent event, String tag) {
     if (event.error == 0) return;
     if (event.category == 'reader.buffering') return;
-    debugPrint('[$tag] fvp error: code=${event.error} category=${event.category} detail=${event.detail}');
+    final line = '[$tag] fvp error: code=${event.error} category=${event.category} detail=${event.detail}';
+    // A line that keeps dropping its connection repeats the same fault; log
+    // it once per two seconds instead of on every event.
+    final now = DateTime.now();
+    final last = _lastLoggedErrorAt;
+    if (line == _lastLoggedError && last != null && now.difference(last) < const Duration(seconds: 2)) {
+      _lastLoggedErrorAt = now;
+      return;
+    }
+    _lastLoggedError = line;
+    _lastLoggedErrorAt = now;
+    debugPrint(line);
   }
 
   /// Reports the picture's size of [ins] once per open when it is known.
@@ -390,7 +478,15 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     try {
       final streams = target.player.mediaInfo.video;
       if (streams == null || streams.isEmpty) return;
-      final stream = streams.first;
+      // A stream with no coded size (a cover art, a broken probe) is not the
+      // picture; take the first one that has one.
+      var stream = streams.first;
+      for (final candidate in streams) {
+        if (candidate.codec.width > 0 && candidate.codec.height > 0) {
+          stream = candidate;
+          break;
+        }
+      }
       size = fvpDisplaySizeOf(
         width: stream.codec.width,
         height: stream.codec.height,
@@ -434,8 +530,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   double? _videoFrameRate(_PlayerInstance target) {
     try {
       final streams = target.player.mediaInfo.video;
-      final fps = streams == null || streams.isEmpty ? 0.0 : streams.first.codec.frameRate;
-      return fps > 0 && fps.isFinite ? fps : null;
+      return streams == null || streams.isEmpty ? null : _frameRateOf(streams.first);
+    } on Object {
+      return null;
+    }
+  }
+
+  /// [stream]'s frame rate when it is a usable rate; null otherwise (the
+  /// probe leaves 0, NaN or an infinite value behind).
+  double? _frameRateOf(mdk.VideoStreamInfo? stream) {
+    try {
+      final fps = stream?.codec.frameRate;
+      return fps != null && fps.isFinite && fps > 0 ? fps : null;
     } on Object {
       return null;
     }
@@ -463,11 +569,46 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       );
   }
 
+  /// Whether this open was superseded, by a newer open, a stop or a dispose.
+  bool _stale(int openSeq) => _disposed || openSeq != _opens;
+
+  /// Drops the next player's reference only when it is still [ins]: a newer
+  /// open may already have put its own instance there, and clearing it would
+  /// leave that player unreachable (and never released).
+  void _dropNext(_PlayerInstance ins) {
+    if (identical(_nextPlayer, ins)) _nextPlayer = null;
+  }
+
+  /// Shows [ins]'s texture once it has a frame; only then is the picture it
+  /// replaced released, so a switch never shows a black or a freed texture.
+  void _commitTexture(_PlayerInstance ins) {
+    if (_disposed || !identical(_currentPlayer, ins)) return;
+    final id = ins.pendingTextureId;
+    if (id == null) return;
+    ins.pendingTextureId = null;
+    _textureId.value = id;
+    _commitTimer?.cancel();
+    _commitTimer = null;
+    _releaseFadings();
+  }
+
+  /// Releases the players kept only for their textures while a switch
+  /// committed. Their pictures cannot be on screen any more: the new texture
+  /// replaced them.
+  void _releaseFadings() {
+    if (_fadings.isEmpty) return;
+    final released = _fadings.toList();
+    _fadings.clear();
+    for (final fading in released) {
+      unawaited(fading.safeDispose());
+    }
+  }
+
   /// 【核心 open 双播放器逻辑】
   ///
   /// 1. 创建 nextPlayer（预加载实例），设置媒体，带超时执行 prepare。
-  /// 2. prepare 成功：原子切换——旧 current 异步释放，next 升级为 current，
-  ///    绑定事件、创建 texture、开始输出画面。
+  /// 2. prepare 成功：原子切换——旧 current 保留到新画面出帧再释放，
+  ///    next 升级为 current，绑定事件、创建 texture、开始输出画面。
   /// 3. prepare 失败 / 超时 / 被更新的 open 取代：销毁 nextPlayer，
   ///    current 保持原样，失败则抛出异常让会话判定该线路失败。
   @override
@@ -482,6 +623,8 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       ..configure()
       ..player.setActiveTracks(mdk.MediaType.subtitle, []);
     _nextPlayer = nextIns;
+    _commitTimer?.cancel();
+    _commitTimer = null;
 
     try {
       // 设置 headers/proxy/decoder。
@@ -494,25 +637,42 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         // player, fetched with the same headers and proxy as the video.
         nextIns.player.setMedia(audio.uri.toString(), mdk.MediaType.audio);
       }
-      final start = media.start?.inMilliseconds ?? 0;
+      final start = math.max(0, media.start?.inMilliseconds ?? 0);
 
-      // 带超时的 prepare：超时则放弃该线路，current 维持原样。
-      final prepareRet = await Future.any<int>([
-        nextIns.player.prepare(position: math.max(0, start)),
-        Future<void>.delayed(Duration(milliseconds: config.prepareTimeoutMs))
-            .then(
-              (_) => throw PlayerException(
-                message: 'nextPlayer prepare timeout ${config.prepareTimeoutMs}ms',
-                type: PlayerErrorType.source,
-                code: 'fvp_prepare_timeout',
-              ),
-            ),
-      ]);
+      // 带超时的 prepare：超时则放弃该线路，current 维持原样。The native
+      // prepare keeps running after a timeout, so the instance is not torn
+      // down here: it is released once prepare settles (below).
+      final prepared = nextIns.player.prepare(position: start);
+      final settled = Completer<void>();
+      unawaited(
+        prepared.then((_) {}, onError: (Object _) {}).whenComplete(() {
+          if (!settled.isCompleted) settled.complete();
+        }),
+      );
 
-      if (_disposed || openSeq != _opens) {
+      final int prepareRet;
+      try {
+        prepareRet = await prepared.timeout(Duration(milliseconds: config.prepareTimeoutMs));
+      } on TimeoutException {
+        debugPrint('[FvpEngine][seq=$openSeq] next prepare timeout');
+        // Not disposed here: the native prepare is still running. The engine
+        // holds the instance until its prepare settles, and a dispose of the
+        // engine releases whatever never settled.
+        _dropNext(nextIns);
+        _abandoned.add(nextIns);
+        unawaited(
+          settled.future.then((_) {
+            _abandoned.remove(nextIns);
+            return nextIns.safeDispose();
+          }),
+        );
+        throw const _PrepareTimeout();
+      }
+
+      if (_stale(openSeq)) {
         debugPrint('[FvpEngine][seq=$openSeq] open discarded, newer open arrived');
         await nextIns.safeDispose();
-        _nextPlayer = null;
+        _dropNext(nextIns);
         return;
       }
 
@@ -530,27 +690,72 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
       // nextPlayer 设置音视频轨道。
       await _setInstanceVideoTrack(nextIns, enabled: !media.audioOnly);
+      if (_stale(openSeq)) {
+        await nextIns.safeDispose();
+        _dropNext(nextIns);
+        return;
+      }
       nextIns.hasSource = true;
 
-      // 绑定对外事件到新 current。
-      _bindCurrentPlayer(nextIns);
-
-      // 创建 texture。
+      // 画面：只有真的有视频轨才建纹理；没有视频的源（电台、纯音频直播）
+      // 按 audio-only 处理，而不是让整条线路判失败。
+      var hasVideo = false;
       if (!media.audioOnly) {
-        await _createInstanceTexture(nextIns, openSeq);
+        try {
+          hasVideo = nextIns.player.mediaInfo.video?.isNotEmpty ?? false;
+        } on Object {
+          hasVideo = false;
+        }
+      }
+      int? textureId;
+      if (hasVideo) {
+        textureId = await _createInstanceTexture(nextIns, openSeq);
+        if (_stale(openSeq)) {
+          await nextIns.safeDispose();
+          _dropNext(nextIns);
+          return;
+        }
+        if (textureId < 0) {
+          throw PlayerException(
+            message: 'libmdk could not create the video texture (updateTexture returned $textureId)',
+            type: PlayerErrorType.native,
+            code: 'fvp_texture_failed',
+          );
+        }
+        nextIns.pendingTextureId = textureId;
       }
 
-      // 状态迁移。
+      // 状态迁移：先绑定事件，新旧 current 交接，旧画面留在屏上。
+      _bindCurrentPlayer(nextIns);
+      if (oldCurrent != null) {
+        _fadings.add(oldCurrent);
+        // A third player would only exist through a switch rate no source
+        // produces; release the oldest so a stuck picture cannot pile up.
+        while (_fadings.length > 2) {
+          unawaited(_fadings.removeAt(0).safeDispose());
+        }
+      }
       _currentPlayer = nextIns;
-      _nextPlayer = null;
+      _dropNext(nextIns);
+      if (!hasVideo) {
+        // No picture in the new source: take the old one down now (its
+        // texture belonged to the player being released).
+        nextIns.audioOnly = true;
+        _textureId.value = null;
+        _releaseFadings();
+      }
+      debugPrint('[FvpEngine][seq=$openSeq] switch done');
 
-      // 旧播放器异步释放，不阻塞 open 流程，旧画面会维持到切换完成。
-      unawaited(oldCurrent?.safeDispose());
-      debugPrint('[FvpEngine][seq=$openSeq] switch done, old current dispose async');
-
-      // 新实例开始播放。
-      nextIns.player.state = mdk.PlaybackState.playing;
+      // 新实例开始播放：音量/倍速在起播前就位，避免起播瞬间满音量。
+      _gainDb = media.volumeGainDb?.clamp(-FvpEngineConfig.maxVolumeGainDb, FvpEngineConfig.maxVolumeGainDb);
       _applyVolume(nextIns);
+      if (_rate != 1) nextIns.player.playbackRate = _rate;
+      nextIns.player.state = mdk.PlaybackState.playing;
+      if (textureId != null && textureId >= 0 && nextIns.pendingTextureId != null) {
+        // Some hardware decoders send no `decoder.video` event: show the new
+        // picture anyway once a frame had its chance to arrive.
+        _commitTimer = Timer(const Duration(milliseconds: 400), () => _commitTexture(nextIns));
+      }
 
       // 上报时长、帧率。
       final duration = _durationMs(nextIns);
@@ -568,16 +773,23 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
       _emitSize(nextIns);
       _startTicker();
+    } on _PrepareTimeout {
+      // The instance is released once its prepare settles, not here.
+      throw PlayerException(
+        message: 'nextPlayer prepare timeout ${config.prepareTimeoutMs}ms',
+        type: PlayerErrorType.source,
+        code: 'fvp_prepare_timeout',
+      );
     } on PlayerException {
       // nextPlayer 失败，销毁 next，保留 currentPlayer。
       debugPrint('[FvpEngine][seq=$openSeq] next prepare failed, keep current, error rethrow');
       await nextIns.safeDispose();
-      _nextPlayer = null;
+      _dropNext(nextIns);
       rethrow;
     } on Object catch (error, stack) {
       debugPrint('[FvpEngine][seq=$openSeq] next prepare unknown error $error');
       await nextIns.safeDispose();
-      _nextPlayer = null;
+      _dropNext(nextIns);
       throw PlayerException(
         message: 'libmdk could not open the source: $error',
         type: PlayerErrorType.source,
@@ -594,9 +806,17 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   /// pulled through the decoder instead of the last frozen one.
   Future<void> _onAppResumed() async {
     final media = _lastMedia;
-    if (_disposed || _currentPlayer?.hasSource != true || media == null) return;
+    final current = _currentPlayer;
+    if (_disposed || current == null || !current.hasSource || media == null) return;
+    // An open already in flight knows better than a reopen started here.
+    if (_nextPlayer != null) return;
+    // A recording resumes where it stopped; a live line has no position to
+    // seek to and reopens from its own start.
+    final reopened = media.onDemand
+        ? media.copyWith(start: Duration(milliseconds: math.max(0, current.player.position)))
+        : media;
     try {
-      await open(media);
+      await open(reopened);
     } on Object {
       // A failed reopen keeps the last picture state; the next open
       // recovers it.
@@ -604,29 +824,25 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   }
 
   /// Creates the texture of [ins]'s picture (libmdk sizes it to the video's
-  /// own frame, so the view keeps the aspect ratio). A failure throws
-  /// instead of leaving a silent black picture.
-  Future<void> _createInstanceTexture(_PlayerInstance ins, int openSeq) async {
+  /// own frame, so the view keeps the aspect ratio) and returns its id (-1
+  /// when it could not be made). The engine shows it once the player draws a
+  /// frame; the caller decides whether a missing texture fails the open.
+  Future<int> _createInstanceTexture(_PlayerInstance ins, int openSeq) async {
     final id = await ins.player.updateTexture();
-    if (id < 0) {
-      throw PlayerException(
-        message: 'libmdk could not create the video texture (updateTexture returned $id)',
-        type: PlayerErrorType.native,
-        code: 'fvp_texture_failed',
-      );
-    }
     if (_disposed || openSeq != _opens) {
       // A newer open took over while the texture was being made: drop it
-      // without showing the old picture.
-      try {
-        await ins.player.updateTexture(width: -1);
-      } on Object {
-        // The player may already have dropped it.
+      // without showing it.
+      if (id >= 0) {
+        try {
+          await ins.player.updateTexture(width: -1);
+        } on Object {
+          // The player may already have dropped it.
+        }
       }
-      return;
+      return -1;
     }
-    _textureId.value = id;
-    debugPrint('[${ins.tag}] textureId=$id');
+    if (id >= 0) debugPrint('[${ins.tag}] textureId=$id');
+    return id;
   }
 
   /// Turns [ins]' video track off or on without reopening, as mpv turns its
@@ -636,9 +852,10 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     // Turning video off drops the picture, and back on re-reports its size
     // even when it is the same as before.
     if (!enabled) {
-      ins.lastSize = null;
-      ins.lastFrameRate = null;
-      ins.mediaInfoReported = false;
+      ins
+        ..lastSize = null
+        ..lastFrameRate = null
+        ..mediaInfoReported = false;
     }
     ins.player.setActiveTracks(mdk.MediaType.video, enabled ? const [0] : const []);
     ins.audioOnly = !enabled;
@@ -684,24 +901,34 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     _opens++;
     _lastMedia = null;
     _stopTicker();
+    _commitTimer?.cancel();
+    _commitTimer = null;
     if (_disposed) return;
-    // 停止 next 预加载。
+    // 停止 next 预加载。The view stops drawing the texture before the player
+    // that owns it is released.
     await _nextPlayer?.safeDispose();
     _nextPlayer = null;
+    _textureId.value = null;
+    _releaseFadings();
 
     final curr = _currentPlayer;
     if (curr != null) {
+      // Nothing of this source is followed any more: a lingering status or
+      // decoder event must not re-report buffering, an end or a size.
+      curr.disposeSubscriptions();
       curr.player.state = mdk.PlaybackState.stopped;
+      curr
+        ..hasSource = false
+        ..lastSize = null
+        ..pendingTextureId = null;
+      _textureId.value = null;
       try {
         await curr.player.updateTexture(width: -1);
       } on Object {
         // The player may already have dropped the texture.
       }
-      curr.hasSource = false;
-      curr.lastSize = null;
     }
     _frameSize.value = null;
-    _textureId.value = null;
     debugPrint('[FvpEngine] stop');
   }
 
@@ -720,24 +947,30 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
   @override
   Future<void> setVolumeGainDb(int? decibels) async {
-    final gain = decibels?.clamp(-FvpEngineConfig.maxVolumeGainDb, FvpEngineConfig.maxVolumeGainDb);
-    _gainDb = gain ?? config.volumeGainDb;
+    _gainDb = decibels?.clamp(-FvpEngineConfig.maxVolumeGainDb, FvpEngineConfig.maxVolumeGainDb);
     _applyVolume(_currentPlayer);
   }
 
   /// libmdk multiplies the source volume; the gain is folded into it (mpv
-  /// keeps them apart).
+  /// keeps them apart). A null gain falls back to the configured default, as
+  /// `EngineMedia.volumeGainDb` does on mpv.
   void _applyVolume(_PlayerInstance? ins) {
     if (_disposed || ins == null) return;
-    final gain = math.pow(10, _gainDb / 20).toDouble();
+    final db = (_gainDb ?? config.volumeGainDb).clamp(
+      -FvpEngineConfig.maxVolumeGainDb,
+      FvpEngineConfig.maxVolumeGainDb,
+    );
+    final gain = math.pow(10, db / 20).toDouble();
     ins.player.volume = (_volume * gain).clamp(0, 8).toDouble();
   }
 
   @override
   Future<void> setRate(double rate) async {
+    if (_disposed) return;
+    _rate = rate.isFinite ? rate.clamp(0.25, 4).toDouble() : 1.0;
     final ins = _currentPlayer;
-    if (_disposed || ins == null) return;
-    ins.player.playbackRate = rate.clamp(0.25, 4).toDouble();
+    if (ins == null) return;
+    ins.player.playbackRate = _rate;
   }
 
   @override
@@ -745,9 +978,18 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     final ins = _currentPlayer;
     if (_disposed || ins == null || !ins.hasSource) return;
     await _setInstanceVideoTrack(ins, enabled: !enabled);
-    if (enabled) return;
+    if (enabled) {
+      // Video off: libmdk may release the texture, and the view shows its own
+      // fill instead of holding a freed id.
+      ins.pendingTextureId = null;
+      _textureId.value = null;
+      return;
+    }
     _emitSize(ins);
-    await _createInstanceTexture(ins, _opens);
+    final id = await _createInstanceTexture(ins, _opens);
+    if (id < 0) return;
+    ins.pendingTextureId = id;
+    _commitTexture(ins);
   }
 
   @override
@@ -784,19 +1026,13 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 
       // libmdk's build version (the integer `MDK_version`); shown as
       // "mdk-N" next to the engine name where it is available. There is no
-      // FFmpeg version to read.
-      int? mdkVersion;
-      try {
-        mdkVersion = mdk.version();
-      } on Object {
-        mdkVersion = null;
-      }
-      final mdkBuild = mdkVersion == null ? null : 'mdk-$mdkVersion';
+      // FFmpeg version to read. It never changes for a build, so it is read
+      // once rather than on every poll.
+      final mdkBuild = _mdkBuild;
 
       // The source's frame rate; libmdk fills it as the video track is
       // probed. Emit an event when it first appears or changes.
-      double? fps = video?.codec.frameRate;
-      if (fps != null && (fps.isNaN || fps.isInfinite || fps <= 0)) fps = null;
+      final fps = _frameRateOf(video);
       if (fps != null && fps != ins.lastFrameRate) {
         ins.lastFrameRate = fps;
         _add(EngineFrameRate(fps));
@@ -837,11 +1073,26 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     if (_disposed) return;
     _disposed = true;
     _opens++;
-    WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+    if (_observerAdded) {
+      WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+      _observerAdded = false;
+    }
     _stopTicker();
+    _commitTimer?.cancel();
+    _commitTimer = null;
 
     await _nextPlayer?.safeDispose();
     _nextPlayer = null;
+    for (final fading in _fadings) {
+      await fading.safeDispose();
+    }
+    _fadings.clear();
+    // A prepare that never settled leaves an instance here; the process is
+    // going away, so it is released rather than leaked.
+    for (final abandoned in _abandoned) {
+      await abandoned.safeDispose();
+    }
+    _abandoned.clear();
     await _currentPlayer?.safeDispose();
     _currentPlayer = null;
 
@@ -855,6 +1106,14 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
 /// An [EngineFactory] creating [FvpEngine]s with [config].
 EngineFactory fvpEngineFactory([FvpEngineConfig? config]) =>
     () => FvpEngine.create(config: config);
+
+/// A prepare that did not answer within [FvpEngineConfig.prepareTimeoutMs].
+/// Distinct from [PlayerException] so an open can tell a timed-out instance
+/// (its native prepare is still running) from a failed one, which is safe to
+/// dispose at once.
+final class _PrepareTimeout implements Exception {
+  const new();
+}
 
 /// Watches the app's lifecycle and asks [FvpEngine] to reopen its source when
 /// it comes back to the foreground.

@@ -70,6 +70,21 @@ final class EngineMedia {
   /// Per-room gain; null restores the engine's configured global default.
   final int? volumeGainDb;
 
+  /// This media with [start] moved, every other field kept. Used by an engine
+  /// that reopens a recording where it stopped (the app resumed from the
+  /// background) instead of at the original start.
+  EngineMedia copyWith({Duration? start}) => EngineMedia(
+    uri: uri,
+    headers: headers,
+    proxyUrl: proxyUrl,
+    decoder: decoder,
+    audioOnly: audioOnly,
+    onDemand: onDemand,
+    start: start ?? this.start,
+    audio: audio,
+    volumeGainDb: volumeGainDb,
+  );
+
   @override
   String toString() => 'EngineMedia(${uri.scheme}://${uri.host}, ${decoder.name}${audioOnly ? ', audio only' : ''})';
 }
