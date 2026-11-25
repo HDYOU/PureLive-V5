@@ -55,6 +55,10 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
   Timer? _updateTimer;
   final Map<HomeMenu, Widget> _pages = {};
   bool _hideNavigation = false;
+
+  /// The page's list is moving (see [HomeMobileView.navigationMoving]); a
+  /// listenable so the bar alone is rebuilt, never the shell around it.
+  final ValueNotifier<bool> _navigationMoving = ValueNotifier(false);
   bool _navigationCanHide = false;
   double _navigationDistance = 0;
 
@@ -87,6 +91,10 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
   void didPopNext() => _restoreNavigation();
 
   bool _navigationScroll(ScrollNotification notification) {
+    // The glass bar's blur goes while the list moves (see
+    // [HomeMobileView.navigationMoving]): a backdrop filter re-blurs the
+    // strip behind it every frame of a scroll.
+    if (notification.metrics.axis == Axis.vertical) _navigationMoving.value = notification is! ScrollEndNotification;
     if (!_navigationCanHide ||
         !(_route?.isCurrent ?? true) ||
         notification.metrics.axis != Axis.vertical ||
@@ -154,6 +162,7 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
     HomeSignals.select.removeListener(_selectAsked);
     _resumeTimer?.cancel();
     _updateTimer?.cancel();
+    _navigationMoving.dispose();
     super.dispose();
   }
 
@@ -254,6 +263,7 @@ class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver
                   hidden: _hideNavigation,
                   showLabels: labels,
                   glassBlur: liquidGlassBlurs(android: Platform.isAndroid, totalMemoryBytes: deviceMemoryBytes),
+                  navigationMoving: _navigationMoving,
                 );
         },
       ),

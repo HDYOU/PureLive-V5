@@ -31,6 +31,7 @@ class HomeMobileView extends StatelessWidget {
     this.frost = 0.5,
     this.hidden = false,
     this.showLabels = true,
+    this.navigationMoving,
     super.key,
   });
 
@@ -57,6 +58,14 @@ class HomeMobileView extends StatelessWidget {
 
   /// How frosted the glass is (`Settings.liquidGlassFrost`).
   final double frost;
+
+  /// The page's list is moving under the bar (a finger or a glide). The glass
+  /// then keeps its tint but drops the backdrop blur and the shader: a
+  /// `BackdropFilter` over a list that scrolls behind it re-blurs its strip
+  /// and re-runs its shader on every frame of the movement, which on Android
+  /// is the frame a grid cannot spare. Nothing looks different while the
+  /// content behind it is moving; the glass comes back the frame it rests.
+  final ValueListenable<bool>? navigationMoving;
 
   /// Hides both plain and glass bottom navigation while reading content.
   final bool hidden;
@@ -104,6 +113,24 @@ class HomeMobileView extends StatelessWidget {
       safeBottom: MediaQuery.viewPaddingOf(context).bottom,
       ios: defaultTargetPlatform == TargetPlatform.iOS,
     );
+    Widget glassBar({required bool withFilter}) => LiquidGlassBar(
+      height: barHeight,
+      frost: frost,
+      blur: withFilter,
+      refraction: withFilter,
+      showLabels: showLabels,
+      selectedIndex: index < 0 ? 0 : index,
+      onSelected: (index) => onSelected(menus[index]),
+      items: [
+        for (final menu in menus)
+          LiquidGlassBarItem(
+            key: ValueKey('home-nav-${menu.id}'),
+            icon: menu.icon,
+            selectedIcon: menu.selectedIcon,
+            label: i18n(menu.titleKey),
+          ),
+      ],
+    );
     return Scaffold(
       extendBody: true,
       bottomNavigationBar: hidden
@@ -118,24 +145,14 @@ class HomeMobileView extends StatelessWidget {
                   width: GlassMetrics.barMaxWidth,
                   // A01.6: refraction and the drop where the shader runs, frosted
                   // glass elsewhere, a plain tint on a phone with little memory.
-                  child: LiquidGlassBar(
-                    height: barHeight,
-                    frost: frost,
-                    blur: glassBlur,
-                    refraction: glassBlur,
-                    showLabels: showLabels,
-                    selectedIndex: index < 0 ? 0 : index,
-                    onSelected: (index) => onSelected(menus[index]),
-                    items: [
-                      for (final menu in menus)
-                        LiquidGlassBarItem(
-                          key: ValueKey('home-nav-${menu.id}'),
-                          icon: menu.icon,
-                          selectedIcon: menu.selectedIcon,
-                          label: i18n(menu.titleKey),
+                  // While the page's list moves the bar keeps its tint but not
+                  // the backdrop filter (see [navigationMoving]).
+                  child: navigationMoving == null
+                      ? glassBar(withFilter: glassBlur)
+                      : ValueListenableBuilder<bool>(
+                          valueListenable: navigationMoving!,
+                          builder: (context, moving, _) => glassBar(withFilter: glassBlur && !moving),
                         ),
-                    ],
-                  ),
                 ),
               ),
             ),
