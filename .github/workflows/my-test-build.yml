@@ -291,7 +291,7 @@ jobs:
         run: |
           set -euo pipefail
           # Reset the SDK's tracked files to HEAD (cache may leave stray modifications)
-          git -C "$(dirname "$(dirname "$(which flutter)")")" reset --hard
+          # git -C "$(dirname "$(dirname "$(which flutter)")")" reset --hard
           python3 tools/flutter_sdk/prepare.py --apply
           python3 tools/flutter_sdk/prepare.py --test
           flutter --version
