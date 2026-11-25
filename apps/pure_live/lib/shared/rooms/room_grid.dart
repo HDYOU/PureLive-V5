@@ -796,6 +796,13 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                 apply: _applyAutoCapacity,
               );
             }
+            // A rebuild that keeps most rooms (a room going off air, a
+            // platform's page replaced, the rank moving one) hands the
+            // element of a room that only moved to a new index its cover's
+            // provider instead of building it again: without the lookup the
+            // delegate builds every visible card afresh on each rebuild, and
+            // each of them re-subscribes its `CachedNetworkImage`.
+            final roomIndices = <Key, int>{for (var i = 0; i < rooms.length; i++) ValueKey(rooms[i].identityKey): i};
             // Back on a home tab after another one, the rooms are where
             // they were (A11.6).
             return KeepScrollPosition(
@@ -808,16 +815,28 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                 slivers: [
                   SliverPadding(
                     padding: const EdgeInsets.all(roomGridPadding).withGlassBar(context),
-                    sliver: SliverGrid.builder(
+                    // No `RepaintBoundary` per card: measured at 3x with a
+                    // viewport of twelve cards, the default cost seventeen
+                    // offset layers against five, +0.6 ms of raster per frame,
+                    // and nothing on the UI thread either way. Nothing inside
+                    // a card animates on its own (the cover fades in once, when
+                    // it arrives), so there is no repaint for a card's own
+                    // boundary to save; the whole viewport repaints when it
+                    // scrolls anyway.
+                    sliver: SliverGrid(
                       gridDelegate: geometry.delegate(spacing: spacing, mainSpacing: mainSpacing),
-                      itemCount: rooms.length,
-                      itemBuilder: (context, index) => RoomGridCard(
-                        key: ValueKey(rooms[index].identityKey),
-                        room: rooms[index],
-                        // The feed's rooms go along: the portrait fullscreen
-                        // swipes through them (U.2b2).
-                        onOpen: () =>
-                            unawaited(AppNavigator.toLiveRoomDetail(liveRoom: rooms[index], playlist: _feed.rooms)),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => RoomGridCard(
+                          key: ValueKey(rooms[index].identityKey),
+                          room: rooms[index],
+                          // The feed's rooms go along: the portrait fullscreen
+                          // swipes through them (U.2b2).
+                          onOpen: () =>
+                              unawaited(AppNavigator.toLiveRoomDetail(liveRoom: rooms[index], playlist: _feed.rooms)),
+                        ),
+                        findChildIndexCallback: (key) => roomIndices[key],
+                        childCount: rooms.length,
+                        addRepaintBoundaries: false,
                       ),
                     ),
                   ),
