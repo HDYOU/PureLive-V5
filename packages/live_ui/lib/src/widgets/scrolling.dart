@@ -7,6 +7,19 @@ import 'package:scroll_animator/scroll_animator.dart';
 /// tab indicator and page transition enough frames to look linear.
 const Duration pureLiveTabTransitionDuration = Duration(milliseconds: 220);
 
+/// How fast a fling stops instead of crawling to Flutter's own stop speed
+/// (`ScrollPhysics.tolerance`: 20 / dpr dp/s, 6.67 dp/s at 3×, a sixteenth of
+/// a pixel a frame at 120 Hz): one physical pixel a frame on this display.
+///
+/// A fling that can no longer move the content a pixel in a frame is spent,
+/// and every frame it spends crawling re-rasterises each card of a grid at a
+/// new sub-pixel phase — which reads as the grid shivering where it comes to
+/// rest. Measured at 120 Hz on a 3× screen, a 1500 dp/s fling spent its last
+/// 175 of 326 frames moving 0.9 dp down to 0.06 dp a frame; with this the
+/// last frames of 500…6000 dp/s flings all move a physical pixel or more.
+double pixelStopVelocity(BuildContext context) =>
+    View.of(context).display.refreshRate / MediaQuery.devicePixelRatioOf(context);
+
 /// Content lists: on a phone or tablet the damped edge of the refreshable
 /// lists everywhere (A03.5: past an end the list follows the finger ever
 /// more heavily, at most the 0.52 of 3.x's lists, and springs back with
@@ -14,7 +27,12 @@ const Duration pureLiveTabTransitionDuration = Duration(milliseconds: 220);
 /// scroll bars expect.
 class PureLiveScrollPhysics extends ScrollPhysics {
   /// Creates the physics.
-  const new({super.parent});
+  const new({super.parent, this.stopVelocity = 0});
+
+  /// The speed a fling stops at instead of Flutter's own: [pixelStopVelocity]
+  /// for a list whose tail should not crawl, 0 (the default) to keep the
+  /// 3.x tolerances (A03.1, A03.5).
+  final double stopVelocity;
 
   static bool get _touch => switch (defaultTargetPlatform) {
     TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.fuchsia => true,
@@ -22,13 +40,16 @@ class PureLiveScrollPhysics extends ScrollPhysics {
   };
 
   /// The physics for this platform over [parent].
-  ScrollPhysics get _platform =>
-      _touch ? PureLiveDampedScrollPhysics(parent: parent) : ClampingScrollPhysics(parent: parent);
+  ScrollPhysics get _platform => _touch
+      ? PureLiveDampedScrollPhysics(parent: parent, stopVelocity: stopVelocity)
+      : ClampingScrollPhysics(parent: parent);
 
   @override
   ScrollPhysics applyTo(ScrollPhysics? ancestor) {
     final parent = buildParent(ancestor);
-    return _touch ? PureLiveDampedScrollPhysics(parent: parent) : ClampingScrollPhysics(parent: parent);
+    return _touch
+        ? PureLiveDampedScrollPhysics(parent: parent, stopVelocity: stopVelocity)
+        : ClampingScrollPhysics(parent: parent);
   }
 
   // Used without [applyTo] (as another physics' parent, or the scroll
@@ -62,6 +83,9 @@ class PureLiveScrollPhysics extends ScrollPhysics {
 
   @override
   SpringDescription get spring => _platform.spring;
+
+  @override
+  Tolerance toleranceFor(ScrollMetrics metrics) => _platform.toleranceFor(metrics);
 }
 
 /// The damped edge (A03.5): iOS's deceleration and rubber band, which are
@@ -69,14 +93,27 @@ class PureLiveScrollPhysics extends ScrollPhysics {
 /// back with [AppMotion.refreshSpring].
 class PureLiveDampedScrollPhysics extends BouncingScrollPhysics {
   /// Creates the physics.
-  const new({super.parent});
+  const new({super.parent, this.stopVelocity = 0});
+
+  /// The speed its flings stop at: 0 keeps Flutter's 20 / dpr dp/s.
+  final double stopVelocity;
 
   @override
   PureLiveDampedScrollPhysics applyTo(ScrollPhysics? ancestor) =>
-      PureLiveDampedScrollPhysics(parent: buildParent(ancestor));
+      PureLiveDampedScrollPhysics(parent: buildParent(ancestor), stopVelocity: stopVelocity);
 
   @override
   SpringDescription get spring => AppMotion.refreshSpring;
+
+  // Only the velocity is raised: [Tolerance.distance] stays Flutter's, so a
+  // spring (the header, an edge bounce) still settles inside a third of a
+  // logical pixel and its behaviour is unchanged.
+  @override
+  Tolerance toleranceFor(ScrollMetrics metrics) {
+    final base = super.toleranceFor(metrics);
+    if (stopVelocity <= base.velocity) return base;
+    return Tolerance(distance: base.distance, velocity: stopVelocity);
+  }
 }
 
 /// Navigation strips, filters and paged views: the damped edge on every

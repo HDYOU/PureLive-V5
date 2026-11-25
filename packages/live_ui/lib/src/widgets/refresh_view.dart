@@ -10,6 +10,7 @@ import 'package:live_ui/src/theme/live_colors.dart';
 import 'package:live_ui/src/theme/metrics.dart';
 import 'package:live_ui/src/theme/motion.dart';
 import 'package:live_ui/src/theme/text_styles.dart';
+import 'package:live_ui/src/widgets/scrolling.dart';
 import 'package:live_ui/src/widgets/status_view.dart';
 
 // Pull to refresh with 3.x's feel (docs/A-界面设计/A03-动效和手感/A03.1-主列表手感/brief.md, research
@@ -108,14 +109,10 @@ class AppRefreshViewState extends State<AppRefreshView> {
   _HeaderLayout? _layout;
 
   /// The physics the list gets. A fling ends once it can no longer move the
-  /// list by a physical pixel a frame (see [_RefreshScrollPhysics]): measured
-  /// at 120 Hz on a 3x screen, a 1500 dp/s fling spent its last 175 of 326
-  /// frames moving 0.9 dp down to 0.06 dp a frame, over a second of the
-  /// content re-rasterising at a new sub-pixel phase each frame — which is
-  /// what a grid of covers and small words reads as shivering where it comes
-  /// to rest.
+  /// list by a physical pixel a frame ([pixelStopVelocity] explains it and
+  /// has the measurements).
   ScrollPhysics _scrollPhysics(BuildContext context) {
-    final stop = View.of(context).display.refreshRate / MediaQuery.devicePixelRatioOf(context);
+    final stop = pixelStopVelocity(context);
     if (_physics == null || stop != _stopVelocity) {
       _stopVelocity = stop;
       _physics = _RefreshScrollPhysics(tracker: _tracker, stopVelocity: stop);

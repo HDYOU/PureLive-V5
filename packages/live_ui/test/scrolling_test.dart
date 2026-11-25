@@ -31,6 +31,66 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  test('the pixel stop is opt-in, and it raises only the velocity tolerance', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final base = const PureLiveDampedScrollPhysics().toleranceFor(metrics);
+    final stopped = const PureLiveDampedScrollPhysics(stopVelocity: 40).toleranceFor(metrics);
+    // Springs keep Flutter's distance: they still settle inside a third of a
+    // pixel, so the header and the edge bounces are unchanged.
+    expect(stopped.distance, base.distance);
+    expect(stopped.velocity, 40);
+    // Never slower than Flutter's own stop speed, and off by default (the
+    // 3.x tolerances of A03.1 and A03.5).
+    expect(const PureLiveDampedScrollPhysics(stopVelocity: 4).toleranceFor(metrics).velocity, base.velocity);
+    final untold = const PureLiveScrollPhysics().applyTo(null).toleranceFor(metrics);
+    expect(untold.distance, base.distance);
+    expect(untold.velocity, base.velocity);
+    // PureLiveScrollPhysics forwards it to the damped physics it builds.
+    expect(const PureLiveScrollPhysics(stopVelocity: 40).applyTo(null).toleranceFor(metrics).velocity, 40);
+  });
+
+  testWidgets('a list told where to stop ends its fling on whole pixels', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2607);
+    tester.view.devicePixelRatio = 3;
+    tester.view.display.refreshRate = 120;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Builder(
+          builder: (context) => ListView.builder(
+            physics: PureLiveScrollPhysics(stopVelocity: pixelStopVelocity(context)),
+            itemCount: 200,
+            itemExtent: 100,
+            itemBuilder: (_, i) => Text('$i'),
+          ),
+        ),
+      ),
+    );
+    final position = tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    for (final velocity in [500.0, 1500.0, 6000.0]) {
+      position.jumpTo(4000);
+      await tester.pump();
+      (position as ScrollPositionWithSingleContext).goBallistic(velocity);
+      var last = position.pixels;
+      final steps = <double>[];
+      var frames = 0;
+      while (position.isScrollingNotifier.value && frames < 2000) {
+        await tester.pump(const Duration(microseconds: 8333));
+        frames++;
+        steps.add((position.pixels - last).abs());
+        last = position.pixels;
+      }
+      final moving = steps.where((step) => step > 0).toList();
+      // One physical pixel a frame on this display (40 dp/s): the tail has no
+      // frame moving a fraction of one.
+      final under = moving.where((step) => step < 1 / 3 - 0.02).toList();
+      expect(under.length, lessThanOrEqualTo(1), reason: '$velocity dp/s: $under');
+      expect(moving.last, greaterThan(1 / 3 - 0.02), reason: '$velocity dp/s');
+    }
+  });
+
   test('strips and pages: damped past their ends, put back inside when the content shrinks at rest', () {
     const physics = PureLiveBoundedScrollPhysics();
     expect(physics.applyBoundaryConditions(metrics, 130), 0);

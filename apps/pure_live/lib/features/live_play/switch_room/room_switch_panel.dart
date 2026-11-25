@@ -128,6 +128,16 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
   final TextEditingController _query = TextEditingController();
   RoomSwitchGroup? _picked;
 
+  /// The grid's or the list's scroll, for the glide guard below.
+  final ScrollController _scroll = ScrollController();
+
+  /// Whether a finger is on the grid (from its notifications).
+  bool _dragging = false;
+
+  /// A store update arrived while the grid was gliding: the panel takes it
+  /// when the glide rests (see [_storeUpdate]).
+  bool _glidePending = false;
+
   @override
   void initState() {
     super.initState();
@@ -143,16 +153,14 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
     final store = ref.read(storeProvider);
     unawaited(_followsSub?.cancel());
     unawaited(_historySub?.cancel());
-    void failed(Object error) {
-      if (mounted) setState(() => _error = error);
-    }
-
-    _followsSub = store.follows.watchAll().listen((rooms) {
-      if (mounted) setState(() => _follows = rooms);
-    }, onError: (Object error, StackTrace _) => failed(error));
-    _historySub = store.history.watchAll().listen((rooms) {
-      if (mounted) setState(() => _history = rooms);
-    }, onError: (Object error, StackTrace _) => failed(error));
+    _followsSub = store.follows.watchAll().listen(
+      (rooms) => _storeUpdate(() => _follows = rooms),
+      onError: (Object error, StackTrace _) => _storeUpdate(() => _error = error),
+    );
+    _historySub = store.history.watchAll().listen(
+      (rooms) => _storeUpdate(() => _history = rooms),
+      onError: (Object error, StackTrace _) => _storeUpdate(() => _error = error),
+    );
   }
 
   void _retry() {
@@ -164,8 +172,48 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
     _listen();
   }
 
+  /// Whether a fling is moving the grid or list; a finger is not a glide (a
+  /// drag's rebuilds keep up with it). Same guard as the rooms grid's
+  /// `_feedChanged`: the page rebuilds every card it shows, and doing that in
+  /// the frames of a fling's tail costs the very frames the eye is on there,
+  /// which reads as a hitch right where the list comes to rest.
+  bool get _gliding => _scroll.hasClients && _scroll.position.isScrollingNotifier.value && !_dragging;
+
+  /// Applies a store update: right away while the grid rests, at its end when
+  /// it is gliding.
+  void _storeUpdate(void Function() apply) {
+    if (!mounted) return;
+    apply();
+    if (!_gliding) {
+      setState(() {});
+      return;
+    }
+    _glidePending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _flushGlideUpdate());
+  }
+
+  void _flushGlideUpdate() {
+    if (!mounted || !_glidePending || _gliding) return;
+    _glidePending = false;
+    setState(() {});
+  }
+
+  /// The grid's or the list's notifications: whether a finger or a glide is
+  /// moving it (the group bar's sideways strip is not the grid).
+  bool _panelScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollUpdateNotification && notification.dragDetails != null) {
+      _dragging = true;
+    } else if (notification is ScrollEndNotification) {
+      _dragging = false;
+      _flushGlideUpdate();
+    }
+    return false;
+  }
+
   @override
   void dispose() {
+    _scroll.dispose();
     _clock?.cancel();
     unawaited(_followsSub?.cancel());
     unawaited(_historySub?.cancel());
@@ -327,7 +375,12 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
               ),
             ),
           _WatchingLine(controller: widget.controller),
-          Expanded(child: _content(lists, group, layout, policy)),
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _panelScroll,
+              child: _content(lists, group, layout, policy),
+            ),
+          ),
         ],
       ),
     );
@@ -382,16 +435,26 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
           final footer = math.max(roomSwitchCardFooter, MediaQuery.textScalerOf(context).scale(12) * 1.34 + 10);
           return GridView.builder(
             key: const ValueKey('switch-grid'),
+            controller: _scroll,
             padding: const EdgeInsets.all(roomSwitchGridPadding),
-            physics: const PureLiveScrollPhysics(),
+            // A fling stops where a frame is a pixel, like the rooms grid's
+            // (see [pixelStopVelocity]): Flutter's own stop speed leaves over
+            // a second of frames moving a fraction of a pixel, and every card
+            // of the grid re-rasterises its cover and words on each of them.
+            physics: PureLiveScrollPhysics(stopVelocity: pixelStopVelocity(context)),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
+              // A whole number of logical pixels a row, as the rooms grid
+              // does (`RoomGridGeometry.of`): the card is `width * 9 / 16`
+              // plus a caption, a fraction such as 128.4, so each row would
+              // sit at its own sub-pixel phase and its text and cover would
+              // re-rasterise out of step with the other rows.
               mainAxisExtent: roomSwitchCardHeight(
                 width: constraints.maxWidth,
                 height: constraints.maxHeight,
                 columns: columns,
                 footer: footer,
-              ),
+              ).ceilToDouble(),
               mainAxisSpacing: roomSwitchGridSpacing,
               crossAxisSpacing: roomSwitchGridSpacing,
             ),
@@ -413,9 +476,11 @@ class _RoomSwitchPanelState extends ConsumerState<RoomSwitchPanel> {
       ),
       RoomSwitchLayout.list => ListView.builder(
         key: const ValueKey('switch-list'),
+        controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: 2),
-        physics: const PureLiveScrollPhysics(),
-        itemExtent: roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6),
+        physics: PureLiveScrollPhysics(stopVelocity: pixelStopVelocity(context)),
+        // Whole rows, for the same sub-pixel reason as the grid.
+        itemExtent: (roomSwitchRowHeight * MediaQuery.textScalerOf(context).scale(1).clamp(1, 1.6)).ceilToDouble(),
         itemCount: rooms.length,
         itemBuilder: (context, index) {
           final room = rooms[index];
