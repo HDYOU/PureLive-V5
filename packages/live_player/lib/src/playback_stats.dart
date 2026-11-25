@@ -21,6 +21,7 @@ final class PlaybackStats {
     this.channels,
     this.audioBitrate,
     this.audioCodec,
+    this.frameRate,
     this.droppedFrames,
     this.decodedFrames,
     this.bufferSeconds,
@@ -56,6 +57,12 @@ final class PlaybackStats {
 
   /// The audio description (`audio-codec`), falling back to its short name.
   final String? audioCodec;
+
+  /// Frames a second of the source's video track, when the snapshot carries
+  /// one. The fvp engine reports libmdk's probed rate here (the panel's frame
+  /// rate row); mpv's snapshot leaves it null and the row follows
+  /// `PlaybackState.frameRate` instead.
+  final double? frameRate;
 
   /// Frames dropped by the renderer (`frame-drop-count`, else the decoder's
   /// `decoder-frame-drop-count`). The fvp engine does not report frame drops

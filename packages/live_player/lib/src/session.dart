@@ -273,6 +273,13 @@ final class PlaybackSession {
   bool _buffering = false;
   PlayerException? _openingError;
 
+  /// Facts a replacement open reports through engine callbacks (the picture
+  /// size, the frame rate and an on-demand duration). They describe the
+  /// source being opened but arrive while the fence still rejects events, so
+  /// they are held and replayed once that open is authorized; the last report
+  /// of each kind wins.
+  final List<EngineEvent> _openingFacts = [];
+
   /// G03.1: the timing of the open in progress (null when not timed or
   /// already reported); a new generation ([_begin]) drops it.
   OpenTiming? _timing;
@@ -666,6 +673,7 @@ final class PlaybackSession {
     final session = _begin();
     _wantPlaying = false;
     _fence.clear();
+    _openingFacts.clear();
     final transport = _transport;
     _transport = PlaybackTransport();
     _source = null;
@@ -722,6 +730,7 @@ final class PlaybackSession {
     _begin();
     _wantPlaying = false;
     _fence.clear();
+    _openingFacts.clear();
     final transport = _transport;
     _transport = PlaybackTransport();
     _source = null;
@@ -886,6 +895,7 @@ final class PlaybackSession {
     _rewindPosition = null;
     _errorSignatures.clear();
     _openingError = null;
+    _openingFacts.clear();
     _playing = false;
     _buffering = true;
     _resetProgress();
@@ -975,6 +985,10 @@ final class PlaybackSession {
           );
       if (!_current(session) || _fence.generation != generation) return;
       _fence.finishOpen(const [], authorizeSuccessfulOpen: true);
+      // The engine often reports the picture size, the frame rate and a
+      // recording's duration while the open is still running; the fence
+      // rejected those, so they are replayed now that it accepts events.
+      _replayOpeningFacts(session);
       final input = _transport.active;
       if (input?.line case final line?) _emit(_state.copyWith(line: line));
       _schedulePrefetch(session);
@@ -988,6 +1002,7 @@ final class PlaybackSession {
     } on Object catch (error, stack) {
       if (!_current(session) || _fence.generation != generation) return;
       _fence.finishOpen(const [], authorizeSuccessfulOpen: false);
+      _openingFacts.clear();
       final kind = classifySourceFailure(error);
       if (kind == SourceFailureKind.cancelled) return;
       if (kind == SourceFailureKind.terminal) {
@@ -1025,8 +1040,34 @@ final class PlaybackSession {
 
   bool get _accepting => _fence.accepts(_fence.generation);
 
+  /// Whether [event] describes the source an open is loading rather than a
+  /// leftover of the source it replaces.
+  static bool _isOpeningFact(EngineEvent event) =>
+      event is EngineVideoSize || event is EngineFrameRate || event is EngineDuration;
+
+  void _holdOpeningFact(EngineEvent event) {
+    _openingFacts.removeWhere((held) => held.runtimeType == event.runtimeType);
+    _openingFacts.add(event);
+  }
+
+  /// Hands the held facts back to [_onEvent] once the fence accepts events
+  /// again, so the state and the panel see what the open already knew.
+  void _replayOpeningFacts(int session) {
+    if (_openingFacts.isEmpty) return;
+    final held = List<EngineEvent>.of(_openingFacts);
+    _openingFacts.clear();
+    for (final event in held) {
+      if (!_current(session)) return;
+      _onEvent(event);
+    }
+  }
+
   void _onEvent(EngineEvent event) {
     if (_disposed) return;
+    if (_fence.isOpening && !_accepting && _isOpeningFact(event)) {
+      _holdOpeningFact(event);
+      return;
+    }
     final session = _session;
     switch (event) {
       case EnginePlaying(:final playing):

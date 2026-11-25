@@ -70,6 +70,59 @@ void main() {
         expect(session.state.frameRate, isNull);
       });
     });
+
+    test('what the engine reports during an open lands when that open settles', () {
+      fakeAsync((async) {
+        final engine = FakeEngine();
+        engine.onOpen = (media) async {
+          // libmdk knows the size and the rate once prepare returns, which
+          // is while the session still fences the events of this open.
+          engine.emit(const EngineVideoSize(1920, 1080));
+          engine.emit(const EngineFrameRate(59.94));
+          engine.playing();
+        };
+        final session = PlaybackSession(engine: () async => engine, opener: MediaOpener());
+        unawaited(
+          session.open(
+            PlaybackRequest(
+              site: 'douyu',
+              plan: PlaybackPlan.of(LivePlayUrlResolution.lines(const [LivePlayLine('https://a.example/1.flv')])),
+            ),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(session.state.status, PlaybackStatus.playing);
+        expect(session.state.frameRate, 59.94);
+        expect(session.state.videoWidth, 1920);
+        expect(session.state.videoHeight, 1080);
+      });
+    });
+
+    test('a recording duration reported during its open lands too', () {
+      fakeAsync((async) {
+        final engine = FakeEngine();
+        engine.onOpen = (media) async {
+          if (media.onDemand) engine.emit(const EngineDuration(Duration(minutes: 42)));
+          engine.playing();
+        };
+        final session = PlaybackSession(engine: () async => engine, opener: MediaOpener());
+        unawaited(
+          session.open(
+            PlaybackRequest(
+              site: 'douyu',
+              plan: PlaybackPlan.of(
+                LivePlayUrlResolution.lines(const [LivePlayLine('https://a.example/1.flv')]),
+                onDemand: true,
+              ),
+            ),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(session.state.duration, const Duration(minutes: 42));
+        unawaited(session.dispose());
+        async.flushMicrotasks();
+      });
+    });
   });
 
   group('F.1a: the screen stays on while the view plays', () {

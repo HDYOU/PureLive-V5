@@ -68,7 +68,7 @@ PlaybackInfo playbackInfoOf({
       PlaybackInfoRow(
         id: 'frame-rate',
         label: i18n('playback_info_frame_rate'),
-        value: formatPlaybackFps(state.frameRate),
+        value: formatPlaybackFps(stats?.frameRate ?? state.frameRate),
       ),
       PlaybackInfoRow(id: 'codec', label: i18n('playback_info_codec'), value: formatPlaybackCodec(stats?.videoFormat)),
       PlaybackInfoRow(

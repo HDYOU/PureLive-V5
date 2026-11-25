@@ -478,15 +478,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
     try {
       final streams = target.player.mediaInfo.video;
       if (streams == null || streams.isEmpty) return;
-      // A stream with no coded size (a cover art, a broken probe) is not the
-      // picture; take the first one that has one.
-      var stream = streams.first;
-      for (final candidate in streams) {
-        if (candidate.codec.width > 0 && candidate.codec.height > 0) {
-          stream = candidate;
-          break;
-        }
-      }
+      final stream = _mainVideoStream(streams);
       size = fvpDisplaySizeOf(
         width: stream.codec.width,
         height: stream.codec.height,
@@ -530,10 +522,21 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
   double? _videoFrameRate(_PlayerInstance target) {
     try {
       final streams = target.player.mediaInfo.video;
-      return streams == null || streams.isEmpty ? null : _frameRateOf(streams.first);
+      return streams == null || streams.isEmpty ? null : _frameRateOf(_mainVideoStream(streams));
     } on Object {
       return null;
     }
+  }
+
+  /// The video stream that draws the picture: the first one with a coded
+  /// size (a cover art or a broken probe has none), else the first stream.
+  /// The size and the frame rate are read off the same stream, so a source
+  /// with an extra video track does not report one's size and another's rate.
+  mdk.VideoStreamInfo _mainVideoStream(List<mdk.VideoStreamInfo> streams) {
+    for (final candidate in streams) {
+      if (candidate.codec.width > 0 && candidate.codec.height > 0) return candidate;
+    }
+    return streams.first;
   }
 
   /// [stream]'s frame rate when it is a usable rate; null otherwise (the
@@ -767,8 +770,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
       // below picks it up once the probe completes.
       _emitFrameRate(nextIns);
       unawaited(
-        Future<void>.delayed(const Duration(milliseconds: 800))
-            .then((_) => _reopenFrameRateCheck(openSeq, nextIns)),
+        Future<void>.delayed(const Duration(milliseconds: 800)).then((_) => _reopenFrameRateCheck(openSeq, nextIns)),
       );
 
       _emitSize(nextIns);
@@ -1006,7 +1008,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         ins.mediaInfoReported = true;
         debugPrint('fvp mediaInfo: $info');
       }
-      final video = info.video?.isEmpty ?? true ? null : info.video!.first;
+      final video = info.video?.isEmpty ?? true ? null : _mainVideoStream(info.video!);
       final audio = info.audio?.isEmpty ?? true ? null : info.audio!.first;
 
       // Seconds of media held in libmdk's cache; the panel's "缓冲" row.
@@ -1050,6 +1052,7 @@ final class FvpEngine implements PlayerEngine, PlaybackRate, PlaybackStatsSource
         audioCodec: audio?.codec.codec,
         bufferSeconds: bufferSeconds,
         downloadBytesPerSecond: downloadBytesPerSecond,
+        frameRate: fps,
         mpvVersion: mdkBuild,
       );
     } on Object {
