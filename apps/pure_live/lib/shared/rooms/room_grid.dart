@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:live_core/live_core.dart';
@@ -504,11 +505,36 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
 
   RoomFeed get _feed => widget.feed;
 
+  /// How far past the viewport the list builds while it arrives: nothing
+  /// (the viewport alone), then 120, then [ScrollView]'s default.
+  ///
+  /// A grid that arrives and scrolls in the same frames both builds the rows
+  /// outside the viewport and lays out the ones inside — the same shape of
+  /// frame that makes a scroll through the middle of the list hitch. The
+  /// first frames after a page arrives do not need those rows yet, so they
+  /// wait two frames for them (prism_ui's `ArrivalCacheExtentMixin`, which
+  /// FlClash runs with the same 0 → 120 → default steps).
+  ScrollCacheExtent? _arrivalCache = const ScrollCacheExtent.pixels(0);
+
+  int _arrivalStep = 0;
+
+  void _stepArrivalCache() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _arrivalStep++;
+      setState(() {
+        _arrivalCache = _arrivalStep >= 2 ? null : const ScrollCacheExtent.pixels(120);
+      });
+      if (_arrivalStep < 2) _stepArrivalCache();
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _pageSize = widget.pageSize;
     _feed.addListener(_feedChanged);
+    _stepArrivalCache();
   }
 
   @override
@@ -814,6 +840,7 @@ class _RoomFeedViewState extends ConsumerState<RoomFeedView> {
                 key: ValueKey('$prefix-grid'),
                 controller: _scroll,
                 physics: physics,
+                scrollCacheExtent: _arrivalCache,
                 semanticChildCount: rooms.length,
                 slivers: [
                   SliverPadding(
