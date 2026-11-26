@@ -50,6 +50,22 @@ final class DouyuPlayData {
   String toString() => 'DouyuPlayData($rate, $cdns)';
 }
 
+/// One entry of [DouyuApi._standardTiers].
+@immutable
+final class _Tier {
+  /// Creates a tier.
+  const new({required this.name, required this.rate, required this.bit});
+
+  /// User-facing tier name.
+  final String name;
+
+  /// The `getH5PlayV1` request code for this tier.
+  final int rate;
+
+  /// The tier's kilobit budget.
+  final int bit;
+}
+
 /// What the danmaku connection needs to join one room: the canonical rid
 /// sent in `loginreq` and `joingroup` (3.x passed the rid alone), and the
 /// gifts its `dgb` packets may name (D07.3). The endpoint is
@@ -804,10 +820,30 @@ abstract final class DouyuApi {
     return data;
   }
 
+  /// The standard Douyu ladder the answer should offer (3.x's quality codes),
+  /// best to worst; the `rate` is the `getH5PlayV1` request code and `bit`
+  /// the kilobit budget. Used to backfill tiers the answer omits.
+  static const _standardTiers = [
+    _Tier(name: '蓝光8M', rate: 8, bit: 8000),
+    _Tier(name: '蓝光4M', rate: 4, bit: 4000),
+    _Tier(name: '超清', rate: 3, bit: 2000),
+    _Tier(name: '高清', rate: 2, bit: 900),
+  ];
+
+  /// A tier only backfills when the answer's best quality already exceeds
+  /// this kilobit budget (a low-budget room keeps its own list).
+  static const _backfillThresholdBit = 8000;
+
   /// Qualities of a metadata answer (`rate=-1`): `multirates` in the
   /// platform's order (never sorted: `rate` is a request code), first of a
   /// rate wins, each with [cdns] of the answer. Without `multirates`, one
   /// "默认" option for `data.rate`.
+  ///
+  /// When the answer lists tiers, its best quality's `bit` decides whether the
+  /// standard ladder is completed: over [_backfillThresholdBit] the missing
+  /// [_standardTiers] are backfilled and the whole list is ordered best to
+  /// worst (source first, then the ladder); at or under it the answer stands
+  /// as sent.
   ///
   /// `streamStatus: 0` is `StreamUnavailable` (E01.7): the room is on air
   /// (`betard`) but no stream is pushed, and the URL it still carries
@@ -836,7 +872,7 @@ abstract final class DouyuApi {
             data: DouyuPlayData(rate, lines),
           ),
     ];
-    if (qualities.isNotEmpty) return qualities;
+    if (qualities.isNotEmpty) return _completeLadder(qualities, items.first, lines);
     final rate = jsonInt(data['rate']) ?? -1;
     return [
       LivePlayQuality(
@@ -845,6 +881,46 @@ abstract final class DouyuApi {
         sort: 1,
         data: DouyuPlayData(rate, lines),
       ),
+    ];
+  }
+
+  /// [qualities] as the answer gave them, unless their best quality's `bit`
+  /// exceeds [_backfillThresholdBit]; then the missing [_standardTiers] are
+  /// added and the whole list is ordered source-first, then ladder.
+  static List<LivePlayQuality> _completeLadder(
+    List<LivePlayQuality> qualities,
+    Map<String, dynamic> first,
+    List<String> lines,
+  ) {
+    final bestBit = jsonInt(first['bit']);
+    if (bestBit == null || bestBit <= _backfillThresholdBit) return qualities;
+
+    final present = qualities.map((quality) => quality.quality).toSet();
+    final ranks = <String, int>{for (var i = 0; i < _standardTiers.length; i++) _standardTiers[i].name: i};
+    int rank(String name) => ranks[name] ?? -1;
+
+    // The answer's own tiers above the ladder keep their order; the ladder
+    // (the standard tiers, backfilled where the answer omits them) follows.
+    final ordered = <LivePlayQuality>[
+      for (final quality in qualities)
+        if (rank(quality.quality) < 0)
+          quality,
+      for (final tier in _standardTiers)
+        if (!present.contains(tier.name))
+          LivePlayQuality(quality: tier.name, id: tier.rate, data: DouyuPlayData(tier.rate, lines)),
+      ...qualities.where((quality) => rank(quality.quality) >= 0),
+    ];
+    final count = ordered.length;
+    return [
+      for (var i = 0; i < count; i++)
+        LivePlayQuality(
+          quality: ordered[i].quality,
+          id: ordered[i].id,
+          sort: count - i,
+          data: ordered[i].data,
+          isPlaybackUnconfirmed: ordered[i].isPlaybackUnconfirmed,
+          codec: ordered[i].codec,
+        ),
     ];
   }
 

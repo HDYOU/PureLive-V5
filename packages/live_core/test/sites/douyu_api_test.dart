@@ -27,6 +27,45 @@ void _expectParity(
   }
 }
 
+/// The ladder 4.x backfills onto a 3.x quality list when the answer's best
+/// tier's `bit` exceeds 8000: the missing standard tiers are added and the
+/// list is ordered source-first, then ladder (3.x's codes, best to worst).
+List<Map<String, dynamic>> _backfilledLadder(Map<String, dynamic> legacy, {required int bestBit}) {
+  const tierNames = ['蓝光8M', '蓝光4M', '超清', '高清'];
+  const tierRates = [8, 4, 3, 2];
+  const threshold = 8000;
+  final legacyList = legacy['parsePlayQualities'] as List;
+  final base = [
+    for (final entry in legacyList)
+      {
+        for (final key in ['quality', 'id', 'sort', 'rate', 'cdns'])
+          key: (entry as Map)[key],
+      },
+  ];
+  if (bestBit <= threshold) return base;
+
+  final present = base.map((entry) => entry['quality']).toSet();
+  final rank = <String, int>{for (var i = 0; i < tierNames.length; i++) tierNames[i]: i};
+  int rankOf(Object? name) => name is String ? rank[name] ?? -1 : -1;
+  final ordered = <Map<String, dynamic>>[
+    for (final entry in base)
+      if (rankOf(entry['quality']) < 0)
+        entry,
+    for (var i = 0; i < tierNames.length; i++)
+      if (!present.contains(tierNames[i]))
+        {
+          for (final key in ['quality', 'id', 'sort', 'rate', 'cdns'])
+            key: key == 'quality' ? tierNames[i] : key == 'id' || key == 'rate' ? tierRates[i] : base.first[key],
+        },
+    ...base.where((entry) => rankOf(entry['quality']) >= 0),
+  ];
+  final count = ordered.length;
+  return [
+    for (var i = 0; i < count; i++)
+      {...ordered[i], 'sort': count - i},
+  ];
+}
+
 Map<String, dynamic> _vectors(String name) =>
     jsonDecode(File('../../fixtures/douyu/$name/vectors.json').readAsStringSync()) as Map<String, dynamic>;
 
@@ -608,6 +647,9 @@ void main() {
         final legacy = fixture.legacy as Map<String, dynamic>;
         final data = DouyuApi.playData(fixture.body, status: fixture.status);
         final qualities = DouyuApi.qualities(data);
+        final multirates = data['multirates'] as List? ?? const [];
+        final bestBit = (multirates.isEmpty ? null : (multirates.first as Map)['bit']) as int? ?? 0;
+        final expected = name == 'S08-meta-24422' ? _backfilledLadder(legacy, bestBit: bestBit) : legacy['parsePlayQualities'];
         expect([
           for (final quality in qualities)
             {
@@ -617,7 +659,7 @@ void main() {
               'rate': (quality.data! as DouyuPlayData).rate,
               'cdns': (quality.data! as DouyuPlayData).cdns,
             },
-        ], legacy['parsePlayQualities']);
+        ], expected);
         expect(DouyuApi.cdns(data), legacy['parseCdnCodes']);
         expect(DouyuApi.mediaUrl(data), legacy['parsePlayUrl']);
       });
@@ -722,6 +764,51 @@ void main() {
       final fallback = DouyuApi.qualities({'rate': 2}).single;
       expect(fallback.quality, '默认');
       expect(fallback.id, 2);
+    });
+
+    test('a high-budget answer (best bit over 8M) is backfilled to the standard ladder', () {
+      final qualities = DouyuApi.qualities({
+        'multirates': [
+          {'name': '原画2K60', 'rate': 0, 'bit': 20150},
+          {'name': '蓝光4M', 'rate': 4, 'bit': 4000},
+          {'name': '超清', 'rate': 3, 'bit': 2000},
+          {'name': '高清', 'rate': 2, 'bit': 900},
+        ],
+        'cdnsWithName': [
+          {'cdn': 'hw-h5'},
+        ],
+      });
+      expect(qualities.map((quality) => quality.quality), ['原画2K60', '蓝光8M', '蓝光4M', '超清', '高清']);
+      expect(qualities.map((quality) => quality.selectionId), [0, 8, 4, 3, 2]);
+      expect(qualities.map((quality) => quality.sort), [5, 4, 3, 2, 1]);
+      expect((qualities[1].data! as DouyuPlayData).rate, 8, reason: '蓝光8M backfilled with the 3.x code 8');
+      expect((qualities[1].data! as DouyuPlayData).cdns, ['hw-h5']);
+    });
+
+    test('a low-budget answer (best bit at most 8M) keeps its own list, untouched', () {
+      final qualities = DouyuApi.qualities({
+        'multirates': [
+          {'name': '原画1080P30', 'rate': 0, 'bit': 5901},
+          {'name': '蓝光4M', 'rate': 4, 'bit': 4000},
+          {'name': '超清', 'rate': 3, 'bit': 2000},
+          {'name': '高清', 'rate': 2, 'bit': 900},
+        ],
+        'cdnsWithName': [
+          {'cdn': 'hw-h5'},
+        ],
+      });
+      expect(qualities.map((quality) => quality.quality), ['原画1080P30', '蓝光4M', '超清', '高清']);
+      expect(qualities.map((quality) => quality.selectionId), [0, 4, 3, 2], reason: 'no 蓝光8M backfill at 5901');
+    });
+
+    test('an answer without a bit field is never backfilled', () {
+      final qualities = DouyuApi.qualities({
+        'multirates': [
+          {'name': '原画', 'rate': 0},
+          {'name': '高清', 'rate': 2},
+        ],
+      });
+      expect(qualities.map((quality) => quality.quality), ['原画', '高清'], reason: 'unknown budget keeps the list');
     });
 
     test('CDNs: deduplicated, the answering CDN first, scdn last, empty means the server picks', () {

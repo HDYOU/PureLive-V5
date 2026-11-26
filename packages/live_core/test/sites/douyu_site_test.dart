@@ -591,7 +591,7 @@ void main() {
     test('qualities from one metadata request; one device id in descriptor, form and cookie (REG-DOUYU-003)', () async {
       final setup = _setup(['S06-encryption', 'S08-meta-24422']);
       final qualities = await setup.site.getPlayQualities(detail: _room('24422'));
-      expect(qualities.map((quality) => quality.quality), ['原画2K60', '蓝光4M', '超清', '高清']);
+      expect(qualities.map((quality) => quality.quality), ['原画2K60', '蓝光8M', '蓝光4M', '超清', '高清']);
       expect((qualities.first.data! as DouyuPlayData).cdns, ['hw-h5', 'hs-h5']);
       expect(_paths(setup.http), [_encryption, _play]);
       final did = setup.site.deviceId;
@@ -747,7 +747,7 @@ void main() {
           _play: [_denied(), ReplaySample.load('$_root/S08-meta-24422')],
         },
       );
-      expect(await recovered.site.getPlayQualities(detail: _room('24422')), hasLength(4));
+      expect(await recovered.site.getPlayQualities(detail: _room('24422')), hasLength(5));
       expect(_paths(recovered.http), [_encryption, _play, _encryption, _play]);
       final refused = _setup(
         ['S06-encryption'],
@@ -1015,7 +1015,7 @@ void main() {
         addTearDown(vault.dispose);
         final store = _Store(vault);
         final setup = _setup(['S06-encryption', 'S08-meta-24422'], cookies: vault, login: store, extra: [passport]);
-        expect(await setup.site.getPlayQualities(detail: _room('24422')), hasLength(4));
+        expect(await setup.site.getPlayQualities(detail: _room('24422')), hasLength(5));
         expect(store.saved, isEmpty, reason: 'the save time must not move (REG-DOUYU-024)');
       }
     });
