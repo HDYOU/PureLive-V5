@@ -29,7 +29,10 @@ final class PlaybackTelemetry extends ValueNotifier<PlaybackStats?> with Widgets
   /// a single poll (libmdk once reported 3.3 Gbps for a 1.2 Mbps source, mpv
   /// refills a starved cache in bursts), and one spike would drag a mean of
   /// three samples far off the real speed.
-  double? get downloadAverage => _downloads.isEmpty ? null : ([..._downloads]..sort())[_downloads.length ~/ 2];
+  ///
+  /// The lower middle of an even sample set: a measured zero next to a live
+  /// reading is a stalled stream already, not a speed to keep showing.
+  double? get downloadAverage => _downloads.isEmpty ? null : ([..._downloads]..sort())[(_downloads.length - 1) ~/ 2];
 
   @override
   void addListener(VoidCallback listener) {

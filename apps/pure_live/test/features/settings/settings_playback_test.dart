@@ -356,7 +356,9 @@ void main() {
       // the one stored.
       expect(_rowWidget(tester, 'kernel').onTap, isNotNull);
       await tapSettings(tester, settingsRow('kernel'));
-      expect(_text('内核切换'), findsOneWidget);
+      // The row behind the dialog carries the same words, so the dialog is
+      // named by its title key rather than by the text alone.
+      expect(tester.widget<Text>(find.byKey(const ValueKey('app-dialog-title'))).data, '内核切换');
       expect(find.text('换引擎后，下一次打开直播间或多画面格时生效'), findsOneWidget);
       expect(
         find.descendant(
