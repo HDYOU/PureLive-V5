@@ -449,24 +449,17 @@ final class DouyuSite extends LiveSite
 
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
-    // Only this site's rooms whose stored id already is the rid: an alias has
-    // to be resolved by the per-room path, or the batch would ask hover about
-    // an id it does not know and drop the answer.
-    final batchable = [
-      for (final room in rooms)
-        if (room.platform == _site &&
-            _digits.hasMatch(room.roomId) &&
-            (_rids[room.roomId] ?? room.roomId) == room.roomId)
-          room,
-    ];
-    final rids = {for (final room in batchable) room.roomId};
+    final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
     if (rids.length < 2) return const {};
     final requested = rids.toList();
     final chunks = <List<String>>[
       for (var i = 0; i < requested.length; i += _batchRids)
         requested.sublist(i, min(i + _batchRids, requested.length)),
     ];
-    final byRid = <String, LiveRoom>{for (final room in batchable) room.roomId: room};
+    final byRid = <String, LiveRoom>{
+      for (final room in rooms)
+        if (_digits.hasMatch(room.roomId)) room.roomId: room,
+    };
     final updates = <String, LiveRoom>{};
     final answeredRids = <String>{};
     for (final result in await Future.wait([
@@ -500,8 +493,9 @@ final class DouyuSite extends LiveSite
         return updates;
       }
       final noSeen = <String, LiveRoom>{};
-      for (final room in batchable) {
+      for (final room in rooms) {
         final rid = room.roomId;
+        if (!_digits.hasMatch(rid)) continue;
         if (answeredRids.contains(rid)) continue;
         if (!followed.containsKey(rid)) {
           noSeen[rid] = room;
