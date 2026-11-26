@@ -191,61 +191,268 @@ LiveRoom _room(String id) => LiveRoom(platform: 'douyu', roomId: id);
 LivePlayQuality _quality(int rate, List<String> cdns) =>
     LivePlayQuality(quality: '$rate', id: rate, data: DouyuPlayData(rate, cdns));
 
-void main() {
-  test('issue257: public hover batches only confirmed states and preserves saved room metadata', () async {
-    Map<String, Object> row(int rid, {int status = 2, int out = 0}) => {
-      'roomId': rid,
-      'showStatus': status,
-      'is_out_live': out,
-      'roomName': 'Remote title',
-      'nickName': 'Remote name',
-      'roomCover': '//img.example.test/cover.jpg',
-      'showDetail': 'Notice &amp; details',
-      'hot': 100,
-    };
-    final http = ReplayHttp([
-      _synthetic('https://www.douyu.com/wgapi/live/webbackends/hoverRoomInfo?rids=101,102,103,104,105,106', {
-        'code': 0,
-        'data': [row(101), row(102, status: 1), row(103, out: 1), row(104), row(104), row(106), row(999)],
-      }),
-    ]);
-    final rooms = [
-      for (final id in ['101', '102', '103', '104', '105'])
-        LiveRoom(platform: 'douyu', roomId: id, title: 'Saved title', nick: 'Saved name', area: 'Saved area'),
-      LiveRoom(platform: 'douyu', roomId: '106', liveStatus: LiveStatus.replay),
-      LiveRoom(platform: 'douyu', roomId: 'short-alias'),
-    ];
-    final result = await DouyuSite(http).refreshFollowBatch(rooms);
-    expect(http.requests, hasLength(1));
-    expect(http.requests.single.method, 'GET');
-    expect(http.requests.single.headers['cookie'], isNull);
-    expect(http.requests.single.timeout, const Duration(seconds: 3));
-    expect(result.keys, ['douyu:101']);
-    final room = result.values.single;
-    expect(room.effectiveLiveStatus, LiveStatus.offline);
-    expect(room.title, 'Saved title');
-    expect(room.nick, 'Saved name');
-    expect(room.area, 'Saved area');
-    expect(room.cover, 'https://img.example.test/cover.jpg');
-    expect(room.notice, 'Notice & details');
-    expect(room.watching, '100');
-  });
+/// A GET `hoverRoomInfo` for [rids]; matching is on the `rids` query.
+ReplaySample _hoverBatch(List<String> rids, {Object? data, int status = 200}) => ReplaySample(
+  method: 'GET',
+  url: Uri.parse('https://www.douyu.com/wgapi/live/webbackends/hoverRoomInfo?rids=${rids.join(',')}'),
+  status: status,
+  bytes: utf8.encode(jsonEncode(data ?? const {
+    'code': 0,
+    'data': <Object>[],
+  })),
+);
 
-  test('issue257: no batch failure is converted into an offline snapshot', () async {
-    final rooms = [_room('101'), _room('102')];
-    for (final response in [
-      {'code': 1001, 'data': <Object?>[]},
-      {'code': 0, 'data': <String, Object?>{}},
-    ]) {
-      final http = ReplayHttp([
-        _synthetic('https://www.douyu.com/wgapi/live/webbackends/hoverRoomInfo?rids=101,102', response),
+/// A GET `follow/list` (the login's followed rooms); matching is on the
+/// `page`/`sort`/`cid1`/`fliterLive` query.
+ReplaySample _followList({Object? data, int status = 200}) => ReplaySample(
+  method: 'GET',
+  url: Uri.parse('https://www.douyu.com/wgapi/livenc/liveweb/follow/list?page=1&sort=0&cid1=0&fliterLive=1'),
+  status: status,
+  bytes: utf8.encode(jsonEncode(data ?? const {
+    'error': 0,
+    'data': <Object>[],
+  })),
+);
+
+/// A POST `follow/add` for [rid]; matching is on the `rid` form field.
+ReplaySample _followAdd(String rid, {Object? data, int status = 200, String ctn = 'ctn'}) => ReplaySample(
+  method: 'POST',
+  url: Uri.parse('https://www.douyu.com/wgapi/livenc/liveweb/follow/add'),
+  form: {'rid': rid, 'ctn': ctn},
+  status: status,
+  bytes: utf8.encode(jsonEncode(data ?? const {
+    'error': 0,
+    'data': <Object>[],
+  })),
+);
+
+void main() {
+  group('follow batch', () {
+    test('a single chunk: the answered fields backfill the stored rooms, keyed by rid', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _hoverBatch(['1', '2', '3', '4'], data: {
+            'code': 0,
+            'data': [
+              {'roomId': 1, 'roomName': 'a', 'nickName': 'A', 'roomCover': 'https://c.douyu.com/1.png', 'hot': 5, 'showStatus': 1, 'showDetail': 'nd1'},
+              {'roomId': 2, 'roomName': 'b', 'nickName': 'B', 'roomCover': 'https://c.douyu.com/2.png', 'hot': 7, 'showStatus': 1, 'showDetail': 'nd2'},
+              {'roomId': 3, 'roomName': 'c', 'nickName': 'C', 'roomCover': 'https://c.douyu.com/3.png', 'hot': 0, 'showStatus': 2, 'showDetail': 'nd3'},
+              {'roomId': 4, 'roomName': 'd', 'nickName': 'D', 'roomCover': 'https://c.douyu.com/4.png', 'hot': 9, 'showStatus': 1, 'showDetail': 'nd4'},
+            ],
+          }),
+        ],
+      );
+      // Stored partition per rid: 1 is no-replay (live), 2/3/4 are ordinary.
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(title: 'stored1', area: '唱歌'),
+        _room('2').copyWith(title: 'stored2', area: '英雄联盟'),
+        _room('3').copyWith(title: 'stored3', area: ''),
+        _room('4').copyWith(title: 'stored4', area: ''),
       ]);
-      await expectLater(DouyuSite(http).refreshFollowBatch(rooms), throwsA(isA<ApiChanged>()));
-    }
-    await expectLater(DouyuSite(_Failing(TransportReason.timeout)).refreshFollowBatch(rooms), throwsA(isNotNull));
-    final empty = ReplayHttp([]);
-    expect(await DouyuSite(empty).refreshFollowBatch([_room('one-alias'), _room('101')]), isEmpty);
-    expect(empty.requests, isEmpty);
+      expect(updates.keys, {'douyu:1', 'douyu:3'}, reason: 'undecided live rooms in ordinary partitions are skipped');
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.live, reason: 'a live room in a no-replay partition is live');
+      expect(updates['douyu:1']!.watching, '5', reason: 'hot is the viewer count');
+      expect(updates['douyu:1']!.cover, 'https://c.douyu.com/1.png');
+      expect(updates['douyu:1']!.notice, 'nd1');
+      expect(updates['douyu:1']!.title, 'stored1', reason: 'the stored room keeps its own title');
+      expect(updates['douyu:1']!.area, '唱歌', reason: 'the stored room keeps its own partition');
+      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline, reason: 'showStatus 2 is offline');
+      expect(setup.http.requests.single.url.path, '/wgapi/live/webbackends/hoverRoomInfo');
+      expect(setup.http.requests.single.url.queryParameters['rids'], '1,2,3,4');
+      expect(setup.http.requests.single.method, 'GET');
+    });
+
+    test('the status of a live room follows the stored partition: replay, live or undecided', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _hoverBatch(['1', '2', '3'], data: {
+            'code': 0,
+            'data': [
+              // 赛事 anchor + 重播 title: replay, whatever the partition.
+              {'roomId': 1, 'roomName': 'LPL 重播', 'nickName': 'LPL赛事', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+              // Ordinary partition: live in a no-replay partition, undecided otherwise.
+              {'roomId': 2, 'roomName': '今晚开播', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+              // Offline: the partition never matters.
+              {'roomId': 3, 'roomName': '休息中', 'nickName': '主播', 'roomCover': '', 'hot': 0, 'showStatus': 2, 'showDetail': ''},
+            ],
+          }),
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: ''), // a replay by convention in an ordinary partition
+        _room('2').copyWith(area: '唱歌'), // live in a no-replay partition
+        _room('3').copyWith(area: ''),
+      ]);
+      expect(updates.keys, {'douyu:1', 'douyu:2', 'douyu:3'});
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.replay, reason: 'the naming convention marks it a replay');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live, reason: 'a live room in a no-replay partition is live');
+      expect(updates['douyu:3']!.liveStatus, LiveStatus.offline);
+    });
+
+    test('an undecided live room (ordinary partition, no convention) is skipped', () async {
+      final setup = _setup(
+        [],
+        extra: [
+          _hoverBatch(['1'], data: {
+            'code': 0,
+            'data': [
+              {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+            ],
+          }),
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2'), // not answered
+      ]);
+      expect(updates, isEmpty, reason: 'the live room is undecided and the rest is not answered');
+    });
+
+    test('more than 50 rooms: two chunks in one batch, merged; a failed chunk drops its rooms', () async {
+      final first = [for (var i = 1; i <= 50; i++) '$i'];
+      final second = [for (var i = 51; i <= 55; i++) '$i'];
+      final setup = _setup(
+        [],
+        extra: [
+          _hoverBatch(first, data: {
+            'code': 0,
+            'data': [
+              {'roomId': 1, 'roomName': 'first', 'nickName': 'F', 'roomCover': '', 'hot': 1, 'showStatus': 2, 'showDetail': ''},
+            ],
+          }),
+          _hoverBatch(second), // no list: the chunk answers nothing
+        ],
+      );
+      final updates = await setup.site.refreshFollowBatch([...first, ...second].map(_room).toList());
+      expect(updates, {'douyu:1': updates['douyu:1']!}, reason: 'only rid 1 is answered');
+      final paths = _paths(setup.http);
+      expect(paths.where((p) => p == '/wgapi/live/webbackends/hoverRoomInfo'), hasLength(2));
+    });
+
+    test('one room, or non-numeric ids: no batch request', () async {
+      final setup = _setup([]);
+      expect(await setup.site.refreshFollowBatch([_room('1')]), isEmpty);
+      expect(setup.http.requests, isEmpty);
+      expect(await setup.site.refreshFollowBatch([_room('lpl')]), isEmpty, reason: 'an alias rid cannot be batched');
+      expect(setup.http.requests, isEmpty);
+    });
+
+    test('a chunk that fails is skipped; the other chunk still answers', () async {
+      final first = [for (var i = 1; i <= 50; i++) '$i'];
+      final second = [for (var i = 51; i <= 55; i++) '$i'];
+      final failing = ReplaySample(
+        method: 'GET',
+        url: Uri.parse('https://www.douyu.com/wgapi/live/webbackends/hoverRoomInfo?rids=${first.join(',')}'),
+        status: 500,
+        bytes: utf8.encode('boom'),
+      );
+      final ok = _hoverBatch(second, data: {
+        'code': 0,
+        'data': [
+          {'roomId': 51, 'roomName': 'one', 'nickName': 'O', 'roomCover': '', 'hot': 0, 'showStatus': 2, 'showDetail': ''},
+        ],
+      });
+      final setup = _setup([], extra: [failing, ok]);
+      final updates = await setup.site.refreshFollowBatch([...first, ...second].map(_room).toList());
+      expect(updates, {'douyu:51': updates['douyu:51']!}, reason: 'the failed first chunk drops its rooms');
+    });
+
+    test("with a login: the follow list settles the hover's undecided room by its videoLoop", () async {
+      final vault = MemoryCookieVault()..set('douyu', 'dy_did=did; acf_auth=t');
+      final hover = _hoverBatch(['1', '2'], data: {
+        'code': 0,
+        'data': [
+          // Ordinary partition, live: undecided by the hover.
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': 'https://c.douyu.com/h1.png', 'hot': 9, 'showStatus': 1, 'showDetail': 'hover-nd'},
+          // Live, answered by the hover.
+          {'roomId': 2, 'roomName': '唱歌', 'nickName': 'C', 'roomCover': 'https://c.douyu.com/h2.png', 'hot': 3, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final followList = _followList(data: {
+        'error': 0,
+        'data': {
+          'list': [
+            // Settles the undecided room 1: a replay by videoLoop.
+            {'room_id': 1, 'room_name': '重播中', 'nickname': '主播', 'show_status': 1, 'online': '42', 'room_src': 'https://c.douyu.com/1.png', 'avatar_small': 'https://a.douyu.com/1.jpg', 'game_name': '英雄联盟', 'videoLoop': 1},
+            // Room 2 is not in the follow list: the hover answer stands.
+          ],
+        },
+      });
+      final setup = _setup([], cookies: vault, extra: [hover, followList]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2').copyWith(area: '唱歌'),
+      ]);
+      expect(updates.keys, {'douyu:1', 'douyu:2'}, reason: 'the follow list settles 1; 2 stands by the hover');
+      expect(updates['douyu:1']!.liveStatus, LiveStatus.replay, reason: 'videoLoop 1 settles the undecided room');
+      expect(updates['douyu:1']!.watching, '42', reason: "the follow list's online replaces the hover's hot");
+      expect(updates['douyu:1']!.cover, 'https://c.douyu.com/1.png', reason: "the follow list's room_src");
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live, reason: 'a no-replay partition is live');
+      expect(setup.http.requests.map((r) => r.url.path).where((p) => p == '/wgapi/livenc/liveweb/follow/list'), hasLength(1));
+    });
+
+    test('without a login: the follow list is not fetched, the hover answer stands', () async {
+      final hover = _hoverBatch(['1'], data: {
+        'code': 0,
+        'data': [
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final setup = _setup([], extra: [hover]);
+      final updates = await setup.site.refreshFollowBatch([_room('1').copyWith(area: '英雄联盟'), _room('2')]);
+      expect(updates, isEmpty, reason: 'undecided, no login: the room stays as the caller has it');
+      expect(_paths(setup.http), isNot(contains('/wgapi/livenc/liveweb/follow/list')));
+    });
+
+    test('a failed follow list keeps the hover answers', () async {
+      final vault = MemoryCookieVault()..set('douyu', 'dy_did=did; acf_auth=t');
+      final hover = _hoverBatch(['1', '2'], data: {
+        'code': 0,
+        'data': [
+          {'roomId': 1, 'roomName': '开播了', 'nickName': '主播', 'roomCover': '', 'hot': 9, 'showStatus': 1, 'showDetail': ''},
+          {'roomId': 2, 'roomName': '唱歌', 'nickName': 'C', 'roomCover': '', 'hot': 3, 'showStatus': 1, 'showDetail': ''},
+        ],
+      });
+      final failingFollowList = _followList(status: 500);
+      final setup = _setup([], cookies: vault, extra: [hover, failingFollowList]);
+      final updates = await setup.site.refreshFollowBatch([
+        _room('1').copyWith(area: '英雄联盟'),
+        _room('2').copyWith(area: '唱歌'),
+      ]);
+      expect(updates.keys, {'douyu:2'}, reason: 'the failed follow list keeps only the hover answer');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.live);
+    });
+
+    test('a room the follow list does not know is followed in the background', () async {
+      final vault = MemoryCookieVault()..set('douyu', 'dy_did=did; acf_auth=t; acf_ccn=ctn');
+      // Hover only answers room 2 (offline, confirmed); room 1 is not returned.
+      final hover = _hoverBatch(['1', '2'], data: {
+        'code': 0,
+        'data': [
+          {'roomId': 2, 'roomName': '休息中', 'nickName': '主播', 'roomCover': '', 'hot': 0, 'showStatus': 2, 'showDetail': ''},
+        ],
+      });
+      // The follow list knows room 2 but not room 1: room 1 is followed.
+      final followList = _followList(data: {
+        'error': 0,
+        'data': {
+          'list': [
+            {'room_id': 2, 'room_name': '休息中', 'nickname': '主播', 'show_status': 0, 'online': '0', 'game_name': '英雄联盟'},
+          ],
+        },
+      });
+      final setup = _setup([], cookies: vault, extra: [hover, followList, _followAdd('1')]);
+      final updates = await setup.site.refreshFollowBatch([_room('1'), _room('2').copyWith(area: '英雄联盟')]);
+      // Let the fire-and-forget follow/add dispatch; it is not awaited.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(updates.keys, {'douyu:2'}, reason: 'room 2 is answered offline; room 1 is undecided and followed');
+      expect(updates['douyu:2']!.liveStatus, LiveStatus.offline);
+      expect(_count(setup.http, '/wgapi/livenc/liveweb/follow/add'), 1, reason: 'the missing room 1 is followed');
+      final add = setup.http.requests.singleWhere((r) => r.url.path == '/wgapi/livenc/liveweb/follow/add');
+      expect(_form(add), {'rid': '1', 'ctn': 'ctn'});
+    });
   });
 
   test('issue135 failed login metadata can use public guest lines without changing other rooms', () async {

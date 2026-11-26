@@ -248,6 +248,49 @@ abstract final class DouyuApi {
   /// Origin of the web player.
   static const String origin = 'https://www.douyu.com';
 
+  /// Partitions that produce no replay (时光机): the platform refuses audio
+  /// (voice-only) rooms and heavily reviews the borderline categories, so a
+  /// live room in one of them is a real stream, never a replay. The `cate2Id`
+  /// values come from `m.douyu.com/api/cate/list`.
+  static const Set<int> noReplayCate2 = {
+    // Voice-only (no picture): voice interaction and voice live.
+    910, // 唱歌
+    1221, // 交友
+    1556, // 心动FM
+    1575, // 一起玩
+    1015, // 娱乐开黑
+    // Borderline high-risk (星秀 / 颜值 / 户外 / 舞蹈, heavy review):
+    201, // 颜值
+    1008, // 星秀
+    124, // 户外
+    311, // 颜值（横屏）
+    4208, // 竖屏美女
+  };
+
+  /// The same partitions by name, as a fallback when the room's `cid2` is
+  /// missing (a follow answer only carries `c2name`).
+  static const Set<String> noReplayCate2Names = {
+    '唱歌',
+    '交友',
+    '心动FM',
+    '一起玩',
+    '娱乐开黑',
+    '颜值',
+    '星秀',
+    '户外',
+    '颜值（横屏）',
+    '竖屏美女',
+  };
+
+  /// Whether [cate2] (a room's `cid2` or its `c2name`) is one of the
+  /// no-replay partitions above.
+  static bool noReplayPartition(Object? cate2) {
+    final id = jsonInt(cate2);
+    if (id != null && noReplayCate2.contains(id)) return true;
+    final name = jsonString(cate2);
+    return name != null && noReplayCate2Names.contains(name);
+  }
+
   /// The only danmaku endpoint.
   static const String danmakuServer = 'wss://danmuproxy.douyu.com:8506';
 
@@ -306,6 +349,18 @@ abstract final class DouyuApi {
     'secure',
     'httponly',
   };
+
+  /// Whether a "live" room is actually replaying, detected by the platform's
+  /// naming convention: the anchor name matches 赛事/官方 AND the room title
+  /// matches 重播/录播/回放. Used when `show_status == 1` but no `videoLoop`
+  /// flag is set (batch/follow answers have no `videoLoop` field).
+  static bool _isReplayByNameAndTitle(String? nick, String? title) {
+    final name = (nick ?? '').replaceAll(RegExp('<[^>]*>'), '');
+    final t = title ?? '';
+    final nameMatch = name.contains('赛事') || name.contains('官方');
+    final titleMatch = t.contains('重播') || t.contains('录播') || t.contains('回放');
+    return nameMatch && titleMatch;
+  }
 
   // Catalog -------------------------------------------------------------------
 
@@ -553,6 +608,118 @@ abstract final class DouyuApi {
       );
     }
     return updates;
+  }
+
+  /// `GET wgapi/livenc/liveweb/follow/list`: the user's followed rooms.
+  /// `data.list` is an array of rooms with `room_id`, `show_status`, `online`,
+  /// `nickname`, `room_name`, `avatar_small`, `room_src`, `game_name`,
+  /// `close_notice`, `videoLoop`. Returns a map keyed by rid.
+  /// `videoLoop` settles live vs replay directly.
+  static Map<String, LiveRoom> followList(String body, {int status = 200}) {
+    final root = _checked(body, status: status, what: 'follow/list');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(_object(root['data'])?['list'])) {
+      if (_object(item) case final entry? when _roomId(entry['room_id']) != null) {
+        final room = _followListRoom(entry);
+        rooms[room.roomId] = room;
+      }
+    }
+    return rooms;
+  }
+
+  /// One `list` entry of the `follow/list` answer, in its own field names;
+  /// the caller has checked that `room_id` is a valid rid.
+  static LiveRoom _followListRoom(Map<String, dynamic> entry) {
+    final id = _roomId(entry['room_id']);
+    final online = jsonString(entry['online']);
+    final on = jsonInt(entry['show_status']) == 1;
+    final closeNotice = jsonString(entry['close_notice']);
+    final nick = jsonString(entry['nickname']) ?? '';
+    final title = jsonString(entry['room_name']) ?? '';
+    final videoLoop = jsonInt(entry['videoLoop']) == 1;
+    final replay = on && videoLoop;
+    final area = jsonString(entry['game_name']) ?? '';
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
+      avatar: normalizeImageUrl(entry['avatar_small']),
+      cover: normalizeImageUrl(entry['room_src']),
+      area: area,
+      watching: online ?? '0',
+      popularity: online ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: replay
+          ? LiveStatus.replay
+          : on
+          ? LiveStatus.live
+          : LiveStatus.offline,
+      introduction: closeNotice,
+      notice: closeNotice,
+    );
+  }
+
+  /// `wgapi/live/webbackends/hoverRoomInfo`: a GET with `rids` (comma
+  /// separated, at most 50). The answer's `data` is a list of rooms, each with
+  /// `roomId`, `roomName`, `nickName`, `roomCover`, `hot`, `showStatus` and
+  /// `showDetail`. It has no `videoLoop` and no partition, so the status of a
+  /// `showStatus == 1` room depends on the room's partition: a replay by the
+  /// naming convention ([_isReplayByNameAndTitle]) is [LiveStatus.replay], a
+  /// room in a no-replay partition ([noReplayPartition]) is [LiveStatus.live],
+  /// and anything else is left undecided — the platform's `showStatus == 1`
+  /// there may be a replay, so the caller skips it and refreshes the room one
+  /// by one. `showStatus != 1` is [LiveStatus.offline].
+  ///
+  /// [noReplayArea] is the stored room's partition (`area`), the only
+  /// partition signal a follow batch has (the answer carries none).
+  ///
+  /// The result is the fields a follow batch can backfill on a stored room
+  /// ([LiveRoom.copyWith]): the status, the viewer count, the cover and the
+  /// notice. The answer is keyed by the room id as sent; a room left
+  /// undecided is absent, as is every room the answer does not return.
+  static Map<String, LiveRoom> hoverRoomInfo(String body, {required String Function(String rid) noReplayArea, int status = 200}) {
+    final root = _checked(body, status: status, what: 'hoverRoomInfo');
+    final rooms = <String, LiveRoom>{};
+    for (final item in _list(root['data'])) {
+      if (_object(item) case final entry? when _roomId(entry['roomId']) != null) {
+        final room = _hoverRoom(entry, noReplayArea);
+        if (room.liveStatus == null) continue;
+        rooms[room.roomId] = room;
+      }
+    }
+    return rooms;
+  }
+
+  /// One answered hover room: the fields a follow batch backfills on a stored
+  /// room. [LiveRoom.liveStatus] is null while undecided (the room's
+  /// partition is a replay partition, and the naming convention did not
+  /// mark it a replay); the caller skips it.
+  static LiveRoom _hoverRoom(Map<String, dynamic> entry, String Function(String rid) noReplayArea) {
+    final id = _roomId(entry['roomId'])!;
+    final on = jsonInt(entry['showStatus']) == 1;
+    final nick = jsonString(entry['nickName']) ?? '';
+    final title = jsonString(entry['roomName']) ?? '';
+    final hot = jsonString(entry['hot']);
+    final status = !on
+        ? LiveStatus.offline
+        : _isReplayByNameAndTitle(nick, title)
+            ? LiveStatus.replay
+            : noReplayPartition(noReplayArea(id))
+                ? LiveStatus.live
+                : null;
+    return LiveRoom(
+      roomId: id,
+      platform: _site,
+      title: decodeHtmlEntities(title),
+      nick: decodeHtmlEntities(nick),
+      cover: normalizeImageUrl(entry['roomCover']),
+      watching: hot ?? '0',
+      popularity: hot ?? '',
+      audienceMetricType: AudienceMetricType.popularity,
+      liveStatus: status,
+      notice: decodeHtmlEntities(jsonString(entry['showDetail']) ?? ''),
+    );
   }
 
   // Gifts (D07.3) -------------------------------------------------------------

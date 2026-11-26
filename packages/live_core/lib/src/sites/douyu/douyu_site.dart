@@ -19,7 +19,10 @@ const _www = 'www.douyu.com';
 /// number) or an alias.
 final RegExp _roomKey = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 final RegExp _digits = RegExp(r'^\d{1,18}$');
-final RegExp _followRid = RegExp(r'^[1-9][0-9]{0,17}$');
+
+/// How many rids the batch follow status takes at once: the platform refuses
+/// more than this in one request.
+const _batchRids = 50;
 
 /// The canonical rid a room's signing, stream and danmaku requests use (a
 /// room asked for by its 靓号 or alias keeps that address as its identity).
@@ -416,21 +419,151 @@ final class DouyuSite extends LiveSite
 
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
-    final requested = {
+    final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
+    if (rids.length < 2) return const {};
+    final requested = rids.toList();
+    final chunks = <List<String>>[
+      for (var i = 0; i < requested.length; i += _batchRids)
+        requested.sublist(i, min(i + _batchRids, requested.length)),
+    ];
+    final byRid = <String, LiveRoom>{
       for (final room in rooms)
-        if (room.platform == _site &&
-            _followRid.hasMatch(room.roomId) &&
-            (_rids[room.roomId] ?? room.roomId) == room.roomId)
-          room.roomId: room,
+        if (_digits.hasMatch(room.roomId)) room.roomId: room,
     };
-    if (requested.length < 2 || requested.length > 20) return const {};
-    final response = await http.getJson(
-      _site,
-      Uri.https(_www, '/wgapi/live/webbackends/hoverRoomInfo', {'rids': requested.keys.join(',')}),
-      headers: DouyuApi.apiHeaders(''),
-      timeout: const Duration(seconds: 3),
+    final updates = <String, LiveRoom>{};
+    final answeredRids = <String>{};
+    for (final result in await Future.wait([
+      for (final chunk in chunks)
+        _batchStatus(chunk, byRid).then((answered) => answered, onError: (Object _) => const <String, LiveRoom>{}),
+    ])) {
+      for (final MapEntry(:key, :value) in result.entries) {
+        final stored = byRid[key];
+        if (stored == null) continue;
+        answeredRids.add(key);
+        if (value.liveStatus == null) continue;
+        updates[stored.identityKey] = stored.copyWith(
+          liveStatus: value.liveStatus,
+          watching: value.watching,
+          cover: value.cover,
+          notice: value.notice,
+        );
+      }
+    }
+    // A saved login settles the hover's undecided rooms: the user's followed
+    // rooms say `videoLoop`, so a followed room is decided by the flag and
+    // backfilled over the hover answer. Without a login it is not fetched.
+    final account = _account();
+    if (account.isNotEmpty) {
+      Map<String, LiveRoom> followed;
+      try {
+        followed = await _followRooms(account);
+      } on SiteError {
+        // A failed follow list keeps the hover answers; the caller refreshes
+        // the undecided rooms one by one.
+        return updates;
+      }
+      final noSeen = <String, LiveRoom>{};
+      for (final room in rooms) {
+        final rid = room.roomId;
+        if (!_digits.hasMatch(rid)) continue;
+        if (answeredRids.contains(rid)) continue;
+        if (!followed.containsKey(rid)) {
+          noSeen[rid] = room;
+        }
+      }
+      for (final MapEntry(:key, :value) in followed.entries) {
+        if (answeredRids.contains(key)) continue;
+        final stored = byRid[key];
+        if (stored == null) continue;
+        updates[stored.identityKey] = stored.copyWith(
+          liveStatus: value.liveStatus,
+          watching: value.watching,
+          cover: value.cover,
+          avatar: value.avatar,
+        );
+      }
+      // 不在关注列表里的房间，并行设置关注（不等待结果）
+      for (final room in noSeen.values) {
+        unawaited(_addFollow(account, room.roomId));
+      }
+    }
+    return updates;
+  }
+
+  /// One chunk of up to 50 rids: a GET `hoverRoomInfo`, answered by rid.
+  /// [byRid] supplies each room's stored partition to the undecided check.
+  Future<Map<String, LiveRoom>> _batchStatus(List<String> chunk, Map<String, LiveRoom> byRid) async {
+    final response = await _send(
+      LiveRequest.get(
+        site: _site,
+        url: Uri.https(_www, '/wgapi/live/webbackends/hoverRoomInfo', {'rids': chunk.join(',')}),
+        headers: DouyuApi.apiHeaders(_identity().cookie),
+        timeout: const Duration(seconds: 3),
+      ),
     );
-    return DouyuApi.followBatch(response, requested);
+    return DouyuApi.hoverRoomInfo(
+      response.text,
+      status: response.status,
+      noReplayArea: (rid) => byRid[rid]?.area ?? '',
+    );
+  }
+
+  /// The user's followed rooms (the login's own answer): the `follow/list`
+  /// answer's `videoLoop` flag settles the replay/live status of every room
+  /// it answers. A failure keeps the hover answers; it is never disguised as
+  /// an offline room.
+  Future<Map<String, LiveRoom>> _followRooms(String account) async {
+    final response = await _api(
+      Uri.https(_www, '/wgapi/livenc/liveweb/follow/list', {'page': '1', 'sort': '0', 'cid1': '0', 'fliterLive': '1'}),
+      referer: 'https://www.douyu.com/',
+    );
+    return DouyuApi.followList(response.text, status: response.status);
+  }
+
+  /// `POST /wgapi/livenc/liveweb/follow/add`: sets a follow for [rid].
+  /// Fire-and-forget: the caller does not await the result.
+  Future<void> _addFollow(String account, String rid) async {
+    try {
+      final ctn = await _csrfToken(account);
+      await _send(
+        LiveRequest.form(
+          site: _site,
+          url: Uri.https(_www, '/wgapi/livenc/liveweb/follow/add'),
+          fields: {'rid': rid, 'ctn': ctn},
+          headers: {...DouyuApi.apiHeaders(_identity().cookie), 'referer': 'https://www.douyu.com/'},
+        ),
+      );
+    } on Object {
+      // Fire-and-forget: a failed follow never disturbs the batch refresh.
+    }
+  }
+
+  /// The CSRF token `ctn` for signed app endpoints: from the cookie's
+  /// `acf_ccn` if present, otherwise fetched from the CSRF API (the token
+  /// is in the `Set-Cookie` response header, not the body). A fetched token
+  /// is merged into the stored cookie so subsequent calls reuse it.
+  Future<String> _csrfToken(String account) async {
+    for (final part in account.split(';')) {
+      final trimmed = part.trim();
+      if (trimmed.startsWith('acf_ccn=')) {
+        return trimmed.substring('acf_ccn='.length);
+      }
+    }
+    final response = await _api(
+      Uri.https(_www, '/wgapi/livenc/liveweb/csrfApi/getCsrfCookie'),
+      referer: 'https://www.douyu.com/',
+    );
+    final setCookie = response.header('set-cookie') ?? '';
+    final match = RegExp('acf_ccn=([^;]+)').firstMatch(setCookie);
+    final ctn = match?.group(1) ?? '';
+    if (ctn.isNotEmpty) {
+      final store = _login;
+      if (store != null) {
+        final merged = DouyuApi.mergeSetCookie(account, [setCookie]);
+        await store.saveRenewed(merged, _now());
+      }
+    }
+    return ctn;
   }
 
   /// Strict: a failed `betard` is thrown, never turned into an offline room
