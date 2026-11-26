@@ -1,0 +1,138 @@
+name: Sync Upstream with Merge
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  push:
+    paths:
+      - ".github/workflows/my_sync_upstream.yml"
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+  watch:
+    types: [started]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 自定义 token 优先：配置 secrets.MY_GITHUB_TOKEN（或 GH_PAT / SYNC_GITHUB_TOKEN）即用它，
+    # 未配置时回落到仓库默认的 GITHUB_TOKEN。自定义 token 需要 repo(contents: write) + workflow 权限。
+    steps:
+      - name: Checkout current repo code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.MY_GITHUB_TOKEN || secrets.GH_PAT || secrets.SYNC_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "${{ github.repository_owner }}"
+          git config --global user.email "${{ github.repository_owner }}@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/wzgrx/PureLive.git
+          git fetch upstream master
+
+      # ====================== 修正后的更新检测 ======================
+      - name: Check for updates
+        id: check_update
+        run: |
+          set -euo pipefail
+          # 本地 master 严格对齐 origin/master 最新，作为 rebase/push 的干净基线
+          git fetch origin master
+          git checkout -B master origin/master
+
+          # 判据：上游是否有本地 master 没有的提交
+          BEHIND=$(git rev-list --count HEAD..upstream/master)
+          echo "behind_commits=$BEHIND"
+
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+            echo "当前分支已包含上游最新提交，无更新"
+            exit 0
+          fi
+
+          echo "has_update=true" >> "$GITHUB_OUTPUT"
+          echo "上游有 $BEHIND 个新提交待同步"
+
+      - name: Rebase upstream changes
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        run: |
+          set -euo pipefail
+          git rebase upstream/master
+
+      - name: Push rebased code to origin
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        run: |
+          set -euo pipefail
+          git push origin HEAD:master --force-with-lease
+        env:
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN || secrets.GH_PAT || secrets.SYNC_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # ====================== 计算 Release Tag ======================
+      - name: Compute release tag
+        id: compute_tag
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.MY_GITHUB_TOKEN || secrets.GH_PAT || secrets.SYNC_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base_tag=$(python3 -c "import json;print(json.load(open('assets/version.json'))['version'])")
+          echo "base_tag=$base_tag"
+
+          # 拉取所有 release 的 tag_name（分页拉全量）
+          release_tags=$(gh api --paginate "repos/${REPO}/releases" --jq '.[].tag_name')
+          echo "--- existing release tags ---"
+          echo "$release_tags"
+
+          # 统计 v{base_tag} 和 v{base_tag}.pre.{n} 的出现次数
+          count=$(echo "$release_tags" \
+             | { grep -E "^v${base_tag//./\\.}(\.pre\.[0-9]+)?$" || true; } \
+             | wc -l | tr -d ' ')
+
+          echo "count=$count"
+
+          if [ "$count" -eq 0 ]; then
+            final_tag="$base_tag"
+          else
+            final_tag="$base_tag.$count.pre.$count"
+          fi
+
+          echo "final_tag=$final_tag"
+          echo "tag=$final_tag" >> "$GITHUB_OUTPUT"
+
+      # ====================== 通过 workflow_dispatch 触发 my-test-build ======================
+      - name: Trigger my-test-build with tag_name
+        if: ${{ steps.check_update.outputs.has_update == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.MY_GITHUB_TOKEN || secrets.GH_PAT || secrets.SYNC_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG_NAME: ${{ steps.compute_tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "dispatch workflow my-test-build.yml with tag_name=$TAG_NAME"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/actions/workflows/my-test-build.yml/dispatches" \
+            --input - <<EOF
+          {"ref":"master","inputs":{"tag_name":"${TAG_NAME}"}}
+          EOF
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.MY_GITHUB_TOKEN || secrets.GH_PAT || secrets.SYNC_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
