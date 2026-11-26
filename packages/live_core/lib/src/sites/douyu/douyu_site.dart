@@ -417,6 +417,11 @@ final class DouyuSite extends LiveSite
   @override
   Future<LiveRoom> getRoomDetailForRefresh({required String roomId}) => _detail(roomId);
 
+  /// How many rooms the caller may hand to [refreshFollowBatch] at once: the
+  /// platform takes at most 50 rids in one hover request, so the caller chunks
+  /// larger follow lists into batches of this size.
+  int refreshFollowBatchSize() => 50;
+
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
     final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
