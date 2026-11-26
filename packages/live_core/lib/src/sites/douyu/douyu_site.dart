@@ -23,7 +23,6 @@ const _batchRids = 50;
 /// number) or an alias.
 final RegExp _roomKey = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 final RegExp _digits = RegExp(r'^\d{1,18}$');
-final RegExp _followRid = RegExp(r'^[1-9][0-9]{0,17}$');
 
 /// The canonical rid a room's signing, stream and danmaku requests use (a
 /// room asked for by its 靓号 or alias keeps that address as its identity).
@@ -418,25 +417,6 @@ final class DouyuSite extends LiveSite
   @override
   Future<LiveRoom> getRoomDetailForRefresh({required String roomId}) => _detail(roomId);
 
-  @override
-  Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
-    final requested = {
-      for (final room in rooms)
-        if (room.platform == _site &&
-            _followRid.hasMatch(room.roomId) &&
-            (_rids[room.roomId] ?? room.roomId) == room.roomId)
-          room.roomId: room,
-    };
-    if (requested.length < 2 || requested.length > 20) return const {};
-    final response = await http.postJson(
-      _site,
-      Uri.https('apiv2.douyucdn.cn', '/Livenc/UserRelation/getFollowRoomListByRid'),
-      form: {'rids': requested.keys.join(',')},
-      timeout: const Duration(seconds: 3),
-    );
-    return DouyuApi.followBatch(response, requested);
-  }
-
   /// Strict: a failed `betard` is thrown, never turned into an offline room
   /// (3.x once stopped recordings that way).
   @override
@@ -459,34 +439,39 @@ final class DouyuSite extends LiveSite
   /// offline.
   ///
   /// With a saved login, one extra request settles what the hover answer
-  /// cannot: the user's recent rooms (`getHistoryList`, live and replay)
-  /// carry the platform's `videoLoop` flag, so a recent room is decided by
-  /// the flag and backfilled over the hover answer (a hover answer still
-  /// stands when the history does not know the room). Without a login the
-  /// history is not fetched. A chunk that fails is skipped (the caller
-  /// refreshes its rooms one by one).
+  /// cannot: the user's followed rooms (`follow/list`) carry the platform's
+  /// `videoLoop` flag, so a followed room is decided by the flag and backfilled
+  /// over the hover answer (a hover answer still stands when the follow list
+  /// does not know the room). A room the follow list does not know is followed
+  /// in the background. Without a login the follow list is not fetched. A chunk
+  /// that fails is skipped (the caller refreshes its rooms one by one).
   int refreshFollowBatchSize() => 99999;
 
   @override
   Future<Map<String, LiveRoom>> refreshFollowBatch(List<LiveRoom> rooms) async {
-    final rids = {for (final room in rooms) if (_digits.hasMatch(room.roomId)) room.roomId};
+    // Only this site's rooms whose stored id already is the rid: an alias has
+    // to be resolved by the per-room path, or the batch would ask hover about
+    // an id it does not know and drop the answer.
+    final batchable = [
+      for (final room in rooms)
+        if (room.platform == _site &&
+            _digits.hasMatch(room.roomId) &&
+            (_rids[room.roomId] ?? room.roomId) == room.roomId)
+          room,
+    ];
+    final rids = {for (final room in batchable) room.roomId};
     if (rids.length < 2) return const {};
     final requested = rids.toList();
     final chunks = <List<String>>[
-      for (var i = 0; i < requested.length; i += _batchRids) requested.sublist(i, min(i + _batchRids, requested.length)),
+      for (var i = 0; i < requested.length; i += _batchRids)
+        requested.sublist(i, min(i + _batchRids, requested.length)),
     ];
-    final byRid = <String, LiveRoom>{
-      for (final room in rooms)
-        if (_digits.hasMatch(room.roomId)) room.roomId: room,
-    };
+    final byRid = <String, LiveRoom>{for (final room in batchable) room.roomId: room};
     final updates = <String, LiveRoom>{};
     final answeredRids = <String>{};
     for (final result in await Future.wait([
       for (final chunk in chunks)
-        _batchStatus(chunk, byRid).then(
-          (answered) => answered,
-          onError: (Object _) => const <String, LiveRoom>{},
-        ),
+        _batchStatus(chunk, byRid).then((answered) => answered, onError: (Object _) => const <String, LiveRoom>{}),
     ])) {
       for (final MapEntry(:key, :value) in result.entries) {
         final stored = byRid[key];
@@ -515,9 +500,8 @@ final class DouyuSite extends LiveSite
         return updates;
       }
       final noSeen = <String, LiveRoom>{};
-      for (final room in rooms) {
+      for (final room in batchable) {
         final rid = room.roomId;
-        if (!_digits.hasMatch(rid)) continue;
         if (answeredRids.contains(rid)) continue;
         if (!followed.containsKey(rid)) {
           noSeen[rid] = room;
