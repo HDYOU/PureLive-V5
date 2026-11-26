@@ -396,7 +396,7 @@ abstract final class SoopApi {
         return LiveRoom(
           roomId: id,
           platform: _site,
-          title: _display(fields['TITLE']),
+          title: _display(fields['TITLE_TRANSLATE'] ?? fields['TITLE']),
           liveStatus: LiveStatus.live,
           startedAt: startedBefore(fields['BTIME'], now),
           restriction: switch (answer.result) {
@@ -417,7 +417,7 @@ abstract final class SoopApi {
     return LiveRoom(
       roomId: id,
       platform: _site,
-      title: _display(fields['TITLE']),
+      title: _display(fields['TITLE_TRANSLATE'] ?? fields['TITLE']),
       nick: _display(fields['BJNICK']),
       avatar: bj.length < 2 ? '' : 'https://stimg.sooplive.co.kr/LOGO/${bj.substring(0, 2)}/$bj/$bj.jpg',
       cover: _cover(bno, now),
@@ -805,7 +805,7 @@ abstract final class SoopApi {
     return LiveRoom(
       roomId: id,
       platform: _site,
-      title: _display(item['broad_title']),
+      title: _display(item['broad_title_translate'] ?? item['broad_title']),
       nick: _display(item['user_nick']),
       avatar: avatar.isEmpty ? SoopApi.avatar(id) : avatar,
       cover: normalizeImageUrl(cover),
