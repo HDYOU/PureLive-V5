@@ -392,10 +392,24 @@ abstract final class DouyuApi {
   /// allpage; empty when there is none (3.x wrote `…/upload/null_middle.jpg`).
   static String _listAvatar(Object? value) {
     final url = normalizeImageUrl(value);
-    if (url.isNotEmpty) return url;
+    if (url.isNotEmpty) return _middleSize(url);
     final path = jsonString(value);
     if (path == null || !RegExp(r'^[\w./-]+$').hasMatch(path)) return '';
     return 'https://apic.douyucdn.cn/upload/${path.startsWith('/') ? path.substring(1) : path}_middle.jpg';
+  }
+
+  /// An avatar of Douyu's CDN at the middle size: the rooms, search and room
+  /// pages hand out `…_big.jpg` or `…_small.jpg` on `douyucdn.cn`, which are
+  /// far larger (or blurrier) than the 100 px the app shows.
+  static String _avatar(Object? value) => _middleSize(normalizeImageUrl(value));
+
+  /// `…_big.jpg`/`…_small.jpg` on Douyu's CDN becomes `…_middle.jpg`; other
+  /// hosts and URLs are kept (a picture may be anywhere).
+  static String _middleSize(String url) {
+    if (url.isEmpty) return url;
+    final host = Uri.tryParse(url)?.host ?? '';
+    if (!host.endsWith('douyucdn.cn')) return url;
+    return url.replaceFirst(RegExp(r'_(?:big|small)\.(?:jpe?g|png|webp)$', caseSensitive: false), '_middle.jpg');
   }
 
   // Search --------------------------------------------------------------------
@@ -420,7 +434,7 @@ abstract final class DouyuApi {
       platform: _site,
       title: decodeHtmlEntities(jsonString(item['roomName']) ?? ''),
       nick: decodeHtmlEntities(jsonString(item['nickName']) ?? ''),
-      avatar: normalizeImageUrl(item['avatar']),
+      avatar: _avatar(item['avatar']),
       cover: normalizeImageUrl(item['roomSrc']),
       area: jsonString(item['cateName']) ?? '',
       watching: hot ?? '0',
@@ -442,7 +456,7 @@ abstract final class DouyuApi {
         if (_object(_object(item)?['anchorInfo']) case final anchor? when _roomId(anchor['rid']) != null)
           LiveAnchorItem(
             roomId: _roomId(anchor['rid'])!,
-            avatar: normalizeImageUrl(anchor['avatar']),
+            avatar: _avatar(anchor['avatar']),
             userName: decodeHtmlEntities(jsonString(anchor['nickName']) ?? ''),
             liveStatus: jsonInt(anchor['isLive']) == 1 && (jsonInt(anchor['roomType']) ?? 0) == 0,
           ),
@@ -488,7 +502,7 @@ abstract final class DouyuApi {
         platform: _site,
         title: decodeHtmlEntities(rawTitle),
         nick: decodeHtmlEntities(jsonString(room['owner_name']) ?? ''),
-        avatar: normalizeImageUrl(room['owner_avatar']),
+        avatar: _avatar(room['owner_avatar']),
         cover: normalizeImageUrl(room['room_pic']),
         area: jsonString(room['second_lvl_name']) ?? '',
         watching: hot ?? '0',

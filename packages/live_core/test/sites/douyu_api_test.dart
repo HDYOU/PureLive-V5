@@ -188,6 +188,58 @@ void main() {
       expect(rooms[1].avatar, 'https://apic.douyucdn.cn/upload/x_middle.jpg');
       expect(rooms[0].watching, '5');
     });
+
+    test("avatars: `_big`/`_small` on Douyu's CDN is asked as `_middle`", () {
+      final body = jsonEncode({
+        'code': 0,
+        'data': {
+          'rl': [
+            {'type': 1, 'rid': 1, 'av': 'https://apic.douyucdn.cn/upload/avatar_v3/2026/x_big.jpg'},
+            {'type': 1, 'rid': 2, 'av': 'https://rpic.douyucdn.cn/a/b/x_small.png'},
+            {'type': 1, 'rid': 3, 'av': 'https://apic.douyucdn.cn/upload/x_middle.jpg'},
+            {'type': 1, 'rid': 4, 'av': 'https://cdn.example/x_big.jpg'},
+          ],
+          'pgcnt': 0,
+        },
+      });
+      final rooms = DouyuApi.roomList(body, page: 1).rooms;
+      expect(rooms[0].avatar, 'https://apic.douyucdn.cn/upload/avatar_v3/2026/x_middle.jpg');
+      expect(rooms[1].avatar, 'https://rpic.douyucdn.cn/a/b/x_middle.jpg');
+      expect(rooms[2].avatar, 'https://apic.douyucdn.cn/upload/x_middle.jpg', reason: 'already the middle size');
+      expect(rooms[3].avatar, 'https://cdn.example/x_big.jpg', reason: 'a picture on another host is kept as given');
+    });
+
+    test('search anchors and the room page ask the middle size too', () {
+      final anchors = DouyuApi.searchAnchors(
+        jsonEncode({
+          'data': {
+            'relateUser': [
+              {
+                'anchorInfo': {
+                  'rid': 9,
+                  'avatar': '//apic.douyucdn.cn/upload/x_small.jpg',
+                  'nickName': 'A',
+                  'isLive': 1,
+                },
+              },
+            ],
+          },
+        }),
+      );
+      expect(anchors.single.avatar, 'https://apic.douyucdn.cn/upload/x_middle.jpg');
+      final room = DouyuApi.roomDetail(
+        jsonEncode({
+          'room': {
+            'room_id': 1,
+            'room_name': 't',
+            'show_status': 1,
+            'owner_avatar': 'https://apic.douyucdn.cn/upload/avatar/2026/y_big.jpg',
+          },
+        }),
+        requestedId: '1',
+      ).room;
+      expect(room.avatar, 'https://apic.douyucdn.cn/upload/avatar/2026/y_middle.jpg');
+    });
   });
 
   group('S04 search', () {
@@ -293,7 +345,15 @@ void main() {
         // DouyuDanmakuArgs, compared below.
         // startedAt: a key 3.x never wrote (unified principle 开播时间,
         // M2.1): `show_time` of a live room, nothing otherwise.
-        _expectParity(detail.room.toJson(), room, changed: {'introduction', 'danmakuData', 'startedAt'}, reason: name);
+        // avatar: 3.x kept the `_big` size Douyu's page hands out; the app
+        // asks `_middle` (100 px, smaller to download).
+        _expectParity(
+          detail.room.toJson(),
+          room,
+          changed: {'introduction', 'danmakuData', 'startedAt', 'avatar'},
+          reason: name,
+        );
+        expect(detail.room.avatar, (room['avatar'] as String).replaceFirst('_big.', '_middle.'));
         expect(detail.room.introduction, decodeHtmlEntities(room['introduction'] as String));
         expect(detail.rid, room['danmakuData']);
         expect(detail.room.roomId, requested, reason: 'a follow keeps the id it was made with');
