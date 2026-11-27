@@ -14,6 +14,15 @@ import 'package:meta/meta.dart';
 
 const _site = 'douyu';
 
+/// Douyu room covers come back with a `dy` version suffix on the path
+/// (`…/dy1`, `…/dy1.5`, `…/dy2`, `…/dy4`); rewrite the last segment to
+/// `webpdy2` so the CDN serves the webp variant.
+String _douyuCover(Object? source) {
+  final url = normalizeImageUrl(source);
+  if (url.isEmpty) return '';
+  return url.replaceFirst(RegExp(r'/dy[\.\d]+$'), '/webpdy2');
+}
+
 /// What a stored Douyu login cookie is worth (3.x's `DouyuSessionState`).
 enum DouyuSessionState {
   /// No cookie.
@@ -378,7 +387,7 @@ abstract final class DouyuApi {
       title: decodeHtmlEntities(jsonString(item['rn']) ?? ''),
       nick: decodeHtmlEntities(jsonString(item['nn']) ?? ''),
       avatar: _listAvatar(item['av']),
-      cover: normalizeImageUrl(item['rs16']),
+      cover: _douyuCover(item['rs16']),
       area: jsonString(item['c2name']) ?? '',
       watching: online ?? '0',
       popularity: online ?? '',
@@ -421,7 +430,7 @@ abstract final class DouyuApi {
       title: decodeHtmlEntities(jsonString(item['roomName']) ?? ''),
       nick: decodeHtmlEntities(jsonString(item['nickName']) ?? ''),
       avatar: normalizeImageUrl(item['avatar']),
-      cover: normalizeImageUrl(item['roomSrc']),
+      cover: _douyuCover(item['roomSrc']),
       area: jsonString(item['cateName']) ?? '',
       watching: hot ?? '0',
       popularity: hot ?? '',
@@ -489,7 +498,7 @@ abstract final class DouyuApi {
         title: decodeHtmlEntities(rawTitle),
         nick: decodeHtmlEntities(jsonString(room['owner_name']) ?? ''),
         avatar: normalizeImageUrl(room['owner_avatar']),
-        cover: normalizeImageUrl(room['room_pic']),
+        cover: _douyuCover(room['room_pic']),
         area: jsonString(room['second_lvl_name']) ?? '',
         watching: hot ?? '0',
         popularity: hot ?? '',
@@ -545,7 +554,7 @@ abstract final class DouyuApi {
       }
       final hot = jsonString(row['hot']);
       updates[room.identityKey] = room.copyWith(
-        cover: normalizeImageUrl(row['roomCover']),
+        cover: _douyuCover(row['roomCover']),
         watching: hot,
         popularity: hot,
         notice: decodeHtmlEntities(jsonString(row['showDetail']) ?? ''),
