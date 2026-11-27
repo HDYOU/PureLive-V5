@@ -61,20 +61,39 @@ String normalizeCookie(String value) => value.replaceAll(_controlCharacters, '')
 final class SecretStore {
   new _(this._db, this._cipher, this._values, this.unreadable, this._sealed);
 
+  /// How long [load] waits before opening a value again that the key store
+  /// did not open: the platform's key store can answer late right after
+  /// start, and one such failure used to be told as another device's value.
+  static const retryDelays = [Duration(milliseconds: 150), Duration(milliseconds: 500)];
+
   /// Opens every stored secret with [cipher].
   static Future<SecretStore> load(StoreDatabase db, SecretCipher cipher) async {
     final values = <String, String>{};
     final unreadable = <String>{};
     final sealed = <String, String>{};
+    final lost = <String, Uint8List>{};
     for (final row in await db.rows('SELECT ref, sealed FROM secrets')) {
       final ref = row.read<String>('ref');
       final bytes = row.read<Uint8List>('sealed');
       sealed[ref] = base64.encode(bytes);
-      try {
-        values[ref] = await cipher.open(ref, bytes);
-      } on Object {
-        unreadable.add(ref);
+      lost[ref] = bytes;
+    }
+    var attempt = 0;
+    while (lost.isNotEmpty) {
+      for (final ref in [...lost.keys]) {
+        try {
+          values[ref] = await cipher.open(ref, lost[ref]!);
+          lost.remove(ref);
+        } on Object {
+          // Tried again below, then taken for another device's.
+        }
       }
+      if (lost.isEmpty) break;
+      if (attempt == retryDelays.length) {
+        unreadable.addAll(lost.keys);
+        break;
+      }
+      await Future<void>.delayed(retryDelays[attempt++]);
     }
     return SecretStore._(db, cipher, values, unreadable, sealed);
   }
@@ -104,11 +123,7 @@ final class SecretStore {
       final opened = <String, String?>{};
       for (final MapEntry(key: ref, value: bytes) in stored.entries) {
         if (_sealed[ref] == base64.encode(bytes)) continue;
-        try {
-          opened[ref] = await _cipher.open(ref, bytes);
-        } on Object {
-          opened[ref] = null;
-        }
+        opened[ref] = await _openWithRetry(ref, bytes);
       }
       if (_writing > 0 || generation != _generation) {
         // A write of ours overlapped the read: read again after it.
@@ -143,6 +158,44 @@ final class SecretStore {
 
   /// Names whose sealed value could not be opened.
   final Set<String> unreadable;
+
+  /// Opens [bytes] as [ref], waiting [retryDelays] between tries; null when
+  /// the key store keeps failing (then the value is another device's, or
+  /// this device's key is gone).
+  Future<String?> _openWithRetry(String ref, Uint8List bytes) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _cipher.open(ref, bytes);
+      } on Object {
+        if (attempt == retryDelays.length) return null;
+        await Future<void>.delayed(retryDelays[attempt]);
+      }
+    }
+  }
+
+  /// Tries again to open the values this device was said not to read, after
+  /// the key store has had time (it can fail for a moment right after
+  /// start, and one such failure used to be told as another device's value,
+  /// the notice staying for the whole run). Values that open now come back
+  /// and are reported through [changes], so their notice goes; true when
+  /// any did.
+  Future<bool> retryUnreadable() async {
+    var opened = false;
+    for (final ref in [...unreadable]) {
+      final encoded = _sealed[ref];
+      if (encoded == null) continue;
+      try {
+        _values[ref] = await _cipher.open(ref, base64.decode(encoded));
+      } on Object {
+        // Still not this device's to read.
+        continue;
+      }
+      unreadable.remove(ref);
+      _changes.add(ref);
+      opened = true;
+    }
+    return opened;
+  }
 
   /// The names of the secrets this device could open.
   Set<String> get refs => {..._values.keys};

@@ -131,6 +131,7 @@ Future<_Harness> _pump(
     }
     if (douyuSavedAt > 0) await services.store.settings.set(Settings.douyuCookieSavedAt, douyuSavedAt);
     services.store.secrets.unreadable.addAll(unreadable.map(SecretRefs.cookie));
+    (services.cipher as FakeCipher).foreign.addAll(unreadable.map(SecretRefs.cookie));
     return services;
   }))!;
   addTearDown(() => tester.runAsync(services.close));
@@ -366,6 +367,18 @@ void main() {
       expect(_status(tester, SiteIds.douyu), '无法在本机读取已保存的 Cookie，请重新填写');
       expect(find.byKey(const ValueKey('account-douyu-sign-out')), findsOneWidget);
       expect(find.byKey(const ValueKey('account-huya-sign-out')), findsOneWidget);
+    });
+
+    testWidgets('a key store that failed once is tried again: the notice goes when it answers', (tester) async {
+      final harness = await _pump(tester, cookies: {SiteIds.douyu: 'dy=1'}, unreadable: {SiteIds.douyu});
+      expect(find.text('斗鱼的 Cookie 无法在本机读取（换了设备或重装后会这样），请重新填写。'), findsOneWidget);
+
+      harness.cipher.foreign.clear();
+      expect(await tester.runAsync(harness.store.secrets.retryUnreadable), isTrue);
+      await _settle(tester);
+      expect(find.text('斗鱼的 Cookie 无法在本机读取（换了设备或重装后会这样），请重新填写。'), findsNothing);
+      expect(harness.store.secrets.cookieFor(SiteIds.douyu), 'dy=1');
+      expect(_status(tester, SiteIds.douyu), isNot('无法在本机读取已保存的 Cookie，请重新填写'));
     });
 
     testWidgets('wide: one column at most 720 wide, centred', (tester) async {

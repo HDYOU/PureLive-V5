@@ -44,6 +44,10 @@ class _AccountListViewState extends ConsumerState<AccountListView> {
       setState(() {});
       unawaited(_check(site));
     });
+    // A key store that failed once at start is not "another device": try
+    // the values it did not open again when the page opens (`cookieChanges`
+    // rebuilds the list and checks the cookie that comes back).
+    unawaited(_actions.store.secrets.retryUnreadable());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       for (final platform in accountPlatforms) {

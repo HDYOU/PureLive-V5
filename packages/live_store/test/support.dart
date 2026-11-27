@@ -27,6 +27,34 @@ final class FakeCipher implements SecretCipher {
   }
 }
 
+/// A device's cipher that fails [failures] `open`s before answering: the
+/// platform's key store answering late right after start.
+final class FlakyCipher implements SecretCipher {
+  /// Creates the cipher; [failures] counts the `open`s that still throw.
+  new({this.failures = 1});
+
+  /// `open`s left to fail.
+  int failures;
+
+  /// Every `open` asked for.
+  final List<String> opened = [];
+
+  static const FakeCipher _device = FakeCipher();
+
+  @override
+  Future<Uint8List> seal(String ref, String plain) => _device.seal(ref, plain);
+
+  @override
+  Future<String> open(String ref, Uint8List sealed) async {
+    opened.add(ref);
+    if (failures > 0) {
+      failures--;
+      throw StateError('the key store is not answering yet');
+    }
+    return await _device.open(ref, sealed);
+  }
+}
+
 /// A store in memory with [FakeCipher].
 Future<LiveStore> memoryStore({DateTime Function()? now}) => LiveStore.memory(cipher: const FakeCipher(), now: now);
 

@@ -304,6 +304,34 @@ void main() {
       expect(other.unreadable, {SecretRefs.cookie('douyu')});
     });
 
+    test('a key store that answers late is tried again, not taken for another device', () async {
+      await store.secrets.setCookie('bilibili', 'SESSDATA=1');
+      final late = FlakyCipher();
+      final again = await SecretStore.load(store.database, late);
+      expect(again.cookieFor('bilibili'), 'SESSDATA=1');
+      expect(again.unreadable, isEmpty);
+      expect(late.opened, [SecretRefs.cookie('bilibili'), SecretRefs.cookie('bilibili')]);
+    });
+
+    test('a value taken for another device is read once the key store answers again', () async {
+      await store.secrets.setCookie('douyu', 'a=1');
+      final late = FlakyCipher(failures: SecretStore.retryDelays.length + 1);
+      final again = await SecretStore.load(store.database, late);
+      expect(again.cookieFor('douyu'), isNull);
+      expect(again.unreadable, {SecretRefs.cookie('douyu')});
+
+      final changes = <String>[];
+      final sub = again.changes.listen(changes.add);
+      late.failures = 0;
+      expect(await again.retryUnreadable(), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(again.cookieFor('douyu'), 'a=1');
+      expect(again.unreadable, isEmpty);
+      expect(changes, [SecretRefs.cookie('douyu')]);
+      expect(await again.retryUnreadable(), isFalse);
+    });
+
     test('signing out of a cookie this device cannot read tells the listeners (its notice goes)', () async {
       await store.secrets.setCookie('douyu', 'a=1');
       final other = await SecretStore.load(store.database, const FakeCipher.foreign());

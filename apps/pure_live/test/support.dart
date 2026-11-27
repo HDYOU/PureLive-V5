@@ -21,6 +21,10 @@ final class FakeCipher implements SecretCipher {
   /// Keystore error).
   Object? sealFailure;
 
+  /// Names sealed elsewhere (another device's key, an old install): [open]
+  /// throws for them, cleared when the device's key store answers again.
+  final Set<String> foreign = {};
+
   @override
   Future<Uint8List> seal(String ref, String plain) async {
     if (sealFailure case final failure?) Error.throwWithStackTrace(failure, StackTrace.current);
@@ -30,6 +34,7 @@ final class FakeCipher implements SecretCipher {
 
   @override
   Future<String> open(String ref, Uint8List sealed) async {
+    if (foreign.contains(ref)) throw StateError('sealed with another key');
     final text = utf8.decode(sealed);
     if (!text.startsWith('$ref|')) throw StateError('sealed for another name');
     return text.substring(ref.length + 1).split('').reversed.join();
