@@ -759,5 +759,21 @@ void main() {
       final posts = setup.http.requests.where((r) => r.method == 'POST' && r.url.path == '/api/favorite').toList();
       expect(posts, hasLength(1));
     });
+
+    test('17 soop rooms still send one favorite GET (not the per-room fallback)', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final rooms = List.generate(17, (i) => makeRoom('s${i + 1}'));
+      final getSample = favoriteGet([favEntry('s1')]);
+      final setup = _setup([], cookies: vault, extra: [getSample, for (var i = 0; i < 17; i++) favoritePost()]);
+      final updates = await setup.site.refreshFollowBatch(rooms);
+      // only s1 is in the GET list; the other 16 are fire-and-forget POSTs
+      expect(updates.containsKey('soop:s1'), isTrue);
+      expect(updates.containsKey('soop:s2'), isFalse);
+      final gets = setup.http.requests.where((r) => r.method == 'GET' && r.url.path == '/api/favorite').toList();
+      final posts = setup.http.requests.where((r) => r.method == 'POST' && r.url.path == '/api/favorite').toList();
+      expect(gets, hasLength(1));
+      expect(posts, hasLength(16));
+    });
   });
 }
