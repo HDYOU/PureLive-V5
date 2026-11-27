@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -744,6 +745,7 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
         : null;
     final pieces = <(TextPainter, TextPainter?)?>[];
     final images = <ui.Image?>[];
+    final slots = <_AnimatedSlot>[];
     var width = 0.0;
     var textHeight = 0.0;
     var hasEmote = false;
@@ -753,7 +755,18 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
       maxLines: 1,
     )..layout();
     for (final segment in segments) {
-      final image = segment is ChatEmoteSegment ? _images.imageOf(segment) : null;
+      final frames = segment is ChatEmoteSegment ? _images.framesOf(segment) : null;
+      // An animated emoticon is not drawn into the picture (its frames are
+      // played in the painter, each on its own period); a still one is.
+      final image = frames == null ? null : (frames.animated ? null : frames.frames.first);
+      if (frames != null && frames.animated) {
+        hasEmote = true;
+        slots.add(_AnimatedSlot(width, emoteSize, frames, ink.emoteAlpha));
+        pieces.add(null);
+        images.add(null);
+        width += _animatedWidth(frames, emoteSize);
+        continue;
+      }
       if (image != null) {
         hasEmote = true;
         pieces.add(null);
@@ -761,7 +774,7 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
         width += emoteSize * image.width / math.max(1, image.height);
         continue;
       }
-      // A picture that failed shows its code, as the chat list does.
+      // A picture that failed (or a word) shows its code, as the chat list does.
       final text = switch (segment) {
         ChatTextSegment(:final text) => text,
         ChatEmoteSegment(:final alt) => alt,
@@ -779,6 +792,7 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
       ..filterQuality = FilterQuality.medium
       ..color = Color.fromRGBO(0, 0, 0, ink.emoteAlpha);
     var x = 0.0;
+    var slotIndex = 0;
     for (var i = 0; i < pieces.length; i++) {
       if (pieces[i] case (final fill, final stroke)) {
         final offset = Offset(x, (height - fill.height) / 2);
@@ -787,8 +801,8 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
         x += fill.width;
         fill.dispose();
         stroke?.dispose();
-      } else {
-        final image = images[i]!;
+      } else if (images[i] case final image?) {
+        // A still emoticon (or its first frame), drawn into the picture.
         final w = emoteSize * image.width / math.max(1, image.height);
         canvas.drawImageRect(
           image,
@@ -797,10 +811,21 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
           imagePaint,
         );
         x += w;
+      } else {
+        // An animated one: its place is reserved, its frames play in the
+        // painter; the width it took here is the first frame's.
+        final slot = slots[slotIndex++];
+        final w = _animatedWidth(slot.frames, emoteSize);
+        x += w;
       }
     }
-    return _Rendered(recorder.endRecording(), width, height);
+    return _Rendered(recorder.endRecording(), width, height, animatedSlots: slots);
   }
+
+  /// The width an animated [frames] takes at [emoteSize] high (its first
+  /// frame; every frame of one picture is the same size).
+  double _animatedWidth(_EmoteFrames frames, double emoteSize) =>
+      emoteSize * frames.frames.first.width / math.max(1, frames.frames.first.height);
 
   /// A gift in the gift look (A08.12), from the cache when the same words
   /// and picture were recorded in the same look. Its picture is drawn when
@@ -1086,13 +1111,39 @@ final class _Ink {
   );
 }
 
-/// A recorded message, shared by the danmaku showing it.
+/// One animated emoticon's place inside a recorded message: where it is drawn
+/// ([xOffset] from the left, centred on the line) and the frames it plays.
+/// The frames are owned by [_EmoteImages] (shared per address, LRU); a
+/// message only references them.
+final class _AnimatedSlot {
+  new(this.xOffset, this.emoteSize, this.frames, this.emoteAlpha);
+
+  final double xOffset;
+  final double emoteSize;
+  final _EmoteFrames frames;
+  final double emoteAlpha;
+
+  /// The size it draws at, scaled to [emoteSize] high.
+  (double, double) size() {
+    final frame = frames.frames.first;
+    final w = emoteSize * frame.width / math.max(1, frame.height);
+    return (w, emoteSize);
+  }
+}
+
+/// A recorded message, shared by the danmaku showing it. Still pictures and
+/// the words are drawn into [picture]; the animated ones play their frames in
+/// the painter ([animatedSlots]), each on its own period.
 final class _Rendered {
-  new(this.picture, this.width, this.height);
+  new(this.picture, this.width, this.height, {this.animatedSlots = const []});
 
   final ui.Picture picture;
   final double width;
   final double height;
+
+  /// The animated emoticons, left to right; empty when the message holds none.
+  final List<_AnimatedSlot> animatedSlots;
+
   int _users = 0;
   bool _cached = true;
 
@@ -1133,15 +1184,42 @@ final class _Pictures {
   }
 }
 
-/// The emoticon pictures of the flying layer, decoded once (at most 160
-/// kept; a recorded message keeps its own).
+/// The frames of one emoticon picture (an animated one holds every frame, a
+/// still one its single picture) plus how long each frame stays. The flying
+/// layer draws each frame in turn, on the danmaku's own clock.
+final class _EmoteFrames {
+  new(this.frames, this.frameDurationMs);
+
+  final List<ui.Image> frames;
+  final int frameDurationMs;
+
+  int get count => frames.length;
+
+  /// Whether it plays (more than one frame).
+  bool get animated => frames.length > 1;
+
+  /// The [index]th frame, wrapped over the period.
+  ui.Image frameAt(int index) => frames[index % count];
+
+  void dispose() {
+    for (final frame in frames) {
+      frame.dispose();
+    }
+    frames.clear();
+  }
+}
+
+/// The emoticon pictures of the flying layer, decoded once (at most 64
+/// kept; a recorded message keeps its own). Animated pictures (GIF, APNG,
+/// animated WebP) are split into frames, so the flying layer can play them.
 final class _EmoteImages {
   new(this._onReady);
 
-  static const int capacity = 160;
+  static const int capacity = 64;
+  static const int height = 96;
 
   final VoidCallback _onReady;
-  final LinkedHashMap<String, ui.Image?> _done = LinkedHashMap();
+  final LinkedHashMap<String, _EmoteFrames?> _done = LinkedHashMap();
   final Set<String> _loading = {};
   bool _disposed = false;
 
@@ -1155,8 +1233,17 @@ final class _EmoteImages {
     null => NetworkImage(url),
   };
 
-  /// The picture of [emote]; null while it loads or when it failed.
-  ui.Image? imageOf(ChatSegment emote) => emote is ChatEmoteSegment ? _done[_keyOf(emote)] : null;
+  /// The single (first) frame of [emote]; null while it loads or when it
+  /// failed. A still picture's frame; an animated one's first frame.
+  ui.Image? imageOf(ChatSegment emote) => emote is ChatEmoteSegment ? _framesOf(emote)?.frames.first : null;
+  /// The frames of [emote] (a still one holds its single picture); null
+  /// while it loads or when it failed.
+  _EmoteFrames? framesOf(ChatSegment emote) => emote is ChatEmoteSegment ? _framesOf(emote) : null;
+
+  _EmoteFrames? _framesOf(ChatEmoteSegment emote) {
+    final key = _keyOf(emote);
+    return key.isEmpty ? null : _done[key];
+  }
 
   /// Whether every emoticon of [segments] has loaded or failed; starts the
   /// loads that are missing.
@@ -1173,46 +1260,122 @@ final class _EmoteImages {
   }
 
   void _load(String key, ChatEmoteSegment emote, {bool network = false}) {
-    final asset = !network && emote.asset.isNotEmpty;
-    final provider = asset ? AssetImage(emote.asset) as ImageProvider : _networkImage(emote.url);
-    final stream = ResizeImage(provider, height: 96).resolve(ImageConfiguration.empty);
-    late final ImageStreamListener listener;
-    void finish(ui.Image? image) {
-      stream.removeListener(listener);
-      _loading.remove(key);
-      if (_disposed) {
-        image?.dispose();
-        return;
-      }
-      _done[key] = image;
-      while (_done.length > capacity) {
-        _done.remove(_done.keys.first)?.dispose();
-      }
-      _onReady();
+    // Bundled assets are single pictures: the ordinary decode. A network one
+    // is split into frames, so the flying layer can play it (animated GIF,
+    // APNG, WebP), still ones fall back to their first frame.
+    if (!network && emote.asset.isNotEmpty) {
+      _loadAsset(key, emote);
+      return;
     }
+    unawaited(_decodeFrames(_networkImage(emote.url), emote).then(_finish(key)));
+  }
 
+  /// The bundled path: a single frame at the line's height.
+  void _loadAsset(String key, ChatEmoteSegment emote) {
+    final provider = ResizeImage(AssetImage(emote.asset), height: height).resolve(ImageConfiguration.empty);
+    late final ImageStreamListener listener;
     listener = ImageStreamListener(
       (info, _) {
-        final image = info.image.clone();
+        final first = info.image.clone();
         info.dispose();
-        finish(image);
+        _finish(key)(_EmoteFrames([first], 0));
+        provider.removeListener(listener);
+      },
+      onError: (e, _) {
+        provider.removeListener(listener);
+        _loading.remove(key);
+        _finish(key)(null);
+      },
+    );
+    provider.addListener(listener);
+  }
+
+  /// Finishes a load under [key] (LRU, then repaints the waiting message).
+  void Function(_EmoteFrames?) _finish(String key) => (frames) {
+    _loading.remove(key);
+    if (_disposed) {
+      frames?.dispose();
+      return;
+    }
+    _done[key] = frames;
+    while (_done.length > capacity) {
+      _done.remove(_done.keys.first)?.dispose();
+    }
+    _onReady();
+  };
+
+  /// Splits an animated [provider] into frames (its bytes via the app's cache
+  /// manager, the download service keeps the bytes on disk). A failure or a
+  /// single-frame answer falls back to the provider's first frame; null when
+  /// the picture cannot be read at all.
+  Future<_EmoteFrames?> _decodeFrames(ImageProvider provider, ChatEmoteSegment emote) async {
+    final first = await _firstFrame(provider);
+    final bytes = await _bytesOf(emote.url);
+    if (bytes == null) return first == null ? null : _EmoteFrames([first], 0);
+    try {
+      final codec = await ui.instantiateImageCodec(bytes, targetHeight: height, allowUpscaling: false);
+      final total = codec.frameCount;
+      if (total <= 1) {
+        codec.dispose();
+        return first == null ? null : _EmoteFrames([first], 0);
+      }
+      final frames = <ui.Image>[];
+      var durationMs = 0;
+      for (var index = 0; index < total; index++) {
+        final info = await codec.getNextFrame();
+        final image = info.image.clone();
+        info.image.dispose();
+        frames.add(image);
+        durationMs = math.max(durationMs, info.duration.inMilliseconds);
+      }
+      codec.dispose();
+      // One loop of the animation; the period is summed from the frames so a
+      // still frame inside does not stall the play.
+      return _EmoteFrames(frames, durationMs == 0 ? 100 : durationMs);
+    } on Object {
+      return first == null ? null : _EmoteFrames([first], 0);
+    }
+  }
+
+  /// The provider's single frame at the line's height (a stand-in while the
+  /// frames decode, and the whole answer when there is one frame); null when
+  /// it cannot be read.
+  Future<ui.Image?> _firstFrame(ImageProvider provider) async {
+    final stream = ResizeImage(provider, height: height).resolve(ImageConfiguration.empty);
+    final done = Completer<ui.Image?>();
+    final listener = ImageStreamListener(
+      (info, _) {
+        done.complete(info.image.clone());
+        info.dispose();
       },
       onError: (_, _) {
-        if (asset && emote.url.isNotEmpty) {
-          stream.removeListener(listener);
-          _load(key, emote, network: true);
-          return;
-        }
-        finish(null);
+        if (!done.isCompleted) done.complete(null);
       },
     );
     stream.addListener(listener);
+    final frame = await done.future;
+    stream.removeListener(listener);
+    return frame;
+  }
+
+  /// The picture's bytes through the app's cache manager (its download service
+  /// keeps them on disk); null when there is none.
+  Future<Uint8List?> _bytesOf(String url) async {
+    final manager = AppImageCache.manager;
+    if (manager == null) return null;
+    try {
+      var info = await manager.getFileFromCache(url);
+      info ??= await manager.downloadFile(url, authHeaders: networkImageHeaders(url));
+      return await info.file.readAsBytes();
+    } on Object {
+      return null;
+    }
   }
 
   void dispose() {
     _disposed = true;
-    for (final image in _done.values) {
-      image?.dispose();
+    for (final frames in _done.values) {
+      frames?.dispose();
     }
     _done.clear();
   }
@@ -1302,13 +1465,30 @@ class _DanmakuPainter extends CustomPainter {
   }
 
   void _draw(Canvas canvas, Size size, _Flying item) {
-    final left = item.left(state._clockOf(item), size.width);
+    final clock = state._clockOf(item);
+    final left = item.left(clock, size.width);
     if (left >= size.width || left + item.picture.width <= 0) return;
     canvas
       ..save()
       ..translate(left, item.y)
-      ..drawPicture(item.picture.picture)
-      ..restore();
+      ..drawPicture(item.picture.picture);
+    // The animated emoticons, each playing on its own period (a still
+    // message has none; the painter repaints every display frame).
+    final elapsedMs = clock.inMilliseconds;
+    for (final slot in item.picture.animatedSlots) {
+      final (w, h) = slot.size();
+      final frame = slot.frames.frameAt(elapsedMs ~/ math.max(1, slot.frames.frameDurationMs));
+      final paint = Paint()
+        ..filterQuality = FilterQuality.medium
+        ..color = Color.fromRGBO(0, 0, 0, slot.emoteAlpha);
+      canvas.drawImageRect(
+        frame,
+        Rect.fromLTWH(0, 0, frame.width.toDouble(), frame.height.toDouble()),
+        Rect.fromLTWH(slot.xOffset, (item.picture.height - h) / 2, w, h),
+        paint,
+      );
+    }
+    canvas.restore();
   }
 
   @override
