@@ -27,6 +27,10 @@ void _expectParity(
   }
 }
 
+/// 3.x's cover with Douyu's `dy` version suffix rewritten to `webpdy2`
+/// (`_douyuCover`): intended, the CDN answers webp.
+String _webpCover(Object? legacy) => (legacy as String? ?? '').replaceFirst(RegExp(r'/dy[\.\d]+$'), '/webpdy2');
+
 Map<String, dynamic> _vectors(String name) =>
     jsonDecode(File('../../fixtures/douyu/$name/vectors.json').readAsStringSync()) as Map<String, dynamic>;
 
@@ -156,8 +160,10 @@ void main() {
         for (final (index, room) in result.rooms.indexed) {
           // title: HTML entities decoded (3.x showed `&nbsp;`; its v4 bridge
           // decoded them too).
-          _expectParity(room.toJson(), legacy[index], changed: {'title'}, reason: '$name[$index]');
+          // cover: 3.x kept `…/dy1`, the app asks the CDN's webp (`_douyuCover`).
+          _expectParity(room.toJson(), legacy[index], changed: {'title', 'cover'}, reason: '$name[$index]');
           expect(room.title, decodeHtmlEntities(legacy[index]['title'] as String));
+          expect(room.cover, _webpCover(legacy[index]['cover']));
           expect(room.onlineViewers, isEmpty, reason: '`ol` is heat, never a head count (REG-DOUYU-026)');
         }
         // mixList stops at pgcnt (6 pages of 120); allpage only on an empty
@@ -260,11 +266,13 @@ void main() {
             legacy[index],
             changed: {
               'title',
+              'cover',
               if (loop) ...{'liveStatus', 'isRecord'},
             },
             reason: '$name[$index]',
           );
           expect(room.title, decodeHtmlEntities(legacy[index]['title'] as String));
+          expect(room.cover, _webpCover(legacy[index]['cover']));
           if (loop) expect(legacy[index]['liveStatus'], LiveStatus.offline.index);
         }
       });
@@ -350,10 +358,11 @@ void main() {
         _expectParity(
           detail.room.toJson(),
           room,
-          changed: {'introduction', 'danmakuData', 'startedAt', 'avatar'},
+          changed: {'introduction', 'danmakuData', 'startedAt', 'avatar', 'cover'},
           reason: name,
         );
         expect(detail.room.avatar, (room['avatar'] as String).replaceFirst('_big.', '_middle.'));
+        expect(detail.room.cover, _webpCover(room['cover']));
         expect(detail.room.introduction, decodeHtmlEntities(room['introduction'] as String));
         expect(detail.rid, room['danmakuData']);
         expect(detail.room.roomId, requested, reason: 'a follow keeps the id it was made with');
