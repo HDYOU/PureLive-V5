@@ -36,6 +36,9 @@ final class IoLiveHttp implements LiveHttp {
       // dart:io's own User-Agent stays for requests that set none, as under
       // 3.x's Dio; a request's User-Agent replaces it (headers are `set`).
       // Without any, Huya's search answers 403 (M4.D).
+      // A host with a self-signed or expired certificate must not fail the
+      // room's API calls while the rest of the page loads (ssl-skip).
+      ..badCertificateCallback = ((_, _, _) => true)
       ..findProxy = (_) => route.directive,
   );
 
