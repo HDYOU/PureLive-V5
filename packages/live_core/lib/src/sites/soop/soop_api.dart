@@ -297,38 +297,6 @@ abstract final class SoopApi {
     ];
   }
 
-  /// `GET myapi.sooplive.com/api/recent`: the user's recent rooms, live and
-  /// VOD. Each entry has `user_id` (the streamer id), `is_live`, and the
-  /// translated title when available.
-  /// `GET myapi.sooplive.com/api/recent`: the user's recent rooms, live and
-  /// VOD. The data structure is the same as the area lists (same `_card`
-  /// fields), so each entry is parsed through [_card].
-  ///
-  /// Returns a map keyed by `'soop:<user_id>'`. The `liveStatus` is decided
-  /// by the platform's `is_live` flag: `true` is [LiveStatus.live],
-  /// `false` (a VOD entry) is [LiveStatus.offline].
-  /// A request with no cookie or a 401/403 throws [SiteError].
-  static Map<String, LiveRoom> recentRooms(String body, {int status = 200}) {
-    final root = _root(body, status: status, what: 'recent');
-    final list = root['data'];
-    if (list is! List) throw ApiChanged(_site, 'recent: no data list (${_snippet(body)})');
-    final rooms = <String, LiveRoom>{};
-    for (final raw in list) {
-      if (_object(raw) case final item?) {
-        final card = _card(
-          item,
-          cover: item['broad_img'],
-          avatar: normalizeImageUrl(item['user_profile_img']),
-          area: _display(jsonString(item['broad_cate_name']) ?? item['standard_broad_cate_name']),
-        );
-        if (card == null) continue;
-        final isLive = item['is_live'] == true;
-        rooms[card.identityKey] = card.copyWith(liveStatus: isLive ? LiveStatus.live : LiveStatus.offline);
-      }
-    }
-    return rooms;
-  }
-
   /// `GET myapi.sooplive.com/api/favorite`: the user's followed streamers.
   /// Each entry has a top-level `user_id`, `user_nick`, `is_live`,
   /// `total_view_cnt`, and a nested `broad_info[0]` with the stream card
