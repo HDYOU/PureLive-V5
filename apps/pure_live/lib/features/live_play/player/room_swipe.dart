@@ -299,6 +299,7 @@ class RoomSwipePreview extends StatelessWidget {
               LiveNetworkImage(
                 key: const ValueKey('live-play-swipe-cover'),
                 url: cover,
+                site: room.platform,
                 fit: BoxFit.contain,
                 memCacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context))
                     .round()
@@ -319,7 +320,7 @@ class RoomSwipePreview extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        CommonAvatar(avatarUrl: room.avatar, radius: 18, fallbackName: room.nick),
+                        CommonAvatar(avatarUrl: room.avatar, site: room.platform, radius: 18, fallbackName: room.nick),
                         const SizedBox(width: 10),
                         Flexible(
                           child: Column(

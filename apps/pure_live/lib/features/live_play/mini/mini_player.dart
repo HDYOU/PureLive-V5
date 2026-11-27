@@ -854,6 +854,7 @@ class _MiniAudioCover extends StatelessWidget {
         if (room.cover.trim().isNotEmpty)
           LiveNetworkImage(
             url: room.cover,
+            site: room.platform,
             placeholder: (_) => const SizedBox.shrink(),
             error: (_) => const SizedBox.shrink(),
           ),
@@ -864,7 +865,7 @@ class _MiniAudioCover extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CommonAvatar(avatarUrl: room.avatar, radius: 22, fallbackName: room.nick),
+                CommonAvatar(avatarUrl: room.avatar, site: room.platform, radius: 22, fallbackName: room.nick),
                 const SizedBox(height: 8),
                 DecoratedBox(
                   decoration: BoxDecoration(color: OnVideoColors.chip, borderRadius: BorderRadius.circular(12)),

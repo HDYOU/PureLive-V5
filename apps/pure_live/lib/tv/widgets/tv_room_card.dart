@@ -101,7 +101,7 @@ class TvRoomCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  TvCover(url: data.coverUrl, fit: iptv ? BoxFit.contain : BoxFit.cover),
+                  TvCover(url: data.coverUrl, site: data.platformId, fit: iptv ? BoxFit.contain : BoxFit.cover),
                   if (offAir) ...[
                     const ColoredBox(color: OnVideoColors.scrim),
                     Center(
@@ -176,6 +176,7 @@ class TvRoomCard extends StatelessWidget {
                             )
                           : CommonAvatar(
                               avatarUrl: data.avatarUrl,
+                              site: data.platformId,
                               fallbackName: data.anchorName,
                               radius: scale.pxText(14),
                             ),
@@ -224,7 +225,7 @@ IconData audienceIcon(RoomAudienceKind kind) => switch (kind) {
 /// "offline" glyph.
 class TvCover extends StatelessWidget {
   /// Creates the cover of [url].
-  const new({required this.url, this.fit = BoxFit.cover, this.cacheWidth = 640, super.key});
+  const new({required this.url, this.fit = BoxFit.cover, this.cacheWidth = 640, this.site, super.key});
 
   /// The picture; null or empty shows the placeholder.
   final String? url;
@@ -235,6 +236,9 @@ class TvCover extends StatelessWidget {
   /// The width it is decoded at (covers 640, UI_PLAN §9.2).
   final int cacheWidth;
 
+  /// The platform id; null lets the resolver infer it from the URL host.
+  final String? site;
+
   @override
   Widget build(BuildContext context) {
     final address = url ?? '';
@@ -244,6 +248,7 @@ class TvCover extends StatelessWidget {
       color: TvTheme.of(context).raised,
       child: LiveNetworkImage(
         url: address,
+        site: site,
         fit: fit,
         memCacheWidth: cacheWidth,
         placeholder: (_) => placeholder,

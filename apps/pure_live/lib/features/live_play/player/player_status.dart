@@ -295,7 +295,12 @@ class PictureStateView extends StatelessWidget {
     final Widget? leading = switch (state.kind) {
       PictureStateKind.offline || PictureStateKind.carousel => VideoStateAvatar(
         size: compact ? 40 : 48,
-        child: CommonAvatar(avatarUrl: room.avatar, radius: compact ? 20 : 24, fallbackName: room.nick),
+        child: CommonAvatar(
+          avatarUrl: room.avatar,
+          site: room.platform,
+          radius: compact ? 20 : 24,
+          fallbackName: room.nick,
+        ),
       ),
       // The lock stays on a short picture too (U.2g note 10).
       PictureStateKind.restricted => const Icon(
@@ -326,7 +331,9 @@ class PictureStateView extends StatelessWidget {
       children: [
         const IgnorePointer(child: ColoredBox(color: OnVideoColors.ground)),
         // A07.16: JD Live's blurred frame first; no avatar here (as before).
-        IgnorePointer(child: _DimmedCover(url: roomBackdropOf(room, orAvatar: false))),
+        IgnorePointer(
+          child: _DimmedCover(url: roomBackdropOf(room, orAvatar: false), site: room.platform),
+        ),
         view,
       ],
     );
@@ -362,7 +369,7 @@ class AudioOnlyCover extends StatelessWidget {
         const ColoredBox(color: OnVideoColors.ground),
         // A07.20: Missevan drops its placeholder covers; the streamer's
         // picture stands in. A07.16: JD Live's blurred frame comes first.
-        _DimmedCover(url: roomBackdropOf(room)),
+        _DimmedCover(url: roomBackdropOf(room), site: room.platform),
         if (paused)
           // Under the mark, which is in the middle of the same area.
           Positioned.fill(
@@ -463,9 +470,11 @@ class CatchupBadge extends StatelessWidget {
 /// A cover under a solid dark veil (no opacity layer over the picture,
 /// UI_PLAN §7.4 rule 1).
 class _DimmedCover extends StatelessWidget {
-  const new({required this.url});
+  const new({required this.url, this.site});
 
   final String url;
+
+  final String? site;
 
   @override
   Widget build(BuildContext context) {
@@ -473,7 +482,12 @@ class _DimmedCover extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        LiveNetworkImage(url: url, placeholder: (_) => const SizedBox.shrink(), error: (_) => const SizedBox.shrink()),
+        LiveNetworkImage(
+          url: url,
+          site: site,
+          placeholder: (_) => const SizedBox.shrink(),
+          error: (_) => const SizedBox.shrink(),
+        ),
         const ColoredBox(color: OnVideoColors.coverDim),
       ],
     );
