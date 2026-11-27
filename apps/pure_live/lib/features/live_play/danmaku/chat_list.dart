@@ -1066,7 +1066,7 @@ class ChatBadge extends StatelessWidget {
 
 /// The picture of a chat badge at [url]: the app's image cache (its proxy
 /// and headers) when it is installed, else a plain request.
-ImageProvider chatBadgeImage(String url) => switch (AppImageCache.manager) {
+ImageProvider chatBadgeImage(String url) => switch (AppImageCache.managerFor(LiveImagePool.emote)) {
   final manager? => CachedNetworkImageProvider(url, cacheManager: manager, headers: networkImageHeaders(url)),
   null => NetworkImage(url, headers: networkImageHeaders(url)),
 };

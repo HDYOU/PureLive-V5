@@ -1150,7 +1150,7 @@ final class _EmoteImages {
   /// A network emoticon through the app's image cache, so it follows the
   /// app proxy as the chat list's pictures do (Q02.1); Flutter's own client
   /// outside the app.
-  static ImageProvider _networkImage(String url) => switch (AppImageCache.manager) {
+  static ImageProvider _networkImage(String url) => switch (AppImageCache.managerFor(LiveImagePool.emote)) {
     final manager? => CachedNetworkImageProvider(url, cacheManager: manager, headers: networkImageHeaders(url)),
     null => NetworkImage(url),
   };

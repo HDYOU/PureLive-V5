@@ -217,6 +217,21 @@ final class LiveUiStrings {
 /// image hosts refuse requests without the platform's Referer).
 typedef ImageHeadersResolver = Map<String, String>? Function(String url);
 
+/// Which of the app's disk caches a picture belongs to. Covers change (a
+/// room's artwork, a new stream's frame) and are asked for again after a
+/// while; avatars and emoticons hardly change and are kept while they are
+/// used. Each pool has a manager, a folder and rules of its own.
+enum LiveImagePool {
+  /// Room covers and artwork.
+  cover,
+
+  /// User avatars.
+  avatar,
+
+  /// Emoticons of chat and danmaku.
+  emote,
+}
+
 /// What the app tells the shared widgets (3.x read these from the settings
 /// singleton): words, the loading style, and how network images load.
 @immutable
@@ -227,6 +242,8 @@ final class LiveUiConfig {
     this.loadingStyle = 'default',
     this.loadingColor,
     this.imageCacheManager,
+    this.imageCacheManagers = const {},
+    this.imageCacheEpochs = const {},
     this.imageHeaders,
     this.imageCacheEpoch = 0,
   });
@@ -243,8 +260,16 @@ final class LiveUiConfig {
   final Color? loadingColor;
 
   /// Disk cache of covers and avatars; null uses cached_network_image's
-  /// default manager.
+  /// default manager. Pools without an entry in [imageCacheManagers] use it.
   final BaseCacheManager? imageCacheManager;
+
+  /// The manager of each [LiveImagePool] (the app keeps a cache per pool:
+  /// covers expire, avatars and emoticons are kept while used).
+  final Map<LiveImagePool, BaseCacheManager?> imageCacheManagers;
+
+  /// The cache key epoch of each pool; the cover pool uses [imageCacheEpoch]
+  /// instead, and pools without an entry keep the address itself.
+  final Map<LiveImagePool, int> imageCacheEpochs;
 
   /// Request headers per image address.
   final ImageHeadersResolver? imageHeaders;
@@ -253,9 +278,21 @@ final class LiveUiConfig {
   /// fetched again under a new key (`imageCacheEpoch`).
   final int imageCacheEpoch;
 
-  /// The cache key of [url]: the address itself, plus `#epoch` once the
-  /// cache has been cleared.
-  String imageCacheKey(String url) => imageCacheEpoch == 0 ? url : '$url#$imageCacheEpoch';
+  /// The disk cache of [pool].
+  BaseCacheManager? imageCacheManagerFor(LiveImagePool pool) => imageCacheManagers[pool] ?? imageCacheManager;
+
+  /// The [pool]'s key epoch: the cover pool follows [imageCacheEpoch], the
+  /// others [imageCacheEpochs] (clearing covers does not throw away avatars
+  /// or emoticons, which reload when their files are gone anyway).
+  int imageCacheEpochOf(LiveImagePool pool) =>
+      pool == LiveImagePool.cover ? imageCacheEpoch : (imageCacheEpochs[pool] ?? 0);
+
+  /// The cache key of [url] in [pool]: the address itself, plus `#epoch` once
+  /// that pool's cache has been cleared.
+  String imageCacheKey(String url, [LiveImagePool pool = LiveImagePool.cover]) {
+    final epoch = imageCacheEpochOf(pool);
+    return epoch == 0 ? url : '$url#$epoch';
+  }
 
   /// A copy with the given fields replaced.
   LiveUiConfig copyWith({
@@ -263,6 +300,8 @@ final class LiveUiConfig {
     String? loadingStyle,
     Color? loadingColor,
     BaseCacheManager? imageCacheManager,
+    Map<LiveImagePool, BaseCacheManager?>? imageCacheManagers,
+    Map<LiveImagePool, int>? imageCacheEpochs,
     ImageHeadersResolver? imageHeaders,
     int? imageCacheEpoch,
   }) => LiveUiConfig(
@@ -270,6 +309,8 @@ final class LiveUiConfig {
     loadingStyle: loadingStyle ?? this.loadingStyle,
     loadingColor: loadingColor ?? this.loadingColor,
     imageCacheManager: imageCacheManager ?? this.imageCacheManager,
+    imageCacheManagers: imageCacheManagers ?? this.imageCacheManagers,
+    imageCacheEpochs: imageCacheEpochs ?? this.imageCacheEpochs,
     imageHeaders: imageHeaders ?? this.imageHeaders,
     imageCacheEpoch: imageCacheEpoch ?? this.imageCacheEpoch,
   );
@@ -281,12 +322,32 @@ final class LiveUiConfig {
       other.loadingStyle == loadingStyle &&
       other.loadingColor == loadingColor &&
       other.imageCacheManager == imageCacheManager &&
+      _samePoolMap(other.imageCacheManagers, imageCacheManagers) &&
+      _samePoolMap(other.imageCacheEpochs, imageCacheEpochs) &&
       other.imageHeaders == imageHeaders &&
       other.imageCacheEpoch == imageCacheEpoch;
 
   @override
-  int get hashCode =>
-      Object.hash(strings, loadingStyle, loadingColor, imageCacheManager, imageHeaders, imageCacheEpoch);
+  int get hashCode => Object.hash(
+    strings,
+    loadingStyle,
+    loadingColor,
+    imageCacheManager,
+    imageHeaders,
+    imageCacheEpoch,
+    Object.hashAllUnordered(imageCacheManagers.entries.map((entry) => Object.hash(entry.key, entry.value))),
+    Object.hashAllUnordered(imageCacheEpochs.entries.map((entry) => Object.hash(entry.key, entry.value))),
+  );
+}
+
+/// Whether the two per-pool maps hold the same entries (a plain `==` on maps
+/// compares identity, which would make every rebuild look like a change).
+bool _samePoolMap<K, V>(Map<K, V> a, Map<K, V> b) {
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    if (!b.containsKey(entry.key) || b[entry.key] != entry.value) return false;
+  }
+  return true;
 }
 
 /// Hands a [LiveUiConfig] to the shared widgets below it; put it once above

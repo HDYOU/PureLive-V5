@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/misc.dart';
+import 'package:live_ui/live_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -46,8 +47,12 @@ import 'package:share_plus/share_plus.dart' hide XFile;
 ///   Windows needs the WebView2 runtime).
 void installPluginHooks(AppServices services) {
   SystemShare.sheet = shareText;
-  final images = AppImageCache.install(() => appImageCacheConfig(services.proxy));
-  ImageCacheTools.clearDisk = images.emptyCache;
+  // One cache per pool: covers expire after 30 minutes, avatars and
+  // emoticons stay while they are used (see `image_cache.dart`).
+  for (final pool in LiveImagePool.values) {
+    AppImageCache.install(pool, () => imagePoolCacheConfig(pool, services.proxy));
+  }
+  ImageCacheTools.clearDisk = AppImageCache.emptyCache;
   unawaited(AppImageCache.clearLegacyOnce(services.store.meta, () => DefaultCacheManager().emptyCache()));
   AppNavigator.openFile = openLocalFile;
   if (Platform.isAndroid) RecordFolderOpener.android = openAndroidFolder;

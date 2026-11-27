@@ -1,4 +1,5 @@
 import 'package:live_ui/src/icons/app_icons.dart';
+import 'package:live_ui/src/scope.dart';
 import 'package:live_ui/src/widgets/focus_ring.dart';
 import 'package:live_ui/src/widgets/network_image.dart';
 import 'package:material_ui/material_ui.dart';
@@ -78,6 +79,7 @@ class CommonAvatar extends StatelessWidget {
             child: ClipOval(
               child: LiveNetworkImage(
                 url: url,
+                pool: LiveImagePool.avatar,
                 memCacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round().clamp(48, 256),
                 placeholder: (context) =>
                     ColoredBox(key: const ValueKey('avatar-loading'), color: scheme.surfaceContainer),

@@ -28,16 +28,26 @@ import 'package:pure_live/shared/images.dart';
 /// [clearDisk], which the app sets to the manager's `emptyCache` (M12.3,
 /// Q02.1).
 abstract final class ImageCacheTools {
-  /// The folder the app's cache manager stores files in.
-  static Future<Directory> Function() folder = () async => appImageCacheFolder(await getTemporaryDirectory());
+  /// The folders the app's cache managers store files in (one per pool).
+  static Future<List<Directory>> Function() folders = () async {
+    final temporary = await getTemporaryDirectory();
+    return [for (final pool in LiveImagePool.values) imagePoolCacheFolder(pool, temporary)];
+  };
 
-  /// Clears the disk cache; null until the app provides it.
+  /// Clears the disk cache of every pool; null until the app provides it.
   static Future<void> Function()? clearDisk;
 
-  /// Bytes in [folder]; 0 when it does not exist.
+  /// Bytes in [folders]; 0 when they do not exist.
   static Future<int> size() async {
-    final directory = await folder();
-    if (!directory.existsSync()) return 0;
+    var total = 0;
+    for (final directory in await folders()) {
+      total += await _folderSize(directory);
+    }
+    return total;
+  }
+
+  /// Bytes in [directory], 0 when it does not exist.
+  static Future<int> _folderSize(Directory directory) async {
     var total = 0;
     await for (final entity in directory.list(recursive: true, followLinks: false)) {
       if (entity is File) {

@@ -1,3 +1,4 @@
+import 'package:live_ui/src/scope.dart';
 import 'package:live_ui/src/widgets/network_image.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -121,6 +122,7 @@ class EmoteText extends StatelessWidget {
         ? code()
         : LiveNetworkImage(
             url: url,
+            pool: LiveImagePool.emote,
             fit: BoxFit.contain,
             memCacheWidth: cacheWidth,
             placeholder: (_) => code(),

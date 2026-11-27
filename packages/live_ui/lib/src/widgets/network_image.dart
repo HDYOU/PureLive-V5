@@ -14,6 +14,7 @@ class LiveNetworkImage extends StatelessWidget {
     this.memCacheWidth,
     this.fit = BoxFit.cover,
     this.filterQuality = FilterQuality.low,
+    this.pool = LiveImagePool.cover,
     super.key,
   });
 
@@ -36,14 +37,18 @@ class LiveNetworkImage extends StatelessWidget {
   /// large with [FilterQuality.medium] reads as a soft blur).
   final FilterQuality filterQuality;
 
+  /// Which disk cache of the app holds the picture ([LiveUiConfig]
+  /// keeps one per pool: covers expire, avatars and emoticons do not).
+  final LiveImagePool pool;
+
   @override
   Widget build(BuildContext context) {
     final config = LiveUiScope.of(context);
     return CachedNetworkImage(
       imageUrl: url,
-      cacheKey: config.imageCacheKey(url),
+      cacheKey: config.imageCacheKey(url, pool),
       httpHeaders: config.imageHeaders?.call(url),
-      cacheManager: config.imageCacheManager,
+      cacheManager: config.imageCacheManagerFor(pool),
       fit: fit,
       memCacheWidth: memCacheWidth,
       filterQuality: filterQuality,
