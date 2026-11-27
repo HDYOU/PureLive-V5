@@ -63,6 +63,7 @@ HttpClient? webSocketClientFor(ProxyRoute route, {bool plainUserAgent = false}) 
         ..findProxy = (_) => route.directive,
   };
   if (plainUserAgent) client?.userAgent = null;
+  client?.badCertificateCallback = (_, _, _) => true;
   return client;
 }
 

@@ -357,7 +357,12 @@ final class ExactWebSocket implements SocketChannel {
     final plain = _socket!;
     final subscription = _subscription!..pause();
     try {
-      final socket = await SecureSocket.secure(plain, host: _endpoint.host, supportedProtocols: const ['http/1.1']);
+      final socket = await SecureSocket.secure(
+        plain,
+        host: _endpoint.host,
+        onBadCertificate: (_) => true,
+        supportedProtocols: const ['http/1.1'],
+      );
       // The plain socket is detached: cancelling its subscription only
       // drops the listener.
       unawaited(subscription.cancel());
