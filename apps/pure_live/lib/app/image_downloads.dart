@@ -57,6 +57,7 @@ final class IsolateImageFileService extends FileService {
   Future<http.StreamedResponse> _fetchHere(Uri uri, Map<String, String> headers, String directive) async {
     final client = HttpClient()
       ..connectionTimeout = connectTimeout
+      ..badCertificateCallback = ((_, _, _) => true)
       ..findProxy = (_) => directive;
     try {
       final reply = await _download(client, uri, headers).timeout(timeout);
@@ -156,6 +157,7 @@ final class _Worker {
       final client = clients[directive] ??= HttpClient()
         ..idleTimeout = const Duration(seconds: 30)
         ..connectionTimeout = connectTimeout
+        ..badCertificateCallback = ((_, _, _) => true)
         ..findProxy = (_) => directive;
       try {
         final result = await _download(client, Uri.parse(url), headers);
