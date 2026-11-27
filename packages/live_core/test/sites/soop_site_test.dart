@@ -648,4 +648,116 @@ void main() {
     );
     await expectLater(server.site.getRoomDetail(roomId: 'khm11903'), throwsA(isA<NetworkFailure>()));
   });
+
+  group('follow batch', () {
+    const favoriteUrl = 'https://myapi.sooplive.com/api/favorite';
+
+    ReplaySample favoriteGet(List<Map<String, Object>> entries, {int status = 200}) => ReplaySample(
+      method: 'GET',
+      url: Uri.parse(favoriteUrl),
+      status: status,
+      bytes: utf8.encode(jsonEncode({'data': entries})),
+    );
+
+    ReplaySample favoritePost({int status = 200}) => ReplaySample(
+      method: 'POST',
+      url: Uri.parse(favoriteUrl),
+      status: status,
+      bytes: utf8.encode(jsonEncode({'message': 'ok', 'favorite_id': 'a1'})),
+    );
+
+    LiveRoom makeRoom(String id, {String? area, String? userId}) =>
+        LiveRoom(platform: 'soop', roomId: id, userId: userId ?? id, area: area ?? 'default');
+
+    /// A favorite entry in the real nested `broad_info` shape.
+    Map<String, Object> favEntry(
+      String id, {
+      bool live = true,
+      int viewers = 100,
+      String title = 'Live',
+      String? broadNo,
+    }) => {
+      'user_id': id,
+      'user_nick': id.toUpperCase(),
+      'is_live': live,
+      'total_view_cnt': viewers,
+      'broad_info': live
+          ? [
+              {
+                'broad_no': broadNo ?? 298777531,
+                'broad_title': title,
+                'broad_img': 'https://img.example/$id.jpg',
+                'broad_start': '2026-11-22 14:31',
+                'total_view_cnt': viewers,
+                'is_password': false,
+                'subscription_only': 0,
+              },
+            ]
+          : const <Map<String, Object>>[],
+    };
+
+    test('without a cookie: no requests, empty result', () async {
+      final setup = _setup([]);
+      final updates = await setup.site.refreshFollowBatch([makeRoom('a1'), makeRoom('b2')]);
+      expect(updates, isEmpty);
+      expect(setup.http.requests, isEmpty);
+    });
+
+    test('rooms in the favorite list are backfilled; others POST fire-and-forget', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final getSample = favoriteGet([favEntry('a1'), favEntry('b2', live: false, viewers: 5)]);
+      final postSample = favoritePost();
+      final setup = _setup([], cookies: vault, extra: [getSample, postSample]);
+      final updates = await setup.site.refreshFollowBatch([
+        makeRoom('a1', userId: '298777531'),
+        makeRoom('b2', userId: '298778305'),
+        makeRoom('c3', userId: '298780000'),
+      ]);
+      // a1 is live, backfilled via copyWith
+      expect(updates['soop:a1']!.liveStatus, LiveStatus.live);
+      expect(updates['soop:a1']!.watching, '100');
+      // b2 is offline
+      expect(updates['soop:b2']!.liveStatus, LiveStatus.offline);
+      expect(updates['soop:b2']!.watching, '5');
+      // c3 was not in the GET list; the POST is fire-and-forget so it is
+      // not in the result
+      expect(updates.containsKey('soop:c3'), isFalse);
+      // exactly one GET and one POST were sent
+      final gets = setup.http.requests.where((r) => r.method == 'GET' && r.url.path == '/api/favorite').toList();
+      final posts = setup.http.requests.where((r) => r.method == 'POST' && r.url.path == '/api/favorite').toList();
+      expect(gets, hasLength(1));
+      expect(posts, hasLength(1));
+    });
+
+    test('a failed favorite GET throws; no individual POSTs are fired', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final failing = ReplaySample(method: 'GET', url: Uri.parse(favoriteUrl), status: 500, bytes: utf8.encode('boom'));
+      final setup = _setup([], cookies: vault, extra: [failing, favoritePost()]);
+      expect(() => setup.site.refreshFollowBatch([makeRoom('a1'), makeRoom('b2')]), throwsA(isA<SiteError>()));
+    });
+
+    test('a failed individual POST is silently ignored', () async {
+      final vault = MemoryCookieVault()..set('soop', 'AuthTicket=abc');
+      addTearDown(vault.dispose);
+      final getSample = favoriteGet([favEntry('a1')]);
+      final failingPost = ReplaySample(
+        method: 'POST',
+        url: Uri.parse(favoriteUrl),
+        status: 500,
+        bytes: utf8.encode('boom'),
+      );
+      final setup = _setup([], cookies: vault, extra: [getSample, failingPost]);
+      final updates = await setup.site.refreshFollowBatch([
+        makeRoom('a1', userId: '298777531'),
+        makeRoom('c3', userId: '298780000'),
+      ]);
+      expect(updates.containsKey('soop:a1'), isTrue);
+      expect(updates.containsKey('soop:c3'), isFalse);
+      // the POST was still attempted
+      final posts = setup.http.requests.where((r) => r.method == 'POST' && r.url.path == '/api/favorite').toList();
+      expect(posts, hasLength(1));
+    });
+  });
 }
