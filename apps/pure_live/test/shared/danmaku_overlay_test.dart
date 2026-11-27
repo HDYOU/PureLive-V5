@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:live_core/live_core.dart';
@@ -13,6 +15,26 @@ import 'package:pure_live/shared/danmaku/danmaku_settings.dart';
 import 'package:pure_live/shared/danmaku/emotes.dart';
 
 // U.2h (docs/D-弹幕/D03-飞行弹幕引擎/D03.1-飞行弹幕渲染) c1-c10 and F.2a on the flying layer.
+
+/// Two frames, red then blue, 100 ms each: the animated emoticon played by
+/// the flying layer.
+final List<int> _animatedGif = base64Decode(
+  'R0lGODlhCAAIAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQICgAAACwAAAAACAAIAAAIDwABCBxIsKDB'
+  'gwgTKkwYEAAh+QQICgAAACwAAAAACAAIAIEAAP8AAAAAAAAAAAAIDwABCBxIsKDBgwgTKkwYEAA7',
+);
+
+/// The colour at [offset] in the layer's last painted frame.
+Future<int> _colourAt(WidgetTester tester, Key key, Offset offset) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(key));
+  final image = (await tester.runAsync(boundary.toImage))!;
+  final data = (await tester.runAsync(image.toByteData))!;
+  final x = offset.dx.round().clamp(0, image.width - 1);
+  final y = offset.dy.round().clamp(0, image.height - 1);
+  final index = (y * image.width + x) * 4;
+  final colour = data.getUint8(index) << 16 | data.getUint8(index + 1) << 8 | data.getUint8(index + 2);
+  image.dispose();
+  return colour;
+}
 
 LiveMessage _chat(String text, {String id = ''}) =>
     LiveMessage(type: LiveMessageType.chat, userName: 'u', message: text, color: LiveMessageColor.white, messageId: id);
@@ -82,6 +104,7 @@ final class _Layer {
     EmoteTable emotes = EmoteTable.empty,
     EdgeInsets giftClearance = EdgeInsets.zero,
     Color? color,
+    Key? boundaryKey,
   }) => tester.pumpWidget(
     Directionality(
       textDirection: TextDirection.ltr,
@@ -90,18 +113,21 @@ final class _Layer {
         child: SizedBox(
           width: 400,
           height: height,
-          child: DanmakuOverlay(
-            messages: messages.stream,
-            retractions: retractions.stream,
-            look: look,
-            fps: fps,
-            refreshRate: refreshRate,
-            running: running,
-            held: held,
-            maxVisible: maxVisible,
-            emotes: emotes,
-            giftClearance: giftClearance,
-            color: color,
+          child: RepaintBoundary(
+            key: boundaryKey,
+            child: DanmakuOverlay(
+              messages: messages.stream,
+              retractions: retractions.stream,
+              look: look,
+              fps: fps,
+              refreshRate: refreshRate,
+              running: running,
+              held: held,
+              maxVisible: maxVisible,
+              emotes: emotes,
+              giftClearance: giftClearance,
+              color: color,
+            ),
           ),
         ),
       ),
@@ -415,6 +441,74 @@ void main() {
     expect(layer.state.rectOf(picture), isNotNull, reason: 'the picture arrived and the danmaku flies');
     await layer.close();
     // flutter_cache_manager's clean-up after a lookup, 10 s later.
+    await tester.pump(const Duration(seconds: 11));
+  });
+
+  testWidgets('c8: an animated emoticon plays its frames on the flying layer, from one download', (tester) async {
+    final previous = AppImageCache.manager;
+    addTearDown(() => AppImageCache.manager = previous);
+    final service = _ImageService(_animatedGif);
+    AppImageCache.manager = CacheManager(
+      Config('test-animated', repo: NonStoringObjectProvider(), fileSystem: MemoryCacheSystem(), fileService: service),
+    );
+    const url = 'https://emotes.example/anim.gif';
+    const boundary = Key('layer');
+    final layer = _Layer(tester);
+    await layer.pump(emotes: EmoteTable.of(const {'[动]': (asset: '', url: url)}), boundaryKey: boundary);
+    final picture = _chat('[动]');
+    layer.messages.add(picture);
+    for (var i = 0; i < 20 && layer.state.rectOf(picture) == null; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+    }
+    expect(service.urls, [url], reason: 'one download: its bytes carry every frame');
+    expect(layer.state.rectOf(picture), isNotNull);
+
+    final first = await _colourAt(tester, boundary, layer.rect(picture).center);
+    await tester.pump(const Duration(milliseconds: 150));
+    final second = await _colourAt(tester, boundary, layer.rect(picture).center);
+    expect(first, isNot(second), reason: 'its second frame (100 ms each) plays');
+    await layer.close();
+    await tester.pump(const Duration(seconds: 11));
+  });
+
+  testWidgets('c8: its frames outliving the emoticon cache keep drawing (no freed image handed to the canvas)', (
+    tester,
+  ) async {
+    final previous = AppImageCache.manager;
+    addTearDown(() => AppImageCache.manager = previous);
+    final service = _ImageService(_animatedGif);
+    AppImageCache.manager = CacheManager(
+      Config('test-churn', repo: NonStoringObjectProvider(), fileSystem: MemoryCacheSystem(), fileService: service),
+    );
+    const url = 'https://emotes.example/first.gif';
+    const boundary = Key('layer');
+    final layer = _Layer(tester);
+    // More pictures than the cache keeps (64), so the first one is dropped.
+    final emotes = {
+      for (var i = 0; i < 80; i++) '[k$i]': (asset: '', url: 'https://emotes.example/$i.gif'),
+      '[动]': (asset: '', url: url),
+    };
+    await layer.pump(emotes: EmoteTable.of(emotes), boundaryKey: boundary, height: 400);
+    final picture = _chat('[动]');
+    layer.messages.add(picture);
+    for (var i = 0; i < 20 && layer.state.rectOf(picture) == null; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 200));
+    for (var i = 0; i < 80; i++) {
+      layer.messages.add(_chat('[k$i]'));
+    }
+    for (var i = 0; i < 40; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(layer.state.rectOf(picture), isNotNull, reason: 'it flies on');
+    final colour = await _colourAt(tester, boundary, layer.rect(picture).center);
+    expect(colour & 0xFFFFFF, isNot(0), reason: 'its frame still draws, not a freed image');
+    expect(tester.takeException(), isNull);
+    await layer.close();
     await tester.pump(const Duration(seconds: 11));
   });
 
