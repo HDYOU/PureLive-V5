@@ -814,6 +814,7 @@ void main() {
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-site',
         'user-agent': SoopApi.userAgent,
+        'accept-language': SoopApi.acceptLanguage,
         'cookie': 'a=1',
       });
       expect(SoopApi.danmakuArgs(channel, roomId: 'khm11903')!.headers.containsKey('cookie'), isFalse);
@@ -990,6 +991,7 @@ void main() {
       expect(SoopApi.apiHeaders(), {
         for (final MapEntry(:key, :value) in legacy.entries)
           if (key != 'Cookie') key.toLowerCase(): value,
+        'accept-language': SoopApi.acceptLanguage,
       });
       expect(SoopApi.apiHeaders(cookie: 'a=1')['cookie'], 'a=1');
     });

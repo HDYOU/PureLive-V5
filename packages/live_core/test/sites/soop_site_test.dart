@@ -67,6 +67,7 @@ _Setup _setup(
   List<ReplaySample> extra = const [],
   CookieVault? cookies,
   Map<String, List<Object>> script = const {},
+  List<String> Function()? languages,
 }) {
   final http = ReplayHttp([...extra, for (final name in samples) ReplaySample.load('$_root/$name')]);
   final site = SoopSite(
@@ -78,6 +79,7 @@ _Setup _setup(
     cookies: cookies,
     now: () => _now,
     cdnCandidates: const [], // Frozen 3.x single-CDN contract; multi-CDN tested separately.
+    languages: languages,
   );
   return (site: site, http: http);
 }
@@ -95,6 +97,7 @@ Map<String, String> _form(LiveRequest request) => Uri.splitQueryString(utf8.deco
 Map<String, String> _legacyHeaders(String name) => {
   for (final MapEntry(:key, :value) in (_legacyRequest(name)['headers'] as Map<String, dynamic>).entries)
     if (key != 'Cookie') key.toLowerCase(): '$value',
+  'accept-language': SoopApi.acceptLanguage,
 };
 
 void main() {
@@ -179,6 +182,30 @@ void main() {
       expect(await setup.site.getRecommendRooms(page: 36), hasLength(20));
       expect(await setup.site.getRecommendRooms(page: 37), isEmpty);
       expect(setup.http.requests.first.url, Uri.parse(_legacyRequest('S03-main-p1')['url'] as String));
+    });
+
+    test('a chosen broadcast language names the Accept-Language header (as Twitch does)', () async {
+      const mainApi = 'https://live.sooplive.co.kr/api/main_broad_list_api.php';
+      const mainUrl = '$mainApi?selectType=action&selectValue=all&orderType=view_cnt&pageNo=1&lang=ko_KR';
+      final mainBody = {'RESULT': '1', 'broad': <Object?>[
+        {'bno': '1', 'broad_id': 'khm11903', 'user_id': 'khm11903', 'broad_title': 't', 'broad_thumb': 'c'},
+      ]};
+      // No languages (the default) and all-blank choices: the platform default, as the fixture records.
+      for (final languages in <List<String> Function()?>[null, () => const [' ', '']]) {
+        final setup = _setup(['S03-main-p1'], languages: languages);
+        await setup.site.getRecommendRooms();
+        expect(setup.http.requests.single.url.queryParameters['lang'], 'ko_KR');
+        expect(setup.http.requests.single.headers['accept-language'], SoopApi.acceptLanguage);
+      }
+      // A chosen language names the Accept-Language header; the request keeps its lang.
+      final zh = _setup([], extra: [_synthetic(mainUrl, mainBody)], languages: () => const [' ', 'zh']);
+      await zh.site.getRecommendRooms();
+      expect(zh.http.requests.single.url.queryParameters['lang'], 'ko_KR');
+      expect(zh.http.requests.single.headers['accept-language'], 'zh');
+      // Several chosen languages are asked for in order, the first first, with descending priority.
+      final multi = _setup([], extra: [_synthetic(mainUrl, mainBody)], languages: () => const ['zh', 'ko']);
+      await multi.site.getRecommendRooms();
+      expect(multi.http.requests.single.headers['accept-language'], 'zh,ko;q=0.9');
     });
 
     test("search: 3.x's request; page size limited to 50; a blank keyword sends nothing", () async {

@@ -520,6 +520,7 @@ void main() {
           'Sec-Fetch-Mode: cors',
           'Sec-Fetch-Site: same-site',
           'User-Agent: ${SoopApi.userAgent}',
+          'Accept-Language: ${SoopApi.acceptLanguage}',
           'Cookie: PdboxTicket=synthetic.ticket',
         ],
       );

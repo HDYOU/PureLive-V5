@@ -162,6 +162,12 @@ abstract final class SoopApi {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/140.0.0.0 Safari/537.36';
 
+  /// `Accept-Language` of every API request: ask for the Chinese (translated)
+  /// name of things the site answers, as the lists' names and the broadcast
+  /// title, then the source language; 3.x sent no `Accept-Language` at all,
+  /// so the answers came in the server's default language.
+  static const String acceptLanguage = 'zh-CN,zh;q=0.9,en;q=0.8';
+
   /// Web origin: `Origin` and `Referer` of API requests, `Origin` of media
   /// requests.
   static const String origin = _www;
@@ -199,7 +205,9 @@ abstract final class SoopApi {
 
   /// The headers 3.x sent with every API request (`getHeaders`), names in
   /// lower case; [cookie] only when there is one (3.x sent an empty one).
-  static Map<String, String> apiHeaders({String cookie = ''}) => {
+  /// [language] (the [acceptLanguage] of this build, as Twitch's) is the
+  /// `Accept-Language` that asks for the translated names; 3.x sent none.
+  static Map<String, String> apiHeaders({String cookie = '', String language = acceptLanguage}) => {
     'accept': '*/*',
     'origin': _www,
     'referer': '$_www/',
@@ -207,6 +215,7 @@ abstract final class SoopApi {
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-site',
     'user-agent': userAgent,
+    'accept-language': language,
     if (cookie.isNotEmpty) 'cookie': cookie,
   };
 

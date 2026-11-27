@@ -61,14 +61,47 @@ final class SoopSite extends LiveSite
     implements LiveSiteRoomRefresher, LiveSiteRecordRoomResolver, LivePlayUrlResolver, LivePlayRecoveryResolver {
   /// Creates the adapter. [_cookies] holds the user's cookie, if any; [now]
   /// (the cover's cache buster) is injectable for tests.
-  new(this.http, {this._cookies, DateTime Function()? now, this.cdnCandidates = SoopApi.webCdns})
-    : _now = now ?? DateTime.now;
+  ///
+  /// [languages] (as Twitch's `languages`) reads the chosen list's broadcast
+  /// languages; they name every request's `Accept-Language` (the first asked
+  /// for first, the platform default when none). The settings are read at
+  /// each request, so a change needs no new adapter.
+  new(
+    this.http, {
+    this._cookies,
+    DateTime Function()? now,
+    this.cdnCandidates = SoopApi.webCdns,
+    List<String> Function()? languages,
+  })  : _now = now ?? DateTime.now,
+        _languages = languages ?? _everyLanguage;
 
   /// Transport.
   final LiveHttp http;
 
   final CookieVault? _cookies;
   final DateTime Function() _now;
+
+  /// The chosen broadcast languages of the lists (read at each request, as
+  /// Twitch's); none, the default, keeps the platform's default.
+  final List<String> Function() _languages;
+
+  static List<String> _everyLanguage() => const [];
+
+  /// The `Accept-Language` of the requests, from the chosen broadcast
+  /// languages (the first asked for first, with descending priority, as the
+  /// lists' names and the broadcast title want their translated form); the
+  /// default [SoopApi.acceptLanguage] when none is chosen.
+  String _acceptLanguage() {
+    final chosen = [
+      for (final code in _languages())
+        if (code.trim().isNotEmpty) code.trim(),
+    ];
+    if (chosen.isEmpty) return SoopApi.acceptLanguage;
+    return [
+      for (var index = 0; index < chosen.length; index++)
+        if (index == 0) chosen[index] else '${chosen[index]};q=${1.0 - index * 0.1}',
+    ].join(',');
+  }
 
   /// Additional official CDN types to resolve (bounded, three requests at once).
   /// An empty list preserves the single-assignment fixture contract.
@@ -98,9 +131,13 @@ final class SoopSite extends LiveSite
     LiveRequest(
       site: _site,
       url: url,
-      headers: SoopApi.apiHeaders(cookie: _cookie()),
+      headers: _apiHeaders(),
     ),
   );
+
+  /// 3.x's API headers: the user's cookie and the `Accept-Language` built
+  /// from the chosen broadcast languages ([_acceptLanguage]).
+  Map<String, String> _apiHeaders() => SoopApi.apiHeaders(cookie: _cookie(), language: _acceptLanguage());
 
   /// `player_live_api.php` for streamer [roomId]: `type` `live` (the room)
   /// or `aid` (the key of broadcast [bno] at [quality]), 3.x's form.
@@ -108,7 +145,7 @@ final class SoopSite extends LiveSite
     LiveRequest.form(
       site: _site,
       url: Uri.https(_live, '/afreeca/player_live_api.php', {'bjid': roomId}),
-      headers: SoopApi.apiHeaders(cookie: _cookie()),
+      headers: _apiHeaders(),
       fields: {
         'bid': roomId,
         'bno': bno,
@@ -418,7 +455,7 @@ final class SoopSite extends LiveSite
       LiveRequest(
         site: _site,
         url: url,
-        headers: SoopApi.apiHeaders(cookie: _cookie()),
+        headers: _apiHeaders(),
         timeout: const Duration(seconds: 8),
         cancel: cancel,
       ),

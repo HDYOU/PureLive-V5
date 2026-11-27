@@ -193,7 +193,7 @@ SiteRegistry buildSiteRegistry(PlatformDeps deps) {
       preferH264: preferH264,
       codecs: deps.videoCodecs,
     ),
-    SiteIds.soop: () => SoopSite(http, cookies: cookies),
+    SiteIds.soop: () => SoopSite(http, cookies: cookies, languages: () => settings.get(Settings.twitchLanguages)),
     SiteIds.yy: () => YySite(http, cookies: cookies, flvFirst: yyFlvFirst),
     SiteIds.acfun: () => AcfunSite(http),
     SiteIds.picarto: () => PicartoSite(http),
