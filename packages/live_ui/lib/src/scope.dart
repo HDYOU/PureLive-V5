@@ -232,6 +232,12 @@ enum LiveImagePool {
   emote,
 }
 
+/// The address an image picture loads from instead of [url] (the app's CDN
+/// front, 3.x `networkImageProxy`): null keeps the address as is.
+/// [site] is the platform id when the caller knows it (a room card, the
+/// player); null lets the resolver infer it from the URL host.
+typedef ImageUrlResolver = String? Function(String url, [String? site]);
+
 /// What the app tells the shared widgets (3.x read these from the settings
 /// singleton): words, the loading style, and how network images load.
 @immutable
@@ -245,6 +251,7 @@ final class LiveUiConfig {
     this.imageCacheManagers = const {},
     this.imageCacheEpochs = const {},
     this.imageHeaders,
+    this.imageUrl,
     this.imageCacheEpoch = 0,
   });
 
@@ -274,6 +281,11 @@ final class LiveUiConfig {
   /// Request headers per image address.
   final ImageHeadersResolver? imageHeaders;
 
+  /// Loads the image at `url` through the address it returns, when it
+  /// answers; null keeps the address (the app's CDN front, 3.x
+  /// `networkImageProxy`).
+  final ImageUrlResolver? imageUrl;
+
   /// Bumped when the user clears the image cache, so cached entries are
   /// fetched again under a new key (`imageCacheEpoch`).
   final int imageCacheEpoch;
@@ -287,12 +299,18 @@ final class LiveUiConfig {
   int imageCacheEpochOf(LiveImagePool pool) =>
       pool == LiveImagePool.cover ? imageCacheEpoch : (imageCacheEpochs[pool] ?? 0);
 
-  /// The cache key of [url] in [pool]: the address itself, plus `#epoch` once
-  /// that pool's cache has been cleared.
-  String imageCacheKey(String url, [LiveImagePool pool = LiveImagePool.cover]) {
+  /// The cache key of [url] in [pool]: the picture's own address (the CDN
+  /// front only rewrites where a download goes, see [imageDownloadUrl]),
+  /// plus `#epoch` once that pool's cache has been cleared.
+  String imageCacheKey(String url, [LiveImagePool pool = LiveImagePool.cover, String? site]) {
     final epoch = imageCacheEpochOf(pool);
     return epoch == 0 ? url : '$url#$epoch';
   }
+
+  /// The address an image picture loads `url` through: the result of
+  /// `imageUrl`, or `url` without one (for the cache manager of the danmaku
+  /// layer's emoticons, which caches under the picture's own address).
+  String imageDownloadUrl(String url, [String? site]) => imageUrl?.call(url, site) ?? url;
 
   /// A copy with the given fields replaced.
   LiveUiConfig copyWith({
@@ -303,6 +321,7 @@ final class LiveUiConfig {
     Map<LiveImagePool, BaseCacheManager?>? imageCacheManagers,
     Map<LiveImagePool, int>? imageCacheEpochs,
     ImageHeadersResolver? imageHeaders,
+    ImageUrlResolver? imageUrl,
     int? imageCacheEpoch,
   }) => LiveUiConfig(
     strings: strings ?? this.strings,
@@ -312,6 +331,7 @@ final class LiveUiConfig {
     imageCacheManagers: imageCacheManagers ?? this.imageCacheManagers,
     imageCacheEpochs: imageCacheEpochs ?? this.imageCacheEpochs,
     imageHeaders: imageHeaders ?? this.imageHeaders,
+    imageUrl: imageUrl ?? this.imageUrl,
     imageCacheEpoch: imageCacheEpoch ?? this.imageCacheEpoch,
   );
 
@@ -325,6 +345,7 @@ final class LiveUiConfig {
       _samePoolMap(other.imageCacheManagers, imageCacheManagers) &&
       _samePoolMap(other.imageCacheEpochs, imageCacheEpochs) &&
       other.imageHeaders == imageHeaders &&
+      other.imageUrl == imageUrl &&
       other.imageCacheEpoch == imageCacheEpoch;
 
   @override
@@ -334,6 +355,7 @@ final class LiveUiConfig {
     loadingColor,
     imageCacheManager,
     imageHeaders,
+    imageUrl,
     imageCacheEpoch,
     Object.hashAllUnordered(imageCacheManagers.entries.map((entry) => Object.hash(entry.key, entry.value))),
     Object.hashAllUnordered(imageCacheEpochs.entries.map((entry) => Object.hash(entry.key, entry.value))),

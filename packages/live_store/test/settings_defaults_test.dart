@@ -375,6 +375,16 @@ const Map<String, Object> newInV4 = {
   'webdavAutoBackupFolder': 'purelive', // J04.2
   'webdavAutoBackupKeep': 7, // J04.2
   'webdavAutoBackupIncludeAccounts': false, // J04.2: as manual uploads
+  'enableImageCdnProxy': true, // image-proxy: image CDN proxy on by default
+  'imageCdnProxySites': <String, Object?>{}, // image-proxy: no per-site provider override
+  'apiProxySites': <String>[], // image-proxy: 3.x networkApiProxy sites
+  'apiProxyHost': 'proxy.moonchan.xyz', // image-proxy: 3.x forward proxy host
+  'apiProxyPort': 443, // image-proxy: 3.x forward proxy port
+  'apiProxyMode': 'moonchan', // image-proxy: default proxy mode
+  'apiCfProxyHost': 'proxy.hyou.kdns.fr', // image-proxy: Cloudflare Workers API proxy
+  'socketProxySites': <String>[], // image-proxy: no socket proxy by default
+  'socketCfProxyHost': 'proxy.hyou.kdns.fr', // image-proxy: Cloudflare Workers socket proxy
+  'socketCfProxyPort': 443, // image-proxy: Cloudflare Workers socket proxy port
 };
 
 /// The range of every number setting: 3.x's clamps on start and on a backup
@@ -470,6 +480,8 @@ const Map<String, (num?, num?)> ranges = {
   'localInteraction.danmakuFixedDurationMs': (2000, 10000),
   'bilibiliUid': (null, null),
   'douyuCookieSavedAt': (null, null),
+  'apiProxyPort': (1, 65535), // image-proxy: port bounds
+  'socketCfProxyPort': (1, 65535), // image-proxy: port bounds
 };
 
 void main() {

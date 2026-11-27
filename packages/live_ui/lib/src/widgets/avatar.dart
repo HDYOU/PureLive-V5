@@ -20,6 +20,7 @@ class CommonAvatar extends StatelessWidget {
     this.fallbackName,
     this.onTap,
     this.tooltip,
+    this.site,
     super.key,
   });
 
@@ -41,6 +42,9 @@ class CommonAvatar extends StatelessWidget {
 
   /// The button's name (hover, screen readers).
   final String? tooltip;
+
+  /// The platform id; null lets the resolver infer it from the URL host.
+  final String? site;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +84,7 @@ class CommonAvatar extends StatelessWidget {
               child: LiveNetworkImage(
                 url: url,
                 pool: LiveImagePool.avatar,
+                site: site,
                 memCacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round().clamp(48, 256),
                 placeholder: (context) =>
                     ColoredBox(key: const ValueKey('avatar-loading'), color: scheme.surfaceContainer),

@@ -15,6 +15,7 @@ class LiveNetworkImage extends StatelessWidget {
     this.fit = BoxFit.cover,
     this.filterQuality = FilterQuality.low,
     this.pool = LiveImagePool.cover,
+    this.site,
     super.key,
   });
 
@@ -41,12 +42,19 @@ class LiveNetworkImage extends StatelessWidget {
   /// keeps one per pool: covers expire, avatars and emoticons do not).
   final LiveImagePool pool;
 
+  /// The platform id (a room card, the player); null lets the resolver
+  /// infer it from the URL host.
+  final String? site;
+
   @override
   Widget build(BuildContext context) {
     final config = LiveUiScope.of(context);
+    // The address it loads through (the CDN front, 3.x `networkImageProxy`);
+    // null keeps the picture's own.
+    final rewritten = config.imageUrl?.call(url, site);
     return CachedNetworkImage(
-      imageUrl: url,
-      cacheKey: config.imageCacheKey(url, pool),
+      imageUrl: rewritten ?? url,
+      cacheKey: config.imageCacheKey(url, pool, site),
       httpHeaders: config.imageHeaders?.call(url),
       cacheManager: config.imageCacheManagerFor(pool),
       fit: fit,

@@ -315,6 +315,7 @@ class _PureLiveAppState extends ConsumerState<PureLiveApp> with WidgetsBindingOb
       imageCacheManager: AppImageCache.manager,
       imageCacheManagers: {for (final pool in LiveImagePool.values) pool: AppImageCache.managerFor(pool)},
       imageHeaders: networkImageHeaders,
+      imageUrl: (url, [site]) => imageCdnProxyUrl(settings, url, site: site),
       imageCacheEpoch: imageCacheEpoch.value,
     );
 

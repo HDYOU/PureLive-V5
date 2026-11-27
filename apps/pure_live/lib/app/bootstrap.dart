@@ -313,10 +313,31 @@ abstract final class AppBootstrap {
     final proxy = SettingsProxyPolicy(store.settings);
     // Failed requests go to the app log as structure-only summaries (no
     // query strings, cookies or bodies; M12.4).
-    final client =
-        http ?? LoggingHttp(IoLiveHttp(proxy: proxy), onFailure: (summary) => AppLog.instance.warning('http', summary));
-    final cookies = StoreCookieVault(store.secrets);
     final settings = store.settings;
+    // API forward proxy: platforms listed in apiProxySites go through a
+    // proxy that rewrites the URL. Two modes: moonchan (query params) and
+    // cloudflare (full-URL path). The config getter re-reads settings on
+    // every request so changes take effect without a restart.
+    final apiProxyClient = ApiProxyHttp(
+      IoLiveHttp(proxy: proxy),
+      sites: {},
+      host: '',
+      port: 443,
+      config: () {
+        final modeStr = settings.get(Settings.apiProxyMode);
+        return ApiProxyConfig(
+          sites: settings.get(Settings.apiProxySites).toSet(),
+          host: settings.get(Settings.apiProxyHost),
+          port: settings.get(Settings.apiProxyPort),
+          mode: modeStr == 'cloudflare' ? ApiProxyMode.cloudflare : ApiProxyMode.moonchan,
+          cfHost: settings.get(Settings.apiCfProxyHost),
+          cfPort: settings.get(Settings.apiProxyPort),
+        );
+      },
+    );
+    final client =
+        http ?? LoggingHttp(apiProxyClient, onFailure: (summary) => AppLog.instance.warning('http', summary));
+    final cookies = StoreCookieVault(store.secrets);
     final library = iptvLibrary ?? StoreIptvLibrary(store);
     // Android's system TLS: Twitch's GraphQL fallback.
     final native = AndroidNativeHttp.isAvailable ? AndroidNativeHttp(proxy: proxy) : null;

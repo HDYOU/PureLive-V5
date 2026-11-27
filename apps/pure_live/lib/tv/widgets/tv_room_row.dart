@@ -59,7 +59,7 @@ class TvRoomRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CommonAvatar(avatarUrl: room.avatar, fallbackName: name, radius: scale.pxText(20)),
+            CommonAvatar(avatarUrl: room.avatar, site: room.platform, fallbackName: name, radius: scale.pxText(20)),
             SizedBox(width: scale.px(16)),
             Expanded(
               child: Column(
