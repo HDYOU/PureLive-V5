@@ -26,6 +26,10 @@ const _ranked = '/room/v1/Area/getListByAreaID';
 const _feed = '/xlive/web-interface/v1/webMain/getMoreRecList';
 const _playInfo = '/xlive/web-room/v2/index/getRoomPlayInfo';
 const _gateway = '/xlive/play-gateway/master/url';
+const _blurayMaster =
+    '#EXTM3U\n'
+    '#EXT-X-STREAM-INF:BANDWIDTH=4421472,RESOLUTION=1920x1080,CODECS="avc1.640032,mp4a.40.2",BILI-DISPLAY="原画",BILI-QN=10000\n'
+    'https://d1--cn-gotcha209.bilivideo.com/live-bvc/540755/x_bluray/index.m3u8?expires=1795845513&qn=10000\n';
 const _areaRooms = '/room/v1/area/getRoomList';
 
 ReplaySample _synthetic(String url, Object body, {int status = 200, Map<String, List<String>> headers = const {}}) =>
@@ -438,17 +442,20 @@ void main() {
     test('a guest asking 原画 is served by the play gateway, not 250', () async {
       final setup = _setup(
         ['S07-guest-qn0', 'S07-guest-qn10000'],
+        // 两个流名并发各问一次；两份答案给出同一条 URL，验收入去重。
         script: {
           _gateway: [
             ReplaySample(
               method: 'GET',
               url: Uri.parse('https://api.live.bilibili.com$_gateway'),
               status: 200,
-              bytes: utf8.encode(
-                '#EXTM3U\n'
-                '#EXT-X-STREAM-INF:BANDWIDTH=4421472,RESOLUTION=1920x1080,CODECS="avc1.640032,mp4a.40.2",BILI-DISPLAY="原画",BILI-QN=10000\n'
-                'https://d1--cn-gotcha209.bilivideo.com/live-bvc/540755/x_bluray/index.m3u8?expires=1795845513&qn=10000\n',
-              ),
+              bytes: utf8.encode(_blurayMaster),
+            ),
+            ReplaySample(
+              method: 'GET',
+              url: Uri.parse('https://api.live.bilibili.com$_gateway'),
+              status: 200,
+              bytes: utf8.encode(_blurayMaster),
             ),
           ],
         },

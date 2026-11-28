@@ -806,6 +806,29 @@ https://d1--cn-gotcha209.bilivideo.com/live-bvc/371518/live_7734200_bs_1348183_2
       expect(read(150).appliedQualityData, 250);
     });
 
+    test('answers of several stream names merge and deduplicate by URL', () {
+      const second = '''
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2733244,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",BILI-DISPLAY="蓝光",BILI-QN=400
+https://d1--cn-gotcha209.bilivideo.com/live-bvc/185890/live_7734200_bs_1348183_4000/index.m3u8?expires=1795845513&qn=400
+#EXT-X-STREAM-INF:BANDWIDTH=4421472,RESOLUTION=1920x1080,CODECS="hvc1.1.6.L120",BILI-DISPLAY="原画",BILI-QN=10000
+https://d1--cn-gotcha210.bilivideo.com/live-bvc/540755/live_7734200_bs_1348183_bluray/index.m3u8?expires=1795845513&qn=10000
+''';
+      final merged = [...BilibiliApi.gatewayVariants(master), ...BilibiliApi.gatewayVariants(second)];
+      final resolution = BilibiliApi.gatewayResolutionOf(
+        merged,
+        roomId: '7734200',
+        issuedAt: DateTime.utc(2026),
+        requestedQn: 10000,
+      );
+      expect(resolution.appliedQualityData, 10000);
+      // 两个流名的答案各有一条原画 pathway（不同 CDN 主机），合并后都在；
+      // 相同 URL 只留一条。
+      expect(resolution.lines.map((line) => line.url).toSet(), hasLength(resolution.lines.length));
+      expect(resolution.lines, hasLength(2));
+      expect(resolution.lines.map((line) => line.codec).toSet(), {'avc', 'hevc'});
+    });
+
     test('stream names come from the codec base_url file name, deduplicated', () {
       final data = <String, dynamic>{
         'playurl_info': {

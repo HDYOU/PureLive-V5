@@ -549,17 +549,31 @@ final class BilibiliSite extends LiveSite
     );
   }
 
-  /// 蓝光及以上的线：`play-gateway/master/url` 按 [data] 的 stream_name 问一次
-  /// （流名可能有多个，第一个有答案的为准）。网关不认这个名字时答案为空，
-  /// 换下一个；全都没有则 null，由调用方退回 `getRoomPlayInfo`。
+  /// 蓝光及以上的线：`play-gateway/master/url` 把所有 stream_name 并发问一遍
+  /// （FLV/HLS、AVC/HEVC 的流名不同，答案里的档位和 pathway 也不一定相同），
+  /// 汇总所有 variant 后按 URL 去重。全都没有答案则 null，由调用方退回
+  /// `getRoomPlayInfo`；单个流名失败（风控、空答案）不影响其它流名。
   Future<LivePlayUrlResolution?> _gateway(String longId, Map<String, dynamic> data, int requestedQn) async {
     final cookie = await _cookie(_current());
-    for (final name in BilibiliApi.streamNames(data)) {
+    final names = BilibiliApi.streamNames(data);
+    if (names.isEmpty) return null;
+    final responses = await Future.wait([for (final name in names) _gatewayAnswer(longId, name, cookie, requestedQn)]);
+    final variants = <BilibiliGatewayVariant>[
+      for (final response in responses)
+        if (response != null) ...BilibiliApi.gatewayVariants(response),
+    ];
+    if (variants.isEmpty) return null;
+    return BilibiliApi.gatewayResolutionOf(variants, roomId: longId, issuedAt: _now(), requestedQn: requestedQn);
+  }
+
+  /// 一个 stream_name 的网关答案；失败或空答案给 null（并发里不抛）。
+  Future<String?> _gatewayAnswer(String longId, String name, String cookie, int requestedQn) async {
+    try {
       final response = await _get(BilibiliApi.playGatewayUrl(longId, name, qn: requestedQn), cookie);
-      if (BilibiliApi.gatewayVariants(response.text).isEmpty) continue;
-      return BilibiliApi.gatewayResolution(response.text, roomId: longId, issuedAt: _now(), requestedQn: requestedQn);
+      return response.text;
+    } on SiteError {
+      return null;
     }
-    return null;
   }
 
   /// The video [longId]'s carousel is playing (1-1): `getRoundPlayVideo`,

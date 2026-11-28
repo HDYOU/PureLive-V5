@@ -867,19 +867,33 @@ abstract final class BilibiliApi {
     required String roomId,
     required DateTime issuedAt,
     required int requestedQn,
+  }) => gatewayResolutionOf(gatewayVariants(body), roomId: roomId, issuedAt: issuedAt, requestedQn: requestedQn);
+
+  /// [gatewayResolution] over the variants of one or more answers: every
+  /// stream name the room has is asked, so the same tier may be declared by
+  /// several answers and the same pathway by both; URLs are deduplicated and
+  /// the highest tier stays first.
+  static LivePlayUrlResolution gatewayResolutionOf(
+    Iterable<BilibiliGatewayVariant> variants, {
+    required String roomId,
+    required DateTime issuedAt,
+    required int requestedQn,
   }) {
-    final variants = gatewayVariants(body);
-    if (variants.isEmpty) return LivePlayUrlResolution(urls: const [], appliedQualityData: requestedQn);
-    final codes = {for (final variant in variants) variant.qn};
+    final merged = <BilibiliGatewayVariant>[];
+    final seenUrls = <String>{};
+    for (final variant in variants) {
+      if (seenUrls.add(variant.url.toString())) merged.add(variant);
+    }
+    if (merged.isEmpty) return LivePlayUrlResolution(urls: const [], appliedQualityData: requestedQn);
+    final codes = {for (final variant in merged) variant.qn};
     final served = codes.contains(requestedQn)
         ? requestedQn
         : codes.where((qn) => qn < requestedQn).fold<int?>(null, (best, qn) => best == null || qn > best ? qn : best) ??
               codes.reduce((a, b) => a < b ? a : b);
     final headers = mediaHeaders(roomId);
-    final seen = <String>{};
     return LivePlayUrlResolution.lines([
-      for (final variant in variants)
-        if (variant.qn == served && seen.add(variant.url.toString()))
+      for (final variant in merged)
+        if (variant.qn == served)
           LivePlayLine(
             variant.url.toString(),
             headers: headers,
