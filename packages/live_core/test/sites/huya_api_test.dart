@@ -831,6 +831,26 @@ void main() {
       expect(flv.query, 'a=1&codec=265');
       expect(hls.query, 'a=1&codec=264');
       expect(HuyaApi.mediaQuery('a=1&codec=264', bitRate: 0, hevc: true), 'a=1&codec=264');
+
+      // A playlist never leaves as HEVC: a captured codec=265 is replaced.
+      final captured = HuyaApi.mediaUrl(
+        _line(StreamFormat.hls, 'https://al.hls.huya.com/src'),
+        antiCode: 'a=1&codec=265&ratio=4000',
+        bitRate: 2000,
+        hevc: true,
+      );
+      expect(captured.query, 'a=1&codec=264&ratio=2000');
+      // ...and it reads as AVC even when a URL still says otherwise.
+      expect(HuyaApi.codecOf(captured, format: StreamFormat.hls), 'avc');
+      expect(
+        HuyaApi.codecOf(Uri.parse('https://al.hls.huya.com/src/x.m3u8?codec=265'), format: StreamFormat.hls),
+        'avc',
+      );
+      expect(
+        HuyaApi.codecOf(Uri.parse('https://al.hls.huya.com/src/x.m3u8?codec=265')),
+        'hevc',
+        reason: 'without a format the URL is all there is',
+      );
     });
 
     test('only http bases on huya.com become https', () {

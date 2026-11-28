@@ -608,7 +608,7 @@ final class HuyaSite extends LiveSite
       final url = HuyaApi.mediaUrl(line, antiCode: signed.antiCode, bitRate: bitRate, hevc: !_preferH264());
       final lease = HuyaApi.lease(url, builtAt: _now(), token: signed.window);
       final text = url.toString();
-      final codec = HuyaApi.codecOf(url);
+      final codec = HuyaApi.codecOf(url, format: line.format);
       _rememberLease(text, lease);
       return (
         line: LivePlayLine(

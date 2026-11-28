@@ -825,23 +825,31 @@ abstract final class HuyaApi {
 
   /// `{base}/{streamName}.{flv|m3u8}?{mediaQuery}`. [hevc] asks an FLV line
   /// for HEVC; HLS always asks for H.264 (the web player's HEVC HLS is a
-  /// separate URL).
+  /// separate URL), so a `codec=265` captured in a playlist AntiCode is
+  /// replaced rather than kept: no HLS request may leave as HEVC.
   static Uri mediaUrl(HuyaLine line, {required String antiCode, required int bitRate, bool hevc = false}) {
     final base = line.base.endsWith('/') ? line.base.substring(0, line.base.length - 1) : line.base;
     final extension = line.format == StreamFormat.hls ? 'm3u8' : 'flv';
-    final query = mediaQuery(antiCode, bitRate: bitRate, hevc: hevc && line.format == StreamFormat.flv);
+    var query = mediaQuery(antiCode, bitRate: bitRate, hevc: hevc && line.format == StreamFormat.flv);
+    if (line.format == StreamFormat.hls) query = replaceQueryParameter(query, 'codec', '264');
     return Uri.parse('$base/${line.streamName}.$extension?$query');
   }
 
-  /// The video codec a media URL asks for: `codec=264` is AVC, `codec=265`
-  /// is HEVC. A room without an HEVC transcode may still answer H.264 to a
-  /// `codec=265` URL (2026-10-01), so this is what the URL requests rather
-  /// than a promise of what arrives; the decoded picture wins.
-  static String? codecOf(Uri url) => switch (_parseMap(url.query)['codec']) {
-    '264' => 'avc',
-    '265' => 'hevc',
-    _ => null,
-  };
+  /// The video codec a line delivers. Huya's split is by container: HLS is
+  /// H.264 only (this client never asks the separate HEVC playlist), so a
+  /// playlist line is AVC whatever its query says; HEVC only appears on FLV
+  /// (`codec=265`), and an FLV line asking `codec=264` is AVC. A room without
+  /// an HEVC transcode may still answer H.264 to a `codec=265` FLV URL
+  /// (2026-10-01), so there the URL is what was asked; the decoded picture
+  /// wins.
+  static String? codecOf(Uri url, {StreamFormat? format}) {
+    if (format == StreamFormat.hls) return 'avc';
+    return switch (_parseMap(url.query)['codec']) {
+      '264' => 'avc',
+      '265' => 'hevc',
+      _ => null,
+    };
+  }
 
   /// Media request headers for [roomId], the same for playing and recording
   /// (3.x `PlaybackHeaderResolver`): [userAgent] (the HYSDK UA unless the
