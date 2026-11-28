@@ -669,7 +669,7 @@ jobs:
         run: |
           set -euo pipefail
           src=build/app/outputs/flutter-apk
-          # 文件名不带 build 号：应用名-版本.架构.apk（versionCode 由 --build-number 管，不进名字）
+          # 文件名不带 build 号：应用名-版本-架构.apk（versionCode 由 --build-number 管，不进名字）
           base="${{ steps.toolchain.outputs.name }}"
           ver="${base%-*}"
           shopt -s nullglob
@@ -682,8 +682,8 @@ jobs:
               app-release) abi=${{ matrix.abi }} ;;
               *) abi=$name ;;
             esac
-            mv -f "$f" "$src/${ver}.${abi}.apk"
-            echo "  ${name}.apk -> ${ver}.${abi}.apk"
+            mv -f "$f" "$src/${ver}-${abi}.apk"
+            echo "  ${name}.apk -> ${ver}-${abi}.apk"
           done
           if [ "$found" -eq 0 ]; then
             echo "::error::没有找到任何 APK，$src 为空"
