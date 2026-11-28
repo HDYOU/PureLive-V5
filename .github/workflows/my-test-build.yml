@@ -520,8 +520,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$GRADLE_USER_HOME/init.d"
-          cat > "$GRADLE_USER_HOME/init.d/skip-checks.gradle" <<'GRADLE'
+          # 跑构建时 GRADLE_USER_HOME 不一定被导出，缺了就按 Gradle 默认的 ~/.gradle
+          GH="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          mkdir -p "$GH/init.d"
+          cat > "$GH/init.d/skip-checks.gradle" <<'GRADLE'
           gradle.taskGraph.whenReady { graph ->
             def skipNames = ['lint', 'test']
             def skipPrefixes = ['lintVital', 'checkKotlinGradlePluginConfigurationErrors', 'validateSigning']
@@ -536,9 +538,9 @@ jobs:
             }
           }
           GRADLE
-          echo "初始化脚本已写入: $GRADLE_USER_HOME/init.d/skip-checks.gradle"
+          echo "初始化脚本已写入: $GH/init.d/skip-checks.gradle"
           # 并行构建、完整警告：只有 gradle.properties 是 Gradle 稳的入口
-          props="$GRADLE_USER_HOME/gradle.properties"
+          props="$GH/gradle.properties"
           touch "$props"
           for kv in "org.gradle.parallel=true" "org.gradle.warning.mode=all"; do
             grep -qxF "$kv" "$props" || echo "$kv" >> "$props"
