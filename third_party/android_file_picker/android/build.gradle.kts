@@ -1,6 +1,7 @@
 import com.android.build.api.dsl.LibraryExtension
 import groovy.lang.GroovyObject
 import org.gradle.kotlin.dsl.configure
+import org.gradle.kotlin.dsl.withGroovyBuilder
 
 group = "com.mr.flutter.plugin.filepicker"
 version = "1.0-SNAPSHOT"
@@ -42,12 +43,18 @@ fun GroovyObject.intProperty(name: String): Int {
     }
 }
 
+val agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+    .substringBefore('.')
+    .toInt()
+val builtInKotlinProperty = providers.gradleProperty("android.builtInKotlin").orNull
+val isBuiltInKotlinEnabled = agpVersion >= 9 &&
+    (builtInKotlinProperty == null || builtInKotlinProperty.toBoolean())
+val shouldApplyKotlinAndroidPlugin = agpVersion < 9 || !isBuiltInKotlinEnabled
+
 apply(plugin = "com.android.library")
-// This plugin does not apply the Kotlin Gradle Plugin. AGP 9 compiles the Kotlin
-// sources in src/main/kotlin itself (built-in Kotlin, android.builtInKotlin=true)
-// and rejects KGP next to it; a consumer that runs with built-in Kotlin off gets
-// KGP applied by Flutter's plugin handler, which does that for every plugin that
-// declares none.
+if (shouldApplyKotlinAndroidPlugin) {
+    apply(plugin = "org.jetbrains.kotlin.android")
+}
 
 val flutterExtension = extensions.getByName("flutter") as GroovyObject
 val flutterCompileSdkVersion = flutterExtension.intProperty("compileSdkVersion")
@@ -71,10 +78,13 @@ configure<LibraryExtension> {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // No Kotlin target is configured here: AGP 9's built-in Kotlin follows the
-    // Java target above, and this script deliberately references no Kotlin DSL
-    // type (its own buildscript classpath carries KGP 1.8.22, which has no
-    // compilerOptions DSL).
+    if (shouldApplyKotlinAndroidPlugin) {
+        withGroovyBuilder {
+            "kotlinOptions" {
+                setProperty("jvmTarget", JavaVersion.VERSION_17.toString())
+            }
+        }
+    }
 }
 
 dependencies {

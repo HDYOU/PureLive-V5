@@ -27,10 +27,17 @@ plugins {
     id("com.android.library")
 }
 
-// This plugin does not apply the Kotlin Gradle Plugin: AGP 9 compiles the Kotlin
-// sources in src/main/kotlin itself (built-in Kotlin) and rejects KGP next to it;
-// a consumer that runs with built-in Kotlin off gets KGP applied by Flutter's
-// plugin handler, which does that for every plugin that declares none.
+val agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.substringBefore('.').toInt()
+
+// AGP 9 provides Kotlin support natively unless the consuming app opts out with
+// android.builtInKotlin=false, which is what `flutter create` writes by default.
+val builtInKotlinEnabled =
+    agpMajor >= 9 &&
+        (providers.gradleProperty("android.builtInKotlin").orNull?.toBoolean() ?: true)
+
+if (!builtInKotlinEnabled) {
+    apply(plugin = "org.jetbrains.kotlin.android")
+}
 
 project.extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension::class.java) {
     compilerOptions {
