@@ -1,18 +1,9 @@
 group 'com.cloudwebrtc.webrtc'
 version '1.0-SNAPSHOT'
 
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        // Kotlin itself comes from the app's build: AGP 9's built-in Kotlin,
-        // or the Kotlin Gradle Plugin Flutter applies (see below).
-        classpath 'com.android.tools.build:gradle:8.1.0'
-    }
-}
+// No buildscript classpath: the Android Gradle Plugin and Kotlin both come from
+// the app's build (AGP 9.5 with built-in Kotlin). A pinned old AGP here would
+// only put a second version on this project's script classpath.
 
 rootProject.allprojects {
     repositories {

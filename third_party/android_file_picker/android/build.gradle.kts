@@ -1,7 +1,6 @@
 import com.android.build.api.dsl.LibraryExtension
 import groovy.lang.GroovyObject
 import org.gradle.kotlin.dsl.configure
-import org.gradle.kotlin.dsl.withGroovyBuilder
 
 group = "com.mr.flutter.plugin.filepicker"
 version = "1.0-SNAPSHOT"
@@ -43,18 +42,12 @@ fun GroovyObject.intProperty(name: String): Int {
     }
 }
 
-val agpVersion = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
-    .substringBefore('.')
-    .toInt()
-val builtInKotlinProperty = providers.gradleProperty("android.builtInKotlin").orNull
-val isBuiltInKotlinEnabled = agpVersion >= 9 &&
-    (builtInKotlinProperty == null || builtInKotlinProperty.toBoolean())
-val shouldApplyKotlinAndroidPlugin = agpVersion < 9 || !isBuiltInKotlinEnabled
-
 apply(plugin = "com.android.library")
-if (shouldApplyKotlinAndroidPlugin) {
-    apply(plugin = "org.jetbrains.kotlin.android")
-}
+// This plugin does not apply the Kotlin Gradle Plugin. AGP 9 compiles the Kotlin
+// sources in src/main/kotlin itself (built-in Kotlin, android.builtInKotlin=true)
+// and rejects KGP next to it; a consumer that runs with built-in Kotlin off gets
+// KGP applied by Flutter's plugin handler, which does that for every plugin that
+// declares none.
 
 val flutterExtension = extensions.getByName("flutter") as GroovyObject
 val flutterCompileSdkVersion = flutterExtension.intProperty("compileSdkVersion")
@@ -78,11 +71,11 @@ configure<LibraryExtension> {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    if (shouldApplyKotlinAndroidPlugin) {
-        withGroovyBuilder {
-            "kotlinOptions" {
-                setProperty("jvmTarget", JavaVersion.VERSION_17.toString())
-            }
+    // The Kotlin target follows the Java one above; the extension is AGP 9's
+    // built-in Kotlin, or the KGP Flutter applies for older consumers.
+    project.extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension::class.java) {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
         }
     }
 }
