@@ -1,0 +1,910 @@
+name: my-test-build
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "发布 Release 的 Tag（留空则读取 assets/version.json）"
+        required: false
+      ssh:
+        description: "SSH connection to Actions"
+        required: false
+        default: "false"
+  watch:
+    types: [started]
+  push:
+    branches:
+      - master
+      - main
+      - '*'
+    paths-ignore:
+      - "**.md"
+      - ".github/**"
+      - "!.github/workflows/my-test-build.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 签出代码
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 需要完整历史才能 merge 其他分支
+        
+        # ============ 合并其他所有分支（失败跳过，不中断；.github 一律保留当前分支） ============
+      - name: 合并其他所有分支
+        continue-on-error: true
+        shell: bash
+        run: |
+            set +e   # 显式忽略任何命令失败，保证脚本继续
+            git config --global user.name "${{ github.repository_owner }}"
+            git config --global user.email "${{ github.repository_owner }}@users.noreply.github.com"
+            CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+            echo "当前分支: $CURRENT_BRANCH"
+        
+            # 获取所有远端分支（去掉 origin/ 前缀，排除 HEAD 指针）
+            BRANCHES=$(git branch -r \
+              | sed 's/^[[:space:]]*//' \
+              | grep -v '\->' \
+              | grep -v "^origin/${CURRENT_BRANCH}$" \
+              | sed 's|^origin/||' \
+              | sort -u)
+
+            # 备份/清理用的分支不参与合并：以 RM- DEL- DELETE- REMOVE- 开头的
+            # 一律跳过（大小写不敏感），它们的改动是待删除的旧内容。
+            BRANCHES=$(printf '%s\n' "$BRANCHES" \
+              | grep -Eiv '^(rm-|del-|delete-|remove-)' \
+              | sed '/^$/d')
+        
+            if [ -z "$BRANCHES" ]; then
+              echo "⚠️ 未发现其他远端分支，跳过"
+              exit 0
+            fi
+        
+            FAILED=()
+            SUCCESS=()
+            SKIPPED=()
+
+            # 合并其他分支时，这些路径保留当前分支的版本：
+            # .github 是 workflow，docs 是文档，fixtures 是测试样本，
+            # test/ 是任意层级的测试代码（apps/pure_live/test、packages/*/test）。
+            EXCLUDED_RE='^(.github|docs|fixtures)/'
+            TEST_RE='(^|/)test/'
+            KEPT_RE="${EXCLUDED_RE}|${TEST_RE}"
+
+            for BRANCH in $BRANCHES; do
+              echo "=============================================="
+              echo "尝试合并分支: $BRANCH"
+
+              # --no-ff --no-commit：先合到工作区不提交，好把排除的路径换回当前分支再提交
+              if ! git merge --no-ff --no-commit -m "chore: merge origin/${BRANCH} into ${CURRENT_BRANCH}" "origin/${BRANCH}"; then
+                CONFLICTS=$(git diff --name-only --diff-filter=U)
+                if [ -z "$CONFLICTS" ]; then
+                  echo "❌ 合并失败: $BRANCH"
+                  FAILED+=("$BRANCH")
+                  git merge --abort 2>/dev/null || true
+                  git reset --hard HEAD 2>/dev/null || true
+                  continue
+                fi
+                # 冲突只在要保留的路径时仍可合并：逐个取当前分支的版本
+                OTHER_CONFLICTS=$(echo "$CONFLICTS" | grep -vE "$KEPT_RE" || true)
+                if [ -n "$OTHER_CONFLICTS" ]; then
+                  echo "❌ 合并冲突（.github、docs、fixtures、test/ 之外）: $BRANCH"
+                  echo "$OTHER_CONFLICTS"
+                  FAILED+=("$BRANCH")
+                  git merge --abort 2>/dev/null || true
+                  git reset --hard HEAD 2>/dev/null || true
+                  continue
+                fi
+                echo "⚠️ 冲突只在 .github、docs、fixtures、test/，保留当前分支的版本"
+                while IFS= read -r KEPT_FILE; do
+                  if git checkout --ours -- "$KEPT_FILE" 2>/dev/null; then
+                    git add -- "$KEPT_FILE" 2>/dev/null || true
+                  else
+                    # 当前分支没有这个文件（被它删了，或只有对方新增）：删掉
+                    git rm -q -f -- "$KEPT_FILE" 2>/dev/null || true
+                  fi
+                done <<< "$CONFLICTS"
+              fi
+
+              # 排除 .github、docs、fixtures、test/：合并带来的改动一律回退到当前分支的版本。
+              # 逐文件回退，任一路径不存在时只跳过它，不会让整批排除失效。
+              KEPT_FILES=$(git diff --cached --name-only | grep -E "$KEPT_RE" || true)
+              if [ -n "$KEPT_FILES" ]; then
+                while IFS= read -r KEPT_FILE; do
+                  git restore --source=HEAD --staged --worktree -- "$KEPT_FILE" 2>/dev/null \
+                    || git checkout HEAD -- "$KEPT_FILE" 2>/dev/null || true
+                done <<< "$KEPT_FILES"
+              fi
+
+              if git diff --cached --quiet; then
+                echo "ℹ️ 除 .github、docs、fixtures、test/ 外无变化，跳过提交: $BRANCH"
+                SKIPPED+=("$BRANCH")
+                git merge --abort 2>/dev/null || true
+                git reset --hard HEAD 2>/dev/null || true
+                continue
+              fi
+
+              if git commit --no-edit >/dev/null; then
+                echo "✅ 合并成功（已排除 .github、docs、fixtures、test/）: $BRANCH"
+                SUCCESS+=("$BRANCH")
+              else
+                echo "❌ 提交失败: $BRANCH"
+                FAILED+=("$BRANCH")
+                git reset --hard HEAD 2>/dev/null || true
+              fi
+            done
+        
+            echo "=============================================="
+            echo "合并结果汇总:"
+            if [ ${#SUCCESS[@]} -gt 0 ]; then
+              echo "✅ 成功合并的分支:"
+              for b in "${SUCCESS[@]}"; do echo "   - $b"; done
+            fi
+            if [ ${#FAILED[@]} -gt 0 ]; then
+              echo "❌ 失败的分支:"
+              for b in "${FAILED[@]}"; do echo "   - $b"; done
+            fi
+            if [ ${#SKIPPED[@]} -gt 0 ]; then
+              echo "ℹ️ 仅差 .github/docs/fixtures/test/、已跳过的分支:"
+              for b in "${SKIPPED[@]}"; do echo "   - $b"; done
+            fi
+        
+            exit 0
+     
+
+      # ============ 从 toolchain.env 读 Android SDK 版本（唯一事实源） ============
+      # 不能直接在 cache 的 key/path 里写 ${{ env.ANDROID_NDK_VERSION }}：那是 run 期
+      # 才注入 $GITHUB_ENV 的，解析期为空，路径会退化成 /ndk/... 而被 actions/cache
+      # 拒存。用 step outputs 就没这个问题（同一 job 内前一步的输出可在 with 中使用）。
+      - name: 读取 toolchain.env 的 Android SDK 版本
+        id: sdkver
+        run: |
+          set -euo pipefail
+          ndk=$(sed -n 's/^ANDROID_NDK_VERSION=//p' toolchain.env)
+          cmake=$(sed -n 's/^ANDROID_CMAKE_VERSION=//p' toolchain.env)
+          platform=$(sed -n 's/^ANDROID_COMPILE_SDK=//p' toolchain.env)
+          buildtools=$(sed -n 's/^ANDROID_BUILD_TOOLS=//p' toolchain.env)
+          for kv in "NDK=$ndk" "CMake=$cmake" "platform=$platform" "build-tools=$buildtools"; do
+            case "${kv#*=}" in
+              ''|*[!0-9A-Za-z._-]*) echo "toolchain.env 缺少有效的 ${kv%%=*} 版本: '$kv'" >&2; exit 1 ;;
+            esac
+          done
+          {
+            echo "ndk=$ndk"
+            echo "cmake=$cmake"
+            echo "platform=$platform"
+            echo "build_tools=$buildtools"
+          } >> "$GITHUB_OUTPUT"
+          echo "Android SDK: NDK=$ndk CMake=$cmake platform=$platform build-tools=$buildtools"
+
+      # ============ 只缓存 runner 上没有的 Android SDK 组件 ============
+      # runner 镜像自带 build-tools 36.0.0 / platforms;android-36 与若干 NDK/CMake
+      # 版本，镜像更新后也可能正好带上这里的精确版本。装好的组件就不再走
+      # actions/cache：命中要解压一份、未命中还要在 job 末尾把这棵目录整份
+      # 打包上传，两头都白花时间。每个组件自己判断，各用独立 key（升 NDK
+      # 不该让 CMake 的缓存失效）。
+      # 路径写死成 runner-images 文档里的 ubuntu-24.04 SDK 根，不用
+      # ${{ env.ANDROID_HOME }}（它同样是 run 期注入，解析期是空串）。
+      - name: 检查 Android SDK 组件是否已安装
+        id: sdkcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "SDK 根: $root"
+          # 已安装的组件目录里有 sdkmanager 写的 source.properties（旧包是
+          # package.xml）；只有目录不算装好，可能只建了空壳。
+          installed() { [ -f "$1/source.properties" ] || [ -f "$1/package.xml" ]; }
+          check() {
+            local key="$1" name="$2" dir="$3"
+            if installed "$dir"; then
+              echo "  ✅ $name 已安装: $dir"
+              echo "${key}=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "  ⬇️ $name 未安装: $dir"
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          check need_ndk "NDK ${{ steps.sdkver.outputs.ndk }}" "$root/ndk/${{ steps.sdkver.outputs.ndk }}"
+          check need_cmake "CMake ${{ steps.sdkver.outputs.cmake }}" "$root/cmake/${{ steps.sdkver.outputs.cmake }}"
+          check need_platform "platform android-${{ steps.sdkver.outputs.platform }}" "$root/platforms/android-${{ steps.sdkver.outputs.platform }}"
+          check need_build_tools "build-tools ${{ steps.sdkver.outputs.build_tools }}" "$root/build-tools/${{ steps.sdkver.outputs.build_tools }}"
+
+      # 下面四个缓存只在对应组件缺失时才恢复/保存，缺什么补什么。
+      - name: 缓存 Android NDK
+        if: steps.sdkcheck.outputs.need_ndk == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk/${{ steps.sdkver.outputs.ndk }}
+          key: android-ndk-${{ steps.sdkver.outputs.ndk }}-${{ runner.os }}
+
+      - name: 缓存 Android CMake
+        if: steps.sdkcheck.outputs.need_cmake == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/cmake/${{ steps.sdkver.outputs.cmake }}
+          key: android-cmake-${{ steps.sdkver.outputs.cmake }}-${{ runner.os }}
+
+      - name: 缓存 Android platform
+        if: steps.sdkcheck.outputs.need_platform == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/platforms/android-${{ steps.sdkver.outputs.platform }}
+          key: android-platform-${{ steps.sdkver.outputs.platform }}-${{ runner.os }}
+
+      - name: 缓存 Android build-tools
+        if: steps.sdkcheck.outputs.need_build_tools == 'true'
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/build-tools/${{ steps.sdkver.outputs.build_tools }}
+          key: android-build-tools-${{ steps.sdkver.outputs.build_tools }}-${{ runner.os }}
+
+      # ============ 依赖缓存：ffmpeg_kit 素材 + sqlite3 预编译库 ============
+      - name: 缓存 ffmpeg_kit 素材
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pure_live/ffmpeg_kit
+            ~/AppData/Local/pure_live/ffmpeg_kit
+            .dart_tool/hooks_runner/shared/ffmpeg_kit_extended_flutter
+          key: ffmpeg-kit-${{ runner.os }}-${{ hashFiles('tools/ffmpeg_kit/bundles.txt', 'tools/ffmpeg_kit/fetch.sh', 'tools/ffmpeg_kit/fetch.ps1') }}
+          restore-keys: |
+            ffmpeg-kit-${{ runner.os }}-
+
+      # 这两类缓存是「下载缓存」：命中时 actions/cache 不会重新保存，一旦第一次
+      # 保存发生在构建中途（只下了一部分 ABI 的 .so），残缺内容会一直粘住。
+      # 所以拆成 restore + 构建成功后 save，save 只在未命中时执行。
+      #
+      # sqlite3 的 key 加了 v3：老的 v1 条目（2026-11-26 建）只有 Linux 那份
+      # 1.8 MB 加一个 ABI 的 libsqlite3.so，一共 2.8 MB，android 的另外两个 ABI
+      # 每次都要现下；而它一直「精确命中」，save 又被 cache-hit 判掉，残缺内容
+      # 永远补不上。换前缀让下一次构建重新写一份完整的，旧条目到期自动清掉。
+      - name: 恢复 sqlite3 预编译库
+        id: sqlite3-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/sqlite3
+          key: sqlite3-v3-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            sqlite3-v3-${{ runner.os }}-
+
+      - name: 恢复 libmpv 预编译包
+        id: libmpv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/media_kit
+          key: libmpv-${{ runner.os }}-${{ hashFiles('third_party/media_kit/hook/native_bundles.json', 'third_party/media_kit/hook/src/bundles.dart', 'third_party/media_kit/hook/build.dart') }}
+          restore-keys: |
+            libmpv-${{ runner.os }}-
+
+      - name: 缓存 pub 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/AppData/Local/Pub/Cache
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
+      - name: 下载 Android keystore
+        id: android_keystore
+        uses: timheuer/base64-to-file@v1.2
+        with:
+          fileName: key.jks
+          encodedString: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: 创建 key.properties
+        run: |
+          echo "storeFile=${{ steps.android_keystore.outputs.filePath }}" > apps/pure_live/android/key.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> apps/pure_live/android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> apps/pure_live/android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> apps/pure_live/android/key.properties
+
+      # ====================== 自动修改 ：AndroidManifest 添加 extractNativeLibs="true" ======================
+      - name: Add extractNativeLibs="true" to AndroidManifest.xml
+        run: |
+          MANIFEST="apps/pure_live/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'android:extractNativeLibs' "$MANIFEST"; then
+            echo "⚠️ extractNativeLibs 已存在，跳过"
+            else
+              # 使用临时文件方式，避免 sed i/a 的兼容性问题
+              awk '
+                /android:name="\.MainActivity"/ { in_activity=1 }
+                in_activity && /android:windowSoftInputMode="adjustResize"/ && !done {
+                  print "      android:extractNativeLibs=\"true\""
+                done=1
+                 }
+                { print }
+                in_activity && /\/>/ { in_activity=0 }
+               ' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 android:extractNativeLibs=\"true\""
+              fi
+              grep -A5 -B5 "extractNativeLibs" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改 压缩 apk 包 ======================
+      - name: 压缩 apk 包
+        run: |
+          MANIFEST="apps/pure_live/android/app/build.gradle.kts"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'useLegacyPackaging' "$MANIFEST"; then
+            echo "⚠️ extractNativeLibs 已存在，跳过"
+            else
+              # 使用临时文件方式，避免 sed i/a 的兼容性问题
+              awk '
+              /^[[:space:]]*signingConfigs[[:space:]]*\{/ && !done {
+                  match($0, /^[[:space:]]*/)
+                  indent = substr($0, 1, RLENGTH)
+                  print indent "packaging {"
+                  print indent "    jniLibs {"
+                  print indent "        useLegacyPackaging = true"
+                  print indent "    }"
+                  print indent "}"
+                  print ""
+                  done = 1
+              }
+              { print }
+               ' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 useLegacyPackaging=\"true\""
+              fi
+              grep -A5 -B5 "useLegacyPackaging" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  斗鱼直播支持 hevc ======================
+      - name: 斗鱼直播支持 hevc
+        run: |
+          MANIFEST="packages/live_core/lib/src/sites/douyu/douyu_api.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "'hevc': '1'" "$MANIFEST"; then
+            echo "⚠️ 斗鱼直播支持 hevc 已存在，跳过"
+            else
+               sed "s/'hevc': '0'/'hevc': '1'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加  'hevc': '1',斗鱼直播支持 hevc"
+              fi
+              grep -A5 -B5 "'hevc':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  bilibili 直播支持 hevc ======================
+      - name: bilibili 直播支持 hevc
+        run: |
+          MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_site.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "'codec': '2,1'" "$MANIFEST"; then
+            echo "⚠️ bilibili直播支持 hevc 已存在，跳过"
+            else
+               sed "s/'codec': '0'/'codec': '2,1,0'/g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 , 直播支持 hevc"
+              fi
+              echo "$MANIFEST"
+              grep -A5 -B5 "'codec':" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
+          MANIFEST="packages/live_core/lib/src/sites/bilibili/bilibili_api.dart"
+          if [ -f "$MANIFEST" ]; then
+            
+               awk '{if ($0 ~ /if \(byProtocol != 0\) return byProtocol;/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               awk '{if ($0 ~ /final byProtocol = \(a.protocol ==/) print "// " $0; else print}' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed 's|candidate\.codec == first\.codec|true|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               
+               sed "s|a.codec == 'avc' ? 0 : 1|a.codec == 'av1' ? 0 : a.codec == 'hevc' ? 1 : a.codec == 'avc' ? 2 : 3|g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s|b.codec == 'avc' ? 0 : 1|b.codec == 'av1' ? 0 : b.codec == 'hevc' ? 1 : b.codec == 'avc' ? 2 : 3|g" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               
+               echo "✅ 已添加 , 直播支持 hevc"
+              
+              echo "$MANIFEST"
+              grep -A5 -B5 "byProtocol" "$MANIFEST" || true
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改  修改 android 包名 ======================
+      - name: 修改 android 包名
+        run: |
+          MANIFEST="apps/pure_live/android/app/build.gradle.kts"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "com.mystyle.purelive.you.v5" "$MANIFEST"; then
+            echo "⚠️ com.mystyle.purelive.you.v5 包名 已存在，跳过"
+            else
+               sed 's|applicationId = "com.mystyle.purelive"|applicationId = "com.mystyle.purelive.you.v5"|' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "com.mystyle.purelive" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
+       # ====================== 自动修改  解析播放链接 hevc 编码 ======================
+      - name: 解析播放链接 hevc 编码增强解析
+        run: |
+          MANIFEST="apps/pure_live/lib/shared/rooms/playback_lines.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q "hevc|codec=265|" "$MANIFEST"; then
+            echo "⚠️ codec=265 已存在，跳过"
+            else
+               sed "s/hevc|/hevc|codec=265|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed "s/avc|/avc|codec=264|/" "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已修改包名 com.mystyle.purelive.you.v5 "
+              fi
+              grep -A5 -B5 "hevc|codec=265|" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+
+      # ====================== 自动修改 去除 ssl验证 ======================
+      - name: 去除 ssl验证
+        run: |
+          MANIFEST="packages/live_net/lib/src/io_http.dart"
+          if [ -f "$MANIFEST" ]; then
+            if grep -q 'badCertificateCallback' "$MANIFEST"; then
+            echo "⚠️ 去除 ssl 已存在，跳过"
+            else
+               sed  's/() => HttpClient()/() { final client = HttpClient()/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               sed  's/route\.directive,/route.directive;\n     client.badCertificateCallback = (_, _, _) => true;\n      return client;\n }/' "$MANIFEST" > "${MANIFEST}.tmp" && mv "${MANIFEST}.tmp" "$MANIFEST"
+               echo "✅ 已添加 badCertificateCallback"
+              fi
+              echo "flie: $MANIFEST"
+              grep -A30 -B30 "badCertificateCallback" "$MANIFEST"
+          else
+            echo "⚠️ $MANIFEST 不存在，跳过"
+          fi
+          
+
+      - name: 设置 Java 环境
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+          cache: gradle
+          
+      - name: Toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          grep -E '^FLUTTER_VERSION=' toolchain.env >> "$GITHUB_ENV"
+          version=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1/p' apps/pure_live/pubspec.yaml)
+          build=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\2/p' apps/pure_live/pubspec.yaml)
+          echo "name=PureLive-$version-$build" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        name: 设置 Flutter 环境
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Packages and native bundles
+        run: |
+          set -euo pipefail
+          # Reset the SDK's tracked files to HEAD (cache may leave stray modifications)
+          # git -C "$(dirname "$(dirname "$(which flutter)")")" reset --hard
+          python3 tools/flutter_sdk/prepare.py --apply --bootstrap-tests
+          python3 tools/flutter_sdk/prepare.py --test
+          flutter --version
+          flutter pub get
+          bash tools/ffmpeg_kit/fetch.sh android
+
+      - name: 打包 APK
+        working-directory: apps/pure_live
+        env:
+          # CI runners are ephemeral, so the configuration cache would be
+          # stored but never reused. With android/gradle.properties keeping
+          # problems=fail, storing is also a hard gate: unpinned latest-stable
+          # Flutter requests its own NDK and AGP bootstraps it via sdkmanager
+          # during configuration, which fails the store after the whole build.
+          # Local builds keep the cache enabled and actually reuse it.
+          GRADLE_OPTS: -Dorg.gradle.configuration-cache=false -Dandroid.builtInKotlin=false -Dandroid.newDsl=false
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --obfuscate --split-debug-info=build/symbols-android-split \
+            --dart-define=PURELIVE_BUILD_SOURCE=github-manual
+
+      # 只有下全了才写缓存：sqlite3 的 hook 把每个目标 ABI 的 libsqlite3.so 放在
+      # shared 目录自己的子目录里，split-per-abi 的构建要三份（v7a/arm64/x86_64）。
+      # 少于三份就说明只下了一部分，宁可不缓存，也不能再把残缺内容粘进去。
+      - name: 检查 sqlite3 预编译库是否下全
+        id: sqlite3-files
+        if: success() && steps.sqlite3-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(find .dart_tool/hooks_runner/shared/sqlite3 -type f -name 'libsqlite3.so' | wc -l)
+          echo "libsqlite3.so 共 $count 份"
+          if [ "$count" -ge 3 ]; then
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "save=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::sqlite3 预编译库只有 $count 份（少于 3 个 ABI），跳过写缓存"
+          fi
+
+      - name: 保存 sqlite3 预编译库
+        if: success() && steps.sqlite3-cache.outputs.cache-hit != 'true' && steps.sqlite3-files.outputs.save == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/sqlite3
+          key: sqlite3-v3-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+
+      - name: 保存 libmpv 预编译包
+        if: success() && steps.libmpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/media_kit
+          key: libmpv-${{ runner.os }}-${{ hashFiles('third_party/media_kit/hook/native_bundles.json', 'third_party/media_kit/hook/src/bundles.dart', 'third_party/media_kit/hook/build.dart') }}
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-android
+          path: apps/pure_live/build/app/outputs/flutter-apk/*.apk
+          retention-days: 7
+          compression-level: 0
+
+  build-windows:
+    if: false
+    runs-on: windows-latest
+    steps:
+      - name: 签出代码
+        uses: actions/checkout@v4
+
+      # ============ 依赖缓存：ffmpeg_kit 素材 + sqlite3 预编译库 ============
+      - name: 缓存 ffmpeg_kit 素材
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pure_live/ffmpeg_kit
+            ~/AppData/Local/pure_live/ffmpeg_kit
+            .dart_tool/hooks_runner/shared/ffmpeg_kit_extended_flutter
+          key: ffmpeg-kit-${{ runner.os }}-${{ hashFiles('tools/ffmpeg_kit/bundles.txt', 'tools/ffmpeg_kit/fetch.sh', 'tools/ffmpeg_kit/fetch.ps1') }}
+          restore-keys: |
+            ffmpeg-kit-${{ runner.os }}-
+
+      - name: 缓存 sqlite3 预编译库
+        uses: actions/cache@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/sqlite3
+          key: sqlite3-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            sqlite3-${{ runner.os }}-
+
+      - name: 缓存 libmpv 预编译包
+        uses: actions/cache@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/media_kit
+          key: libmpv-${{ runner.os }}-${{ hashFiles('third_party/media_kit/hook/native_bundles.json', 'third_party/media_kit/hook/src/bundles.dart', 'third_party/media_kit/hook/build.dart') }}
+          restore-keys: |
+            libmpv-${{ runner.os }}-
+
+      - name: 缓存 pub 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/AppData/Local/Pub/Cache
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
+      - name: Decode MSIX Certificate
+        shell: pwsh
+        run: |
+          $certBase64 = "${{ secrets.CERTIFICATE }}".Trim() -replace '\s+', ''
+
+          if (-not [string]::IsNullOrEmpty($certBase64)) {
+            $certBytes = [System.Convert]::FromBase64String($certBase64)
+            $certPath = Join-Path -Path (Get-Location) -ChildPath "certificate.pfx"
+            [IO.File]::WriteAllBytes($certPath, $certBytes)
+            "FINAL_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Update make_config.yaml
+        if: env.FINAL_CERT_PATH != ''
+        shell: pwsh
+        run: |
+          $configPath = "windows/packaging/msix/make_config.yaml"
+          $absolutePath = $env:FINAL_CERT_PATH -replace '\\', '/'
+
+          if (Test-Path $configPath) {
+            $content = Get-Content $configPath -Raw
+            $content = $content -replace 'certificate_path:\s*.*', "certificate_path: $absolutePath"
+            Set-Content $configPath $content
+          }
+
+      - name: 设置 Flutter 环境
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 启用 Flutter Windows
+        run: flutter config --enable-windows-desktop
+
+      - name: 更新 Flutter packages
+        run: flutter pub get
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $url = "https://jrsoftware.org/download.php/is.exe"
+          $output = "${{ runner.temp }}\innosetup.exe"
+          Invoke-WebRequest -Uri $url -OutFile $output
+          Start-Process -FilePath $output -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Copy Chinese language pack
+        shell: pwsh
+        run: |
+          $source = "windows\packaging\exe\ChineseSimplified.isl"
+          $target = "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+
+          if (Test-Path $source) {
+            Copy-Item $source $target -Force
+          }
+
+      - name: Install fastforge
+        run: dart pub global activate fastforge
+
+      - name: Package Windows
+        run: fastforge package --platform windows --targets exe,msix
+
+      - name: 上传 Windows 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-windows
+          path: |
+            dist/**/*.exe
+            dist/**/*.msix
+          retention-days: 7
+          compression-level: 0
+
+  build-linux:
+    if: false
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 签出代码
+        uses: actions/checkout@v4
+
+      # ============ 依赖缓存：ffmpeg_kit 素材 + sqlite3 预编译库 ============
+      - name: 缓存 ffmpeg_kit 素材
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pure_live/ffmpeg_kit
+            ~/AppData/Local/pure_live/ffmpeg_kit
+            .dart_tool/hooks_runner/shared/ffmpeg_kit_extended_flutter
+          key: ffmpeg-kit-${{ runner.os }}-${{ hashFiles('tools/ffmpeg_kit/bundles.txt', 'tools/ffmpeg_kit/fetch.sh', 'tools/ffmpeg_kit/fetch.ps1') }}
+          restore-keys: |
+            ffmpeg-kit-${{ runner.os }}-
+
+      - name: 缓存 sqlite3 预编译库
+        uses: actions/cache@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/sqlite3
+          key: sqlite3-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            sqlite3-${{ runner.os }}-
+
+      - name: 缓存 libmpv 预编译包
+        uses: actions/cache@v4
+        with:
+          path: .dart_tool/hooks_runner/shared/media_kit
+          key: libmpv-${{ runner.os }}-${{ hashFiles('third_party/media_kit/hook/native_bundles.json', 'third_party/media_kit/hook/src/bundles.dart', 'third_party/media_kit/hook/build.dart') }}
+          restore-keys: |
+            libmpv-${{ runner.os }}-
+
+      - name: 缓存 pub 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/AppData/Local/Pub/Cache
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
+      - name: 安装 Linux 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake libgtk-3-dev ninja-build libayatana-appindicator3-dev unzip webkit2gtk-4.1 libasound2-dev
+          sudo apt-get install -y gcc g++ autoconf automake debhelper glslang-dev ladspa-sdk xutils-dev libasound2-dev \
+              libarchive-dev libbluray-dev libbs2b-dev libcaca-dev libcdio-paranoia-dev libdrm-dev \
+              libdav1d-dev libdvdnav-dev libegl1-mesa-dev libepoxy-dev libfontconfig-dev libfreetype6-dev \
+              libfribidi-dev libgl1-mesa-dev libgbm-dev libgme-dev libgsm1-dev libharfbuzz-dev libjpeg-dev \
+              libbrotli-dev liblcms2-dev libmodplug-dev libmp3lame-dev libopenal-dev \
+              libopus-dev libopencore-amrnb-dev libopencore-amrwb-dev libpulse-dev librtmp-dev \
+              libsdl2-dev libsixel-dev libssh-dev libsoxr-dev libspeex-dev libtool \
+              libv4l-dev libva-dev libvdpau-dev libvorbis-dev libvo-amrwbenc-dev \
+              libunwind-dev libvpx-dev libwayland-dev libx11-dev libxext-dev \
+              libxkbcommon-dev libxrandr-dev libxss-dev libxv-dev libxvidcore-dev \
+              linux-libc-dev nasm ninja-build pkg-config python3 python3-docutils wayland-protocols \
+              x11proto-core-dev zlib1g-dev libfdk-aac-dev libtheora-dev libwebp-dev \
+              unixodbc-dev libpq-dev libxxhash-dev libaom-dev
+
+      - name: Toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          grep -E '^FLUTTER_VERSION=' toolchain.env >> "$GITHUB_ENV"
+          version=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\1/p' apps/pure_live/pubspec.yaml)
+          build=$(sed -n 's/^version: \([0-9.]*\)+\([0-9]*\)$/\2/p' apps/pure_live/pubspec.yaml)
+          echo "name=PureLive-$version-$build" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        name: 设置 Flutter 环境
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Packages and native bundles
+        run: |
+          set -euo pipefail
+          python3 tools/flutter_sdk/prepare.py --apply --bootstrap-tests
+          python3 tools/flutter_sdk/prepare.py --test
+          flutter --version
+          flutter pub get --enforce-lockfile
+          bash tools/ffmpeg_kit/fetch.sh linux
+
+      - name: 启用 Flutter Linux
+        run: flutter config --enable-linux-desktop 
+
+      - name: Install fastforge
+        working-directory: apps/pure_live
+        run: dart pub global activate fastforge
+        
+      - name: 配置 fastforge 文件
+        run: |
+          mkdir -p apps/pure_live/linux/packaging/deb
+          
+          cat > apps/pure_live/linux/packaging/deb/make_config.yaml <<'EOF'
+          display_name: 纯粹直播
+          package_name: pure-live
+          maintainer:
+            name: liuchuancong
+            email: 17792321552@163.com
+          priority: optional
+          section: x11
+          installed_size: 500000
+          essential: false
+          icon: assets/icons/icon.png
+          generic_name: Livestream Player
+          keywords:
+            - Livestream
+            - Video
+          categories:
+            - AudioVideo
+            - Audio
+            - Video
+            - Network
+          startup_notify: true
+          EOF
+          
+          cat apps/pure_live/linux/packaging/deb/make_config.yaml
+
+      - name: 打包 Linux
+        working-directory: apps/pure_live
+        run: fastforge package --platform linux --targets deb,zip --skip-clean
+
+      - name: 上传 Linux 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-linux
+          path: |
+            apps/pure_live/dist/**/*.deb
+            apps/pure_live/dist/**/*.zip
+          retention-days: 7
+          compression-level: 0
+
+  upload-release:
+    runs-on: ubuntu-latest
+    needs:
+      - build-android
+    permissions:
+      contents: write
+    steps:
+      - name: 签出代码
+        uses: actions/checkout@v4
+
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: artifact-*
+          merge-multiple: true
+
+      - name: 读取版本描述
+        id: version
+        uses: juliangruber/read-file-action@v1
+        with:
+          path: assets/version.json
+
+      # ====================== 计算 Release Tag（去掉可能的 v/V 前缀） ======================
+      - name: 计算 Release Tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            t="${{ github.event.inputs.tag_name }}"
+            t="${t#v}"; t="${t#V}"
+            echo "tag=$t" >> "$GITHUB_OUTPUT"
+            echo "使用输入 tag: $t"
+          else
+            base=$(python3 -c "import json;print(json.load(open('assets/version.json'))['version'])")
+            echo "tag=$base" >> "$GITHUB_OUTPUT"
+            echo "使用 version.json tag: $base"
+          fi
+
+      # ====================== 判断是否为预发布 ======================
+      # 规则：tag 带 .pre.N 后缀 → 预发布；否则沿用 version.json 的 prerelease 字段
+      - name: 判断是否为预发布
+        id: prerelease
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION_JSON: ${{ steps.version.outputs.content }}
+        run: |
+          set -euo pipefail
+          if echo "$TAG" | grep -qE '\.pre\.[0-9]+$'; then
+            is_pre="true"
+            reason="tag 带 .pre.N 后缀"
+          else
+            is_pre=$(echo "$VERSION_JSON" | python3 -c "import sys,json;print(str(json.load(sys.stdin).get('prerelease', False)).lower())")
+            reason="沿用 assets/version.json 的 prerelease 字段"
+          fi
+          echo "prerelease=$is_pre" >> "$GITHUB_OUTPUT"
+          echo "判定 prerelease=$is_pre（$reason）"
+
+      # ====================== 构建 Release Body ======================
+      - name: 构建 Release Body
+        id: release_body
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION_JSON: ${{ steps.version.outputs.content }}
+        run: |
+          set -euo pipefail
+          version_desc=$(echo "$VERSION_JSON" | python3 -c "import sys,json;print(json.load(sys.stdin).get('version_desc',''))")
+          cat << EOF > release_body.txt
+
+          # 纯粹直播 ${TAG}
+
+          ### 📝 本次更新
+
+          ${version_desc}
+
+          EOF
+          echo "body_path=$(pwd)/release_body.txt" >> "$GITHUB_OUTPUT"
+
+      # ====================== 上传至 Release ======================
+      - name: 上传至 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.tag.outputs.tag }}
+          name: v${{ steps.tag.outputs.tag }}
+          body_path: ${{ steps.release_body.outputs.body_path }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease }}
+          generate_release_notes: false
+          append_body: false
+          make_latest: true
+          fail_on_unmatched_files: false
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 输出状态
+        if: always()
+        run: 'echo "✅ Release published with status: ${{ job.status }}"' 
