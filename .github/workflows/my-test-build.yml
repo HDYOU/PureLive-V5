@@ -23,10 +23,6 @@ on:
       - ".github/**"
       - "!.github/workflows/my-test-build.yml"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build-android:
     runs-on: ubuntu-latest
