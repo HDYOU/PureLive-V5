@@ -1281,6 +1281,63 @@ abstract final class Settings {
     resetOutOfRange: true,
   );
 
+  /// Covers, avatars and emoticons are fetched through a CDN front (3.x
+  /// `networkImageProxy`), so they reach the image hosts from an address the
+  /// local network can open; off loads them direct.
+  static const enableImageCdnProxy = BoolSetting('enableImageCdnProxy', section: 'proxy', defaultValue: true);
+
+  /// Per-site image CDN provider (site id → provider id). Providers:
+  /// `none`, `baidu`, `sougou`, `wsrv`, `wp`.
+  /// Sites not listed default to `none` (direct) when [enableImageCdnProxy] is on.
+  static const imageCdnProxySites = JsonSetting('imageCdnProxySites', section: 'proxy', defaultValue: {});
+
+  /// API requests for the listed platforms are sent through a forward proxy
+  /// (3.x `networkApiProxy`): the URL host is replaced by [apiProxyHost] and
+  /// `proxy_host` / `proxy_referer` are added as query parameters so the
+  /// proxy knows where to fetch.
+  static const apiProxySites = StringListSetting('apiProxySites', section: 'proxy', defaultValue: [], tidy: true);
+
+  /// Host of the API forward proxy (3.x: `proxy.moonchan.xyz`).
+  static const apiProxyHost = StringSetting('apiProxyHost', section: 'proxy', defaultValue: 'proxy.moonchan.xyz');
+
+  /// Port of the API forward proxy.
+  static const apiProxyPort = IntSetting(
+    'apiProxyPort',
+    section: 'proxy',
+    defaultValue: 443,
+    min: 1,
+    max: 65535,
+    resetOutOfRange: true,
+  );
+
+  /// API proxy mode: `moonchan` (query-param forward proxy) or
+  /// `cloudflare` (full-URL path proxy via Cloudflare Workers).
+  static const apiProxyMode = StringSetting('apiProxyMode', section: 'proxy', defaultValue: 'moonchan');
+
+  /// Host of the Cloudflare Workers API proxy (e.g. `proxy.hyou.kdns.fr`).
+  static const apiCfProxyHost = StringSetting('apiCfProxyHost', section: 'proxy', defaultValue: 'proxy.hyou.kdns.fr');
+
+  /// Danmaku socket proxy: the platform ids whose WebSocket connections go
+  /// through the Cloudflare Workers proxy.
+  static const socketProxySites = StringListSetting('socketProxySites', section: 'proxy', defaultValue: [], tidy: true);
+
+  /// Host of the Cloudflare Workers socket proxy (e.g. `proxy.hyou.kdns.fr`).
+  static const socketCfProxyHost = StringSetting(
+    'socketCfProxyHost',
+    section: 'proxy',
+    defaultValue: 'proxy.hyou.kdns.fr',
+  );
+
+  /// Port of the Cloudflare Workers socket proxy.
+  static const socketCfProxyPort = IntSetting(
+    'socketCfProxyPort',
+    section: 'proxy',
+    defaultValue: 443,
+    min: 1,
+    max: 65535,
+    resetOutOfRange: true,
+  );
+
   // ---- window, exit, startup (window_size_controller.dart, exit_settings_controller.dart, startup_controller.dart) ----
 
   /// Restore the main window's last normal bounds and maximized state.
@@ -2297,6 +2354,16 @@ abstract final class Settings {
     enableAppProxy,
     appProxyHost,
     appProxyPort,
+    enableImageCdnProxy,
+    imageCdnProxySites,
+    apiProxySites,
+    apiProxyHost,
+    apiProxyPort,
+    apiProxyMode,
+    apiCfProxyHost,
+    socketProxySites,
+    socketCfProxyHost,
+    socketCfProxyPort,
     rememberWindowGeometry,
     windowWidth,
     windowHeight,

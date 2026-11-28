@@ -1375,6 +1375,32 @@ abstract final class AppIcons {
   /// The player's proxy (on the network page).
   static const IconData settingsStreamProxy = Remix.video_line;
 
+  /// The image CDN front (3.x `networkImageProxy`): covers and avatars load
+  /// through a front that fetches them as webp.
+  static const IconData settingsImageCdnProxy = Remix.cloud_line;
+
+  /// The platforms that skip the image CDN front.
+  /// API forward proxy: which platforms' requests go through it.
+  static const IconData settingsApiProxy = Remix.code_box_line;
+
+  /// API forward proxy: the host and port of the proxy server.
+  static const IconData settingsApiProxyHost = Remix.server_line;
+
+  /// API forward proxy: the proxy mode.
+  static const IconData settingsApiProxyMode = Remix.swap_line;
+
+  /// API forward proxy: the Cloudflare Workers host.
+  static const IconData settingsApiProxyCfHost = Remix.cloud_line;
+
+  /// Danmaku socket proxy: which platforms' sockets go through it.
+  static const IconData settingsSocketProxy = Remix.chat_2_line;
+
+  /// Danmaku socket proxy: the Cloudflare Workers host.
+  static const IconData settingsSocketProxyHost = Remix.cloud_line;
+
+  /// Image CDN proxy: platforms whose images skip the CDN front.
+  static const IconData settingsImageCdnProxyExclude = Remix.image_2_line;
+
   // ---- settings: data (3.x cache_data_settings_page.dart,
   // local_config_preveiw.dart; U.6e) ----
 

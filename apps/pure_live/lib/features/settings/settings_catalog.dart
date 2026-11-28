@@ -1863,6 +1863,73 @@ List<SettingsEntry> _build() {
       settings: [Settings.enableProxy, Settings.proxyHost, Settings.proxyPort],
       keywords: ['代理', 'proxy', 'HTTP'],
     )
+    ..group = 'image_cdn_proxy_group_title'
+    ..toggle(
+      'image_cdn_proxy',
+      'image_cdn_proxy',
+      Settings.enableImageCdnProxy,
+      AppIcons.settingsImageCdnProxy,
+      desc: 'image_cdn_proxy_desc',
+      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN'],
+    )
+    ..add(
+      'image_cdn_proxy_sites',
+      'image_cdn_proxy_sites',
+      (context, entry) => ImageCdnProxySitesTile(entry: entry),
+      desc: 'image_cdn_proxy_sites_desc',
+      settings: [Settings.imageCdnProxySites],
+      keywords: ['封面', '头像', '图片', '代理', 'proxy', 'CDN', '百度', '搜狗', 'wsrv'],
+    )
+    ..group = 'api_proxy_group_title'
+    ..add(
+      'api_proxy_sites',
+      'api_proxy_sites',
+      (context, entry) => ApiProxySitesTile(entry: entry),
+      desc: 'api_proxy_sites_desc',
+      settings: [Settings.apiProxySites],
+      keywords: ['API', '代理', 'proxy', '平台'],
+    )
+    ..add(
+      'api_proxy_mode',
+      'api_proxy_mode',
+      (context, entry) => ApiProxyModeTile(entry: entry),
+      desc: 'api_proxy_mode_desc',
+      settings: [Settings.apiProxyMode],
+      keywords: ['API', '代理', 'proxy', '模式'],
+    )
+    ..add(
+      'api_proxy_host',
+      'api_proxy_host',
+      (context, entry) => ApiProxyHostTile(entry: entry),
+      desc: 'api_proxy_host_desc',
+      settings: [Settings.apiProxyHost, Settings.apiProxyPort],
+      keywords: ['API', '代理', 'proxy', '地址'],
+    )
+    ..add(
+      'api_cf_proxy_host',
+      'api_cf_proxy_host',
+      (context, entry) => ApiCfProxyHostTile(entry: entry),
+      desc: 'api_cf_proxy_host_desc',
+      settings: [Settings.apiCfProxyHost],
+      keywords: ['API', '代理', 'proxy', 'Cloudflare', 'Workers'],
+    )
+    ..group = 'socket_proxy_group_title'
+    ..add(
+      'socket_proxy_sites',
+      'socket_proxy_sites',
+      (context, entry) => SocketProxySitesTile(entry: entry),
+      desc: 'socket_proxy_sites_desc',
+      settings: [Settings.socketProxySites],
+      keywords: ['弹幕', 'socket', '代理', 'proxy', 'WebSocket'],
+    )
+    ..add(
+      'socket_cf_proxy_host',
+      'socket_cf_proxy_host',
+      (context, entry) => SocketCfProxyHostTile(entry: entry),
+      desc: 'socket_cf_proxy_host_desc',
+      settings: [Settings.socketCfProxyHost, Settings.socketCfProxyPort],
+      keywords: ['弹幕', 'socket', '代理', 'proxy', 'Cloudflare', 'Workers'],
+    )
     // The custom receiver page also participates in the settings search.
     ..section = SettingsSection.playbackRemote
     ..group = '_remote_control'

@@ -241,7 +241,12 @@ class TvRoomControls extends StatelessWidget {
         children: [
           Row(
             children: [
-              CommonAvatar(avatarUrl: room.avatar, fallbackName: room.nick, radius: scale.text(28)),
+              CommonAvatar(
+                avatarUrl: room.avatar,
+                site: room.platform,
+                fallbackName: room.nick,
+                radius: scale.text(28),
+              ),
               SizedBox(width: scale(18)),
               Expanded(
                 child: Column(

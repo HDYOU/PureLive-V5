@@ -312,7 +312,7 @@ class _RoomTile extends StatelessWidget {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  CommonAvatar(avatarUrl: room.avatar, fallbackName: room.nick, radius: 18),
+                  CommonAvatar(avatarUrl: room.avatar, site: room.platform, fallbackName: room.nick, radius: 18),
                   Positioned(
                     right: -3,
                     bottom: -3,

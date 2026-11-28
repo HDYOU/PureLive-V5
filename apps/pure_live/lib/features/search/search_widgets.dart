@@ -618,7 +618,7 @@ class AnchorResultTile extends StatelessWidget {
     final name = result.item.userName.trim().isEmpty ? platformName : result.item.userName.trim();
     return ListTile(
       onTap: onTap,
-      leading: CommonAvatar(avatarUrl: result.item.avatar, fallbackName: name),
+      leading: CommonAvatar(avatarUrl: result.item.avatar, site: result.platform, fallbackName: name),
       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Row(
         children: [

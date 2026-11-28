@@ -248,7 +248,20 @@ DanmakuRegistry buildDanmakuRegistry(PlatformDeps deps, SiteRegistry sites) {
   final settings = deps.store.settings;
   final generic = danmakuHandshake();
   // Only the platforms on dart:io's handshake take the plain one (Q03.1).
-  SocketConnector? connector(String site) => genericDanmakuHandshakeSites.contains(site) ? generic : null;
+  SocketConnector? connector(String site) {
+    final inner = genericDanmakuHandshakeSites.contains(site) ? (generic ?? _defaultSocketConnector) : null;
+    if (inner == null) return null;
+    return socketProxyConnector(
+      inner,
+      site: site,
+      config: () => SocketProxyConfig(
+        sites: settings.get(Settings.socketProxySites).toSet(),
+        cfHost: settings.get(Settings.socketCfProxyHost),
+        port: settings.get(Settings.socketCfProxyPort),
+      ),
+    );
+  }
+
   return DanmakuRegistry({
     SiteIds.bilibili: () => BilibiliDanmakuConnection(proxy: proxy, connector: connector(SiteIds.bilibili)),
     SiteIds.douyu: () => DouyuDanmakuConnection(proxy: proxy, connector: connector(SiteIds.douyu)),
@@ -263,7 +276,23 @@ DanmakuRegistry buildDanmakuRegistry(PlatformDeps deps, SiteRegistry sites) {
     // B-6: SOOP's chat follows the app proxy (CONNECT tunnel). Its own
     // case-preserving handshake: its edge does not answer dart:io's
     // lower-case headers (Q03.1), so never the generic connector.
-    SiteIds.cc: () => CcDanmakuConnection(proxy: proxy, connector: generic),
+    SiteIds.cc: () {
+      final g = generic;
+      return CcDanmakuConnection(
+        proxy: proxy,
+        connector: g != null
+            ? socketProxyConnector(
+                g,
+                site: SiteIds.cc,
+                config: () => SocketProxyConfig(
+                  sites: settings.get(Settings.socketProxySites).toSet(),
+                  cfHost: settings.get(Settings.socketCfProxyHost),
+                  port: settings.get(Settings.socketCfProxyPort),
+                ),
+              )
+            : null,
+      );
+    },
     SiteIds.soop: () => SoopDanmakuConnection(proxy: proxy),
     SiteIds.yy: YyDanmakuConnection.new,
     SiteIds.acfun: () => AcfunDanmakuConnection(proxy: proxy, connector: connector(SiteIds.acfun)),
@@ -343,6 +372,16 @@ SocketConnector? danmakuHandshake({bool plain = plainDanmakuUserAgent}) => plain
         plainUserAgent: true,
       )
     : null;
+
+/// The default dart:io WebSocket connector, used when no custom handshake
+/// is provided.
+Future<SocketChannel> _defaultSocketConnector(
+  Uri endpoint, {
+  required Map<String, String> headers,
+  required Iterable<String>? protocols,
+  required ProxyRoute route,
+  required Duration connectTimeout,
+}) => connectIoSocket(endpoint, headers: headers, protocols: protocols, route: route, connectTimeout: connectTimeout);
 
 /// Moves 3.x's per-broadcast follows to the streamer (M9
 /// `IdentityMigration`; UPGRADES 17-1, 23-1, Douyin room_id → web_rid):

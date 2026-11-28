@@ -270,7 +270,7 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
   final Queue<_Waiting> _pending = Queue();
   final ValueNotifier<int> _frame = ValueNotifier(0);
   final _Pictures _pictures = _Pictures(96);
-  late final _EmoteImages _images = _EmoteImages(() => scheduleMicrotask(_wake));
+  late final _EmoteImages _images = _EmoteImages(() => scheduleMicrotask(_wake), (url) => url);
   StreamSubscription<LiveMessage>? _messages;
   StreamSubscription<LiveRetraction>? _retractions;
   Size _size = Size.zero;
@@ -394,6 +394,8 @@ class DanmakuOverlayState extends State<DanmakuOverlay>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _refresh = widget.refreshRate ?? View.maybeOf(context)?.display.refreshRate ?? 60;
+    final downloadUrl = LiveUiScope.of(context).imageDownloadUrl;
+    _images.sourceOf = downloadUrl;
   }
 
   @override
@@ -1257,7 +1259,7 @@ final class _EmoteFrames {
 /// its own frames until it goes. Animated pictures (GIF, APNG, animated WebP)
 /// are split into frames, so the flying layer can play them.
 final class _EmoteImages {
-  new(this._onReady);
+  new(this._onReady, this.sourceOf);
 
   static const int capacity = 64;
 
@@ -1272,6 +1274,12 @@ final class _EmoteImages {
   static const int height = 96;
 
   final VoidCallback _onReady;
+
+  /// The download address of an emoticon's own address: the app's CDN front
+  /// when the overlay is inside the app (set by `DanmakuOverlayState`), the
+  /// address itself outside.
+  String Function(String url) sourceOf;
+
   final LinkedHashMap<String, _EmoteFrames?> _done = LinkedHashMap();
   final Set<String> _loading = {};
   bool _disposed = false;
@@ -1279,12 +1287,19 @@ final class _EmoteImages {
   static String _keyOf(ChatEmoteSegment emote) => emote.asset.isNotEmpty ? emote.asset : emote.url;
 
   /// A network emoticon through the app's image cache, so it follows the
-  /// app proxy as the chat list's pictures do (Q02.1); Flutter's own client
-  /// outside the app.
-  static ImageProvider _networkImage(String url) => switch (AppImageCache.manager) {
-    final manager? => CachedNetworkImageProvider(url, cacheManager: manager, headers: networkImageHeaders(url)),
-    null => NetworkImage(url),
-  };
+  /// app proxy and the CDN front as the chat list's pictures do (Q02.1);
+  /// Flutter's own client outside the app.
+  ImageProvider _networkImage(String url) {
+    final download = sourceOf(url);
+    return switch (AppImageCache.manager) {
+      final manager? => CachedNetworkImageProvider(
+        download,
+        cacheManager: manager,
+        headers: networkImageHeaders(download),
+      ),
+      null => NetworkImage(download),
+    };
+  }
 
   /// The single (first) frame of [emote]; null while it loads or when it
   /// failed. A still picture's frame; an animated one's first frame.
@@ -1430,14 +1445,17 @@ final class _EmoteImages {
     return frame;
   }
 
-  /// The picture's bytes through the app's cache manager (its download service
-  /// keeps them on disk); null when there is none.
+  /// The picture's bytes through the app's cache manager (its download
+  /// service keeps them on disk), under the same address the provider uses
+  /// (the CDN front inside the app), so one picture is one download; null
+  /// when there is none.
   Future<Uint8List?> _bytesOf(String url) async {
     final manager = AppImageCache.manager;
     if (manager == null) return null;
+    final download = sourceOf(url);
     try {
-      var info = await manager.getFileFromCache(url);
-      info ??= await manager.downloadFile(url, authHeaders: networkImageHeaders(url));
+      var info = await manager.getFileFromCache(download);
+      info ??= await manager.downloadFile(download, authHeaders: networkImageHeaders(url));
       return await info.file.readAsBytes();
     } on Object {
       return null;
