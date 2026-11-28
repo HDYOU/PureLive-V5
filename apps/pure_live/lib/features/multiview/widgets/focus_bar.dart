@@ -129,7 +129,7 @@ class FocusControlBar extends StatelessWidget {
                             tooltip: i18n('select_play_line'),
                             label: lines.name(playback.lineIndex),
                             entries: lines.labels,
-                            descriptions: lines.origins.any((host) => host.isNotEmpty) ? lines.origins : null,
+                            descriptions: lines.descriptions,
                             current: playback.lineIndex,
                             enabled: !cell.switching,
                             onVideo: true,

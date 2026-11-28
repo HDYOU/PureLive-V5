@@ -53,7 +53,7 @@ void main() {
             body: PlaybackLineBuilder(
               session: session,
               builder: (_, state, lines) =>
-                  Text('${lines.name(state.lineIndex)}|${lines.origins.where((v) => v.isNotEmpty).join(',')}'),
+                  Text('${lines.name(state.lineIndex)}|${lines.details.where((v) => v.isNotEmpty).join(',')}'),
             ),
           ),
         ),
@@ -135,7 +135,11 @@ void main() {
     engine.inner.emit(const EngineVideoSize(1920, 1080));
     await tester.pump();
     expect(lines.labels, ['线路1（H.264, raw）', '线路2（raw）', '线路3（H.265）']);
-    expect(lines.origins, ['cdn-one.example.test', 'cdn-two.example.test', 'cdn.example.test']);
+    expect(lines.details, [
+      'HLS · cdn-one.example.test',
+      'HLS · cdn-two.example.test',
+      'FLV · cdn.example.test',
+    ], reason: 'the container comes first, the path names it when the line does not');
     expect(session.plan!.sources.cast<LineSource>().map((s) => s.line.url), [rawOne.url, rawTwo.url, official.url]);
     lines.removeListener(update);
     await session.dispose();

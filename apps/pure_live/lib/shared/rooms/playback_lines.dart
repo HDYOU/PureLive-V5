@@ -148,14 +148,6 @@ final class PlaybackLinePresentation extends ChangeNotifier {
     ];
   }
 
-  /// Public CDN hosts only; owned recipe inputs deliberately have no exported origin.
-  List<String> get origins {
-    final metadata = lines;
-    return [
-      for (var i = 0; i < session.state.lineCount; i++) playbackLineOrigin(i < metadata.length ? metadata[i] : null),
-    ];
-  }
-
   /// Label for an already resolved choice; callers ensure matching quality.
   String choiceName(int index, LivePlayLine? line) {
     final active = session.state.line;
@@ -271,11 +263,14 @@ final class PlaybackLineChoices {
   List<String> get labels =>
       presentation?.labels ?? [for (var i = 0; i < session.state.lineCount; i++) playbackLineName(i)];
 
-  /// Extra descriptions disappear together with detailed names.
-  List<String> get origins => presentation?.origins ?? List.filled(session.state.lineCount, '');
-
   /// Container and host descriptions, empty in concise mode.
   List<String> get details => presentation?.details ?? List.filled(session.state.lineCount, '');
+
+  /// The descriptions a line menu shows, or null when the setting is off.
+  List<String>? get descriptions {
+    final texts = details;
+    return texts.any((text) => text.isNotEmpty) ? texts : null;
+  }
 
   /// Current selection or a safe fallback.
   String name(int index) => presentation?.name(index) ?? playbackLineName(index);
