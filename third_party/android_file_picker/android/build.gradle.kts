@@ -71,13 +71,10 @@ configure<LibraryExtension> {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // The Kotlin target follows the Java one above; the extension is AGP 9's
-    // built-in Kotlin, or the KGP Flutter applies for older consumers.
-    project.extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension::class.java) {
-        compilerOptions {
-            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-        }
-    }
+    // No Kotlin target is configured here: AGP 9's built-in Kotlin follows the
+    // Java target above, and this script deliberately references no Kotlin DSL
+    // type (its own buildscript classpath carries KGP 1.8.22, which has no
+    // compilerOptions DSL).
 }
 
 dependencies {
