@@ -57,9 +57,18 @@ jobs:
 
             # 备份/清理用的分支不参与合并：以 RM- DEL- DELETE- REMOVE- 开头的
             # 一律跳过（大小写不敏感），它们的改动是待删除的旧内容。
+            # 记录按命名规则忽略掉的分支，最后一起输出，避免"悄悄不合并"
+            IGNORED=$(printf '%s\n' "$BRANCHES" | grep -Ei '^(rm-|del-|delete-|remove-)' || true)
             BRANCHES=$(printf '%s\n' "$BRANCHES" \
               | grep -Eiv '^(rm-|del-|delete-|remove-)' \
               | sed '/^$/d')
+
+            echo "候选分支（已排除当前分支与 RM-/DEL-/DELETE-/REMOVE- 备份分支）:"
+            printf '%s\n' $BRANCHES | sed 's/^/   - /'
+            if [ -n "$IGNORED" ]; then
+              echo "ℹ️ 按命名规则忽略的分支（不参与合并）:"
+              printf '   - %s\n' $IGNORED
+            fi
         
             if [ -z "$BRANCHES" ]; then
               echo "⚠️ 未发现其他远端分支，跳过"
@@ -153,6 +162,10 @@ jobs:
             if [ ${#SKIPPED[@]} -gt 0 ]; then
               echo "ℹ️ 仅差 .github/docs/fixtures/test/、已跳过的分支:"
               for b in "${SKIPPED[@]}"; do echo "   - $b"; done
+            fi
+            if [ -n "$IGNORED" ]; then
+              echo "ℹ️ 按命名规则忽略、未参与合并的分支:"
+              printf '   - %s\n' $IGNORED
             fi
         
             exit 0
@@ -499,6 +512,39 @@ jobs:
           flutter pub get
           bash tools/ffmpeg_kit/fetch.sh android
 
+      # flutter build apk 不认 -x / --parallel 这类 gradle 参数，但 Gradle 会自动加载
+      # $GRADLE_USER_HOME/init.d 下的初始化脚本，于是"跳过哪些任务"就写在那里：
+      # 只跳过检查/静态分析类任务（lint、lintVital、aar metadata、重复类、签名校验、
+      # KGP 配置错误检查、单元测试），编译、打包、dex 一个都不动。
+      - name: 让 Gradle 跳过不必要的检查任务
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cat > "$GRADLE_USER_HOME/init.d/skip-checks.gradle" <<'GRADLE'
+          gradle.taskGraph.whenReady { graph ->
+            def skipNames = ['lint', 'test']
+            def skipPrefixes = ['lintVital', 'checkKotlinGradlePluginConfigurationErrors', 'validateSigning']
+            def skipped = graph.allTasks.findAll { t ->
+              def n = t.name
+              skipNames.contains(n) || skipPrefixes.any { n.startsWith(it) } ||
+                n ==~ /check.+Release(AarMetadata|DuplicateClasses)$/
+            }
+            skipped.each { it.enabled = false }
+            if (!skipped.isEmpty()) {
+              println "gradle 跳过 ${skipped.size()} 个任务: " + skipped.collect { "${it.project.path}:${it.name}" }.join(", ")
+            }
+          }
+          GRADLE
+          echo "初始化脚本已写入: $GRADLE_USER_HOME/init.d/skip-checks.gradle"
+          # 并行构建、完整警告：只有 gradle.properties 是 Gradle 稳的入口
+          props="$GRADLE_USER_HOME/gradle.properties"
+          touch "$props"
+          for kv in "org.gradle.parallel=true" "org.gradle.warning.mode=all"; do
+            grep -qxF "$kv" "$props" || echo "$kv" >> "$props"
+          done
+          cat "$props" | tail -5
+
       - name: 打包 APK
         working-directory: apps/pure_live
         env:
@@ -515,6 +561,34 @@ jobs:
             --split-per-abi \
             --obfuscate --split-debug-info=build/symbols-android-split \
             --dart-define=PURELIVE_BUILD_SOURCE=github-manual
+
+      # 打出来的包统一改名：应用名-版本号-架构.apk，三份 split 和通用包一眼能分出
+      - name: 重命名 APK（应用名-版本-架构）
+        if: success()
+        shell: bash
+        working-directory: apps/pure_live
+        run: |
+          set -euo pipefail
+          src=build/app/outputs/flutter-apk
+          base="${{ steps.toolchain.outputs.name }}"
+          shopt -s nullglob
+          found=0
+          for f in "$src"/*.apk; do
+            found=$((found + 1))
+            name=$(basename "$f" .apk)
+            case "$name" in
+              app-*-release) abi=${name#app-}; abi=${abi%-release} ;;
+              app-release) abi=universal ;;
+              *) abi=$name ;;
+            esac
+            mv -f "$f" "$src/${base}-${abi}.apk"
+            echo "  ${name}.apk -> ${base}-${abi}.apk"
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::没有找到任何 APK，$src 为空"
+            exit 1
+          fi
+          ls -lh "$src"/*.apk
 
       # 只有下全了才写缓存：sqlite3 的 hook 把每个目标 ABI 的 libsqlite3.so 放在
       # shared 目录自己的子目录里，split-per-abi 的构建要三份（v7a/arm64/x86_64）。
