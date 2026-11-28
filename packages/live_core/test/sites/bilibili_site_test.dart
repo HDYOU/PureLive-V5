@@ -13,7 +13,7 @@ import 'package:test/test.dart';
 import 'fixture.dart';
 
 const _root = '../../fixtures/bilibili';
-const _ignored = {'wts', 'w_rid', 'w_webid'};
+const _ignored = {'wts', 'w_rid', 'w_webid', 'codec'};
 const _sessionSamples = ['S10-guest', 'S11-guest', 'S12-guest'];
 final DateTime _now = DateTime.utc(2026, 9, 27, 10, 16, 23);
 

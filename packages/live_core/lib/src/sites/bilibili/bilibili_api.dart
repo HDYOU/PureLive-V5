@@ -892,6 +892,20 @@ abstract final class BilibiliApi {
     for (final variant in variants) {
       if (seenUrls.add(variant.url.toString())) merged.add(variant);
     }
+    // 同一档位可能同时有 avc/hevc/av1 三套流：H.264 排前面（与
+    // getRoomPlayInfo 的默认一致），同 codec 内按档位、URL 稳定排序。
+    int rank(String? codec) => switch (codec) {
+      'avc' => 0,
+      'hevc' => 1,
+      'av1' => 2,
+      _ => 3,
+    };
+    merged.sort((a, b) {
+      final byCodec = rank(a.codec).compareTo(rank(b.codec));
+      if (byCodec != 0) return byCodec;
+      final byQn = b.qn.compareTo(a.qn);
+      return byQn != 0 ? byQn : a.url.toString().compareTo(b.url.toString());
+    });
     if (merged.isEmpty) return LivePlayUrlResolution(urls: const [], appliedQualityData: requestedQn);
     final codes = {for (final variant in merged) variant.qn};
     final served = codes.contains(requestedQn)

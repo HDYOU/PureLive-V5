@@ -508,19 +508,21 @@ final class BilibiliSite extends LiveSite
   Future<LivePlayUrlResolution> resolvePlayUrlsRaw({required LiveRoom detail, required LivePlayQuality quality}) async {
     final longId = _longId(detail);
     if (quality.data == BilibiliApi.carouselQualityId) return await _carousel(longId);
-    final play = await _play(longId, quality.data);
+    final requested = jsonInt(quality.data);
+    // 蓝光及以上：签出用户只能从网关拿到，而 `getRoomPlayInfo` 要把 codec
+    // 设成 0,1,2 才列出 hevc/av1 的流名，网关也要按每个流名分别问。
+    final aboveBluRay = requested != null && requested >= BilibiliApi.bluRayQn;
+    final play = await _play(longId, quality.data, additionalCodecs: aboveBluRay);
     final data = play.data;
     if (data == null) return await _carousel(longId);
-    // 蓝光及以上是签出用户拿不到的档位：getRoomPlayInfo 会把它压回 250，
-    // 网关的 try_look 仍给这些档位的流。它不行再退回原请求。
-    if (jsonInt(quality.data) case final qn? when qn >= BilibiliApi.bluRayQn) {
+    if (aboveBluRay) {
       try {
-        if (await _gateway(longId, data, qn) case final gateway? when gateway.lines.isNotEmpty) return gateway;
+        if (await _gateway(longId, data, requested) case final gateway? when gateway.lines.isNotEmpty) return gateway;
       } on SiteError {
         // 网关偶发空答案或风控：退回 getRoomPlayInfo 的档位。
       }
     }
-    if (_additionalCodecs()) {
+    if (!aboveBluRay && _additionalCodecs()) {
       try {
         final alternate = await _play(longId, quality.data, additionalCodecs: true);
         if (alternate.data case final alternateData?) {

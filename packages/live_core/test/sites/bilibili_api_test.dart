@@ -827,6 +827,8 @@ https://d1--cn-gotcha210.bilivideo.com/live-bvc/540755/live_7734200_bs_1348183_b
       expect(resolution.lines.map((line) => line.url).toSet(), hasLength(resolution.lines.length));
       expect(resolution.lines, hasLength(2));
       expect(resolution.lines.map((line) => line.codec).toSet(), {'avc', 'hevc'});
+      // H.264 排前面，与 getRoomPlayInfo 的默认顺序一致。
+      expect(resolution.lines.map((line) => line.codec), ['avc', 'hevc']);
     });
 
     test('stream names come from the codec base_url file name, deduplicated', () {
