@@ -803,17 +803,25 @@ abstract final class BilibiliApi {
 
   /// The room's stream names (`live_<anchor>_<room>_<suffix>`): every
   /// codec's `base_url` file name without its container extension, which is
-  /// what the gateway's `stream_name` takes. FLV and HLS of one codec give
-  /// the same name and collapse into the first.
+  /// what the gateway's `stream_name` takes. fmp4 serves its variant as
+  /// `<name>/index.m3u8`, whose file name is only `index`: that form takes
+  /// the directory instead (S07-…, room 545068). FLV and HLS of one codec
+  /// give the same name and collapse into the first.
   static List<String> streamNames(Map<String, dynamic> data) {
     final playurl = _playurl(data);
     final names = <String>[];
     for (final entry in _codecs(playurl)) {
-      final path = Uri.tryParse(jsonString(entry.codec['base_url']) ?? '')?.path ?? '';
-      final file = path.split('/').last;
+      final segments = (Uri.tryParse(jsonString(entry.codec['base_url']) ?? '')?.path ?? '')
+          .split('/')
+          .where((segment) => segment.isNotEmpty)
+          .toList();
+      if (segments.isEmpty) continue;
+      final file = segments.last;
       final dot = file.indexOf('.');
-      final name = (dot < 0 ? file : file.substring(0, dot)).trim();
-      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+      var name = (dot < 0 ? file : file.substring(0, dot)).trim();
+      // `<name>/index.m3u8`：`index` 不是流名，取它所在的目录名。
+      if (name == 'index' && segments.length > 1) name = segments[segments.length - 2].trim();
+      if (name.isNotEmpty && name != 'index' && !names.contains(name)) names.add(name);
     }
     return names;
   }

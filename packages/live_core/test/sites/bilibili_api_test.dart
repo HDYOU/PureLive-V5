@@ -851,6 +851,29 @@ https://d1--cn-gotcha210.bilivideo.com/live-bvc/540755/live_7734200_bs_1348183_b
         },
       };
       expect(BilibiliApi.streamNames(data), ['live_7734200_bs_1348183_2500', 'live_7734200_bs_1348183_minihevc']);
+
+      // fmp4 的 `.../<name>/index.m3u8`：`index` 不是流名，取目录名（room 545068
+      // 的真实 base_url），并与 FLV 的同名流合并。
+      final fmp4 = <String, dynamic>{
+        'playurl_info': {
+          'playurl': {
+            'stream': [
+              {
+                'protocol_name': 'http_hls',
+                'format': [
+                  {
+                    'format_name': 'fmp4',
+                    'codec': [
+                      {'codec_name': 'avc', 'base_url': '/live-bvc/223786/live_57bf9_SkzVmrf_27l4b_2500/index.m3u8?'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      };
+      expect(BilibiliApi.streamNames(fmp4), ['live_57bf9_SkzVmrf_27l4b_2500']);
     });
   });
 }
