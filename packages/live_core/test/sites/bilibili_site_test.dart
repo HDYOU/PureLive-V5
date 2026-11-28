@@ -25,6 +25,7 @@ const _danmu = '/xlive/web-room/v1/index/getDanmuInfo';
 const _ranked = '/room/v1/Area/getListByAreaID';
 const _feed = '/xlive/web-interface/v1/webMain/getMoreRecList';
 const _playInfo = '/xlive/web-room/v2/index/getRoomPlayInfo';
+const _gateway = '/xlive/play-gateway/master/url';
 const _areaRooms = '/room/v1/area/getRoomList';
 
 ReplaySample _synthetic(String url, Object body, {int status = 200, Map<String, List<String>> headers = const {}}) =>
@@ -412,14 +413,53 @@ void main() {
   });
 
   group('streams', () {
-    test('qualities from qn=0; a request at 10000 is served 250 and says so', () async {
-      final setup = _setup(['S07-guest-qn0', 'S07-guest-qn10000']);
+    test('qualities from qn=0; without a gateway answer 10000 is served 250 and says so', () async {
+      final setup = _setup(
+        ['S07-guest-qn0', 'S07-guest-qn10000'],
+        // 签出用户的 原画/蓝光 走网关；网关不认识流名时是 200 + 空 body，这里
+        // 两个流名各问一次，都没有答案，于是退回 getRoomPlayInfo 的 250。
+        script: {
+          _gateway: [
+            _synthetic('https://api.live.bilibili.com$_gateway', ''),
+            _synthetic('https://api.live.bilibili.com$_gateway', ''),
+          ],
+        },
+      );
       final room = LiveRoom(platform: 'bilibili', roomId: '42062');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities.map((quality) => quality.id), [10000, 400, 250]);
       final resolution = await setup.site.resolvePlayUrls(detail: room, quality: qualities.first);
       expect(resolution.appliedQualityData, 250);
       expect(resolution.lines.first.headers['referer'], 'https://live.bilibili.com/42062');
+    });
+
+    test('a guest asking 原画 is served by the play gateway, not 250', () async {
+      final setup = _setup(
+        ['S07-guest-qn0', 'S07-guest-qn10000'],
+        script: {
+          _gateway: [
+            ReplaySample(
+              method: 'GET',
+              url: Uri.parse('https://api.live.bilibili.com$_gateway'),
+              status: 200,
+              bytes: utf8.encode(
+                '#EXTM3U\n'
+                '#EXT-X-STREAM-INF:BANDWIDTH=4421472,RESOLUTION=1920x1080,CODECS="avc1.640032,mp4a.40.2",BILI-DISPLAY="原画",BILI-QN=10000\n'
+                'https://d1--cn-gotcha209.bilivideo.com/live-bvc/540755/x_bluray/index.m3u8?expires=1795845513&qn=10000\n',
+              ),
+            ),
+          ],
+        },
+      );
+      final room = LiveRoom(platform: 'bilibili', roomId: '42062');
+      final qualities = await setup.site.getPlayQualities(detail: room);
+      final resolution = await setup.site.resolvePlayUrls(detail: room, quality: qualities.first);
+      expect(resolution.appliedQualityData, 10000);
+      expect(resolution.lines.single.format, StreamFormat.hls);
+      expect(resolution.lines.single.codec, 'avc');
+      expect((resolution.lines.single.width, resolution.lines.single.height), (1920, 1080));
+      expect(resolution.lines.single.lease, isNotNull);
+      expect(resolution.lines.single.url, contains('x_bluray'));
     });
 
     test('a room opened by its short id plays by its long id', () async {

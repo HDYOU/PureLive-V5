@@ -758,4 +758,76 @@ void main() {
       expect(BilibiliApi.giftIcon(null), isNull);
     });
   });
+
+  group('play gateway (蓝光及以上 for a signed-out viewer)', () {
+    const master = '''
+#EXTM3U
+#EXT-X-CONTENT-STEERING:SERVER-URI="reserved",PATHWAY-ID="https://d1--cn-gotcha209.bilivideo.com"
+#EXT-X-STREAM-INF:BANDWIDTH=2733244,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",BILI-ORDER=0,BILI-DISPLAY="蓝光",BILI-QN=400
+https://d1--cn-gotcha209.bilivideo.com/live-bvc/185890/live_7734200_bs_1348183_4000/index.m3u8?expires=1795845513&qn=400
+#EXT-X-STREAM-INF:BANDWIDTH=2733244,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",BILI-ORDER=0,BILI-DISPLAY="蓝光",BILI-QN=400
+https://d1--cn-gotcha209b.bilivideo.com/live-bvc/185890/live_7734200_bs_1348183_4000/index.m3u8?expires=1795845513&qn=400
+#EXT-X-STREAM-INF:BANDWIDTH=4421472,RESOLUTION=1920x1080,CODECS="avc1.640032,mp4a.40.2",BILI-ORDER=3,BILI-DISPLAY="原画",BILI-QN=10000
+https://d1--cn-gotcha209.bilivideo.com/live-bvc/540755/live_7734200_bs_1348183_bluray/index.m3u8?expires=1795845513&qn=10000
+#EXT-X-STREAM-INF:BANDWIDTH=1468944,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2",BILI-ORDER=1,BILI-DISPLAY="超清",BILI-QN=250
+https://d1--cn-gotcha209.bilivideo.com/live-bvc/371518/live_7734200_bs_1348183_2500/index.m3u8?expires=1795845513&qn=250
+''';
+
+    test('variants carry the tier, display name, codec and picture size, best tier first', () {
+      final variants = BilibiliApi.gatewayVariants(master);
+      expect([for (final variant in variants) variant.qn], [10000, 400, 400, 250]);
+      expect([for (final variant in variants) variant.display], ['原画', '蓝光', '蓝光', '超清']);
+      expect([for (final variant in variants) variant.codec], ['avc', 'avc', 'avc', 'avc']);
+      expect((variants[1].width, variants[1].height), (1920, 1080));
+      expect(BilibiliApi.gatewayVariants(''), isEmpty);
+      expect(BilibiliApi.gatewayVariants('<html>oops</html>'), isEmpty);
+    });
+
+    test('the requested tier is served on every pathway; other tiers fall back', () {
+      LivePlayUrlResolution read(int qn) =>
+          BilibiliApi.gatewayResolution(master, roomId: '7734200', issuedAt: DateTime.utc(2026), requestedQn: qn);
+
+      final bluRay = read(400);
+      expect(bluRay.appliedQualityData, 400);
+      expect(bluRay.lines.map((line) => line.codec).toSet(), {'avc'});
+      expect(bluRay.lines.map((line) => line.format).toSet(), {StreamFormat.hls});
+      expect(bluRay.lines, hasLength(2));
+      expect(bluRay.lines.first.headers, {
+        'user-agent': BilibiliApi.userAgent,
+        'origin': 'https://live.bilibili.com',
+        'referer': 'https://live.bilibili.com/7734200',
+      });
+      expect(bluRay.lines.first.lease, isNotNull);
+
+      expect(read(10000).appliedQualityData, 10000);
+      // 2K/4K/杜比 没有这个房间的流：退回最近的更低档位。
+      expect(read(15000).appliedQualityData, 10000);
+      // 比所有档位都低：取最低的高档位。
+      expect(read(150).appliedQualityData, 250);
+    });
+
+    test('stream names come from the codec base_url file name, deduplicated', () {
+      final data = <String, dynamic>{
+        'playurl_info': {
+          'playurl': {
+            'stream': [
+              {
+                'protocol_name': 'http_stream',
+                'format': [
+                  {
+                    'format_name': 'flv',
+                    'codec': [
+                      {'codec_name': 'avc', 'base_url': '/live-bvc/930086/live_7734200_bs_1348183_2500.flv?'},
+                      {'codec_name': 'hevc', 'base_url': '/live-bvc/710053/live_7734200_bs_1348183_minihevc.flv?'},
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      };
+      expect(BilibiliApi.streamNames(data), ['live_7734200_bs_1348183_2500', 'live_7734200_bs_1348183_minihevc']);
+    });
+  });
 }

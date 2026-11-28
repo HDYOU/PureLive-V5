@@ -142,6 +142,31 @@ final class BilibiliGiftCatalog {
   BilibiliGiftInfo? operator [](String id) => gifts[id];
 }
 
+/// One `#EXT-X-STREAM-INF` variant of a `play-gateway/master/url` answer:
+/// the tier it declares and the playlist to open for it.
+@immutable
+final class BilibiliGatewayVariant {
+  const new _(this.qn, this.display, this.url, {this.codec, this.width, this.height});
+
+  /// `BILI-QN`: 400 蓝光, 10000 原画, 15000 2K, 20000 4K, 30000 杜比.
+  final int qn;
+
+  /// `BILI-DISPLAY`, the platform's own name of [qn]; '' when absent.
+  final String display;
+
+  /// The variant playlist, an absolute http(s) URL.
+  final Uri url;
+
+  /// `CODECS`' video codec (`avc`, `hevc`, `av1`), when it parses.
+  final String? codec;
+
+  /// `RESOLUTION`'s width, when declared.
+  final int? width;
+
+  /// `RESOLUTION`'s height, when declared.
+  final int? height;
+}
+
 /// Pure parsing of Bilibili responses (3.x's `BiliBiliSite`, with the
 /// archived v4 parser's fixes). Each function takes the response text and
 /// status and returns 3.x's models or throws a `SiteError`.
@@ -161,6 +186,14 @@ abstract final class BilibiliApi {
   /// How long before `expires` a play URL is renewed (at most a quarter of
   /// its lifetime).
   static const Duration leaseLead = Duration(seconds: 60);
+
+  /// 蓝光, the first tier `getRoomPlayInfo` withholds from a signed-out
+  /// viewer (asking 400 or 10000 is answered with 250 超清). The play
+  /// gateway still answers it with `try_look=1`.
+  static const int bluRayQn = 400;
+
+  /// The variants read from one gateway answer, at most.
+  static const int maxGatewayVariants = 32;
 
   // Catalog -------------------------------------------------------------------
 
@@ -747,6 +780,119 @@ abstract final class BilibiliApi {
     return LivePlayUrlResolution.lines([...raw, ...lines], appliedQualityData: first.qn);
   }
 
+  /// `xlive/play-gateway/master/url`: the room's tiers as a signed-out
+  /// viewer may try them (`try_look=1`), answered as an HLS master whose
+  /// variants carry `BILI-QN`. [streamName] is one of [streamNames]; [qn] 0
+  /// leaves the choice to the gateway.
+  static Uri playGatewayUrl(String roomId, String streamName, {int qn = 0}) =>
+      Uri.https('api.live.bilibili.com', '/xlive/play-gateway/master/url', {
+        'cid': roomId,
+        'mid': '0',
+        'pt': 'web',
+        'p2p_type': '1',
+        'net': '0',
+        'free_type': '0',
+        'build': '0',
+        'feature': '0',
+        'qn': '$qn',
+        'drm_type': '0,1,2,3',
+        'cam_id': '0',
+        'stream_name': streamName,
+        'try_look': '1',
+      });
+
+  /// The room's stream names (`live_<anchor>_<room>_<suffix>`): every
+  /// codec's `base_url` file name without its container extension, which is
+  /// what the gateway's `stream_name` takes. FLV and HLS of one codec give
+  /// the same name and collapse into the first.
+  static List<String> streamNames(Map<String, dynamic> data) {
+    final playurl = _playurl(data);
+    final names = <String>[];
+    for (final entry in _codecs(playurl)) {
+      final path = Uri.tryParse(jsonString(entry.codec['base_url']) ?? '')?.path ?? '';
+      final file = path.split('/').last;
+      final dot = file.indexOf('.');
+      final name = (dot < 0 ? file : file.substring(0, dot)).trim();
+      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+    }
+    return names;
+  }
+
+  /// The variants of a gateway answer [body], highest tier first, at most
+  /// [maxGatewayVariants]. Empty for an answer without one: a `stream_name`
+  /// the gateway does not know is a 200 with an empty body.
+  static List<BilibiliGatewayVariant> gatewayVariants(String body) {
+    final text = body.trim();
+    if (!text.startsWith('#EXTM3U')) return const [];
+    final lines = const LineSplitter().convert(text);
+    final variants = <BilibiliGatewayVariant>[];
+    String? pending;
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.startsWith('#EXT-X-STREAM-INF:')) {
+        pending = line.substring('#EXT-X-STREAM-INF:'.length);
+        continue;
+      }
+      if (pending == null || line.isEmpty || line.startsWith('#')) continue;
+      final attributes = _hlsAttributes(pending);
+      pending = null;
+      final qn = int.tryParse(attributes['BILI-QN'] ?? '');
+      final uri = Uri.tryParse(line);
+      if (qn == null || qn <= 0 || uri == null || uri.host.isEmpty) continue;
+      if (!uri.isScheme('http') && !uri.isScheme('https')) continue;
+      final resolution = RegExp(r'^(\d+)x(\d+)$').firstMatch(attributes['RESOLUTION'] ?? '');
+      final codec = _declaredCodec((attributes['CODECS'] ?? '').split(',').first);
+      variants.add(
+        BilibiliGatewayVariant._(
+          qn,
+          attributes['BILI-DISPLAY'] ?? '',
+          uri,
+          codec: codec,
+          width: resolution == null ? null : int.tryParse(resolution.group(1)!),
+          height: resolution == null ? null : int.tryParse(resolution.group(2)!),
+        ),
+      );
+      if (variants.length >= maxGatewayVariants) break;
+    }
+    return variants..sort((a, b) => b.qn.compareTo(a.qn));
+  }
+
+  /// Lines of the tier [requestedQn] of a gateway answer [body]: every
+  /// pathway of that tier as HLS, with the media headers of [roomId] for a
+  /// signed-out viewer and its lease. A tier the gateway does not offer
+  /// falls back to the nearest lower one, then to the lowest higher one; the
+  /// applied quality is the tier served. No variant is no line.
+  static LivePlayUrlResolution gatewayResolution(
+    String body, {
+    required String roomId,
+    required DateTime issuedAt,
+    required int requestedQn,
+  }) {
+    final variants = gatewayVariants(body);
+    if (variants.isEmpty) return LivePlayUrlResolution(urls: const [], appliedQualityData: requestedQn);
+    final codes = {for (final variant in variants) variant.qn};
+    final served = codes.contains(requestedQn)
+        ? requestedQn
+        : codes.where((qn) => qn < requestedQn).fold<int?>(null, (best, qn) => best == null || qn > best ? qn : best) ??
+              codes.reduce((a, b) => a < b ? a : b);
+    final headers = mediaHeaders(roomId);
+    final seen = <String>{};
+    return LivePlayUrlResolution.lines([
+      for (final variant in variants)
+        if (variant.qn == served && seen.add(variant.url.toString()))
+          LivePlayLine(
+            variant.url.toString(),
+            headers: headers,
+            format: StreamFormat.hls,
+            codec: variant.codec,
+            lineId: '${variant.url.host}|gateway|$served',
+            lease: lease(variant.url, issuedAt),
+            width: variant.width,
+            height: variant.height,
+          ),
+    ], appliedQualityData: served);
+  }
+
   static List<LivePlayLine> _rawLines(List<LivePlayLine> official) {
     final same = <LivePlayLine>[];
     final extra = <LivePlayLine>[];
@@ -963,6 +1109,25 @@ abstract final class BilibiliApi {
   }
 
   // Helpers -------------------------------------------------------------------
+
+  /// A `CODECS` entry (`avc1.640032`, `hvc1...`, `av01...`) as the codec
+  /// name lines use.
+  static String? _declaredCodec(String value) {
+    final codec = value.trim().toLowerCase();
+    if (codec.startsWith('avc') || codec.startsWith('h264')) return 'avc';
+    if (codec.startsWith('hvc') || codec.startsWith('hev') || codec.startsWith('h265')) return 'hevc';
+    if (codec.startsWith('av01') || codec.startsWith('av1')) return 'av1';
+    return codec.isEmpty ? null : _streamCodec(codec);
+  }
+
+  static Map<String, String> _hlsAttributes(String line) {
+    final attributes = <String, String>{};
+    for (final match in RegExp('([A-Za-z0-9-]+)=("([^"]*)"|[^,]*)').allMatches(line)) {
+      final value = (match.group(3) ?? match.group(2) ?? '').trim();
+      attributes[match.group(1)!] = value;
+    }
+    return attributes;
+  }
 
   static Map<int, String> _qnNames(Map<String, dynamic> playurl) => {
     for (final raw in _list(playurl['g_qn_desc']))

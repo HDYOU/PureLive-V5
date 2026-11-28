@@ -500,12 +500,24 @@ final class BilibiliSite extends LiveSite
   Future<LivePlayUrlResolution> resolvePlayUrlsRaw({required LiveRoom detail, required LivePlayQuality quality}) async {
     final longId = _longId(detail);
     if (quality.data == BilibiliApi.carouselQualityId) return await _carousel(longId);
+    final play = await _play(longId, quality.data);
+    final data = play.data;
+    if (data == null) return await _carousel(longId);
+    // 蓝光及以上是签出用户拿不到的档位：getRoomPlayInfo 会把它压回 250，
+    // 网关的 try_look 仍给这些档位的流。它不行再退回原请求。
+    if (jsonInt(quality.data) case final qn? when qn >= BilibiliApi.bluRayQn) {
+      try {
+        if (await _gateway(longId, data, qn) case final gateway? when gateway.lines.isNotEmpty) return gateway;
+      } on SiteError {
+        // 网关偶发空答案或风控：退回 getRoomPlayInfo 的档位。
+      }
+    }
     if (_additionalCodecs()) {
       try {
         final alternate = await _play(longId, quality.data, additionalCodecs: true);
-        if (alternate.data case final data?) {
+        if (alternate.data case final alternateData?) {
           final offered = BilibiliApi.resolution(
-            data,
+            alternateData,
             requestedQn: quality.data,
             roomId: longId,
             issuedAt: alternate.issuedAt,
@@ -519,9 +531,6 @@ final class BilibiliSite extends LiveSite
         // Retry the original public request; alternative codec metadata is optional.
       }
     }
-    final play = await _play(longId, quality.data);
-    final data = play.data;
-    if (data == null) return await _carousel(longId);
     return BilibiliApi.resolution(
       data,
       requestedQn: quality.data,
@@ -530,6 +539,19 @@ final class BilibiliSite extends LiveSite
       cookie: play.cookie,
       preferRaw: _preferRaw(),
     );
+  }
+
+  /// 蓝光及以上的线：`play-gateway/master/url` 按 [data] 的 stream_name 问一次
+  /// （流名可能有多个，第一个有答案的为准）。网关不认这个名字时答案为空，
+  /// 换下一个；全都没有则 null，由调用方退回 `getRoomPlayInfo`。
+  Future<LivePlayUrlResolution?> _gateway(String longId, Map<String, dynamic> data, int requestedQn) async {
+    final cookie = await _cookie(_current());
+    for (final name in BilibiliApi.streamNames(data)) {
+      final response = await _get(BilibiliApi.playGatewayUrl(longId, name, qn: requestedQn), cookie);
+      if (BilibiliApi.gatewayVariants(response.text).isEmpty) continue;
+      return BilibiliApi.gatewayResolution(response.text, roomId: longId, issuedAt: _now(), requestedQn: requestedQn);
+    }
+    return null;
   }
 
   /// The video [longId]'s carousel is playing (1-1): `getRoundPlayVideo`,
