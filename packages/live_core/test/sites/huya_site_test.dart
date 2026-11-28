@@ -666,8 +666,8 @@ void main() {
       final resolution = await site.resolvePlayUrls(detail: room, quality: qualities.first);
       expect(resolution.appliedQualityData, 0, reason: 'Huya does not report the delivered quality');
       expect(resolution.lines.map((line) => line.lineId), [
-        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|flv|native',
-        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|hls|web',
+        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|flv|native|avc',
+        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|hls|web|avc',
       ]);
       for (final line in resolution.lines) {
         final url = Uri.parse(line.url);
@@ -823,7 +823,7 @@ void main() {
         'https://al-game.flv.huya.com/src/$_stream1.flv?wsTime=6aba3701&ctype=tars_mp&fs=bgct&t=102'
         '&wsSecret=dacbea4ab2bb0c07f5c99e3c6ecf8874&seqid=1791848882565&ver=1&u=1134703440&codec=264',
       );
-      expect(line.lineId, 'AL|flv|web');
+      expect(line.lineId, 'AL|flv|web|avc');
       expect(line.lease!.cutsConnection, isTrue);
       expect(line.lease!.refreshAt, _now.add(const Duration(seconds: 100)));
       expect(line.lease!.expiresAt, _now.add(const Duration(seconds: 125)));
@@ -849,7 +849,7 @@ void main() {
       );
       // The recorded fm is scrubbed: FLV recovers through the web token, HLS has no fallback.
       expect(resolution.lines.map((line) => line.lineId), [
-        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|flv|web',
+        for (final cdn in ['AL', 'TX', 'HS', 'TX15', 'HS24']) '$cdn|flv|web|avc',
       ]);
       for (final line in resolution.lines) {
         final url = Uri.parse(line.url);
@@ -978,7 +978,7 @@ void main() {
       final room = await site.getRoomDetail(roomId: '660000');
       final quality = (room.data! as HuyaRoomData).qualities.first;
       final hls = await site.resolvePlayUrlAtRaw(detail: room, quality: quality, lineIndex: 5);
-      expect(hls.lines.single.lineId, 'AL|hls|web');
+      expect(hls.lines.single.lineId, 'AL|hls|web|avc');
       expect(http.on('wup.huya.com'), isEmpty, reason: 'only the requested HLS line was signed');
       for (final index in [-1, 10]) {
         expect((await site.resolvePlayUrlAtRaw(detail: room, quality: quality, lineIndex: index)).urls, isEmpty);

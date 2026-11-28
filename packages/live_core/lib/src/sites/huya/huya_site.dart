@@ -583,6 +583,8 @@ final class HuyaSite extends LiveSite
     Future<int> viewerUid() => viewer ??= _viewerUid();
     final bitRate = _bitRate(quality);
     final results = await Future.wait([for (final line in data.lines) _open(line, bitRate, roomId, viewerUid)]);
+    // 按完整 URL 去重：同一个 CDN 的 AVC 和 HEVC 只差 query 里的 codec，
+    // 不能按域名或 cdnType 合并，否则一种编码会被另一种顶掉。
     final seen = <String>{};
     final lines = [
       for (final result in results)
@@ -606,14 +608,19 @@ final class HuyaSite extends LiveSite
       final url = HuyaApi.mediaUrl(line, antiCode: signed.antiCode, bitRate: bitRate, hevc: !_preferH264());
       final lease = HuyaApi.lease(url, builtAt: _now(), token: signed.window);
       final text = url.toString();
+      final codec = HuyaApi.codecOf(url);
       _rememberLease(text, lease);
       return (
         line: LivePlayLine(
           text,
           headers: HuyaApi.mediaHeaders(roomId, userAgent: playUserAgent, cookie: _login()),
           format: line.format,
-          codec: HuyaApi.codecOf(url),
-          lineId: '${line.cdnType}|${line.format.name}|${HuyaApi.isNativeFlv(url) ? 'native' : 'web'}',
+          codec: codec,
+          // 同一 CDN/格式下 AVC 与 HEVC 是两条线（fallback 和恢复都按 lineId
+          // 认线），所以 lineId 要带上编码，未知时退回不带。
+          lineId:
+              '${line.cdnType}|${line.format.name}|${HuyaApi.isNativeFlv(url) ? 'native' : 'web'}'
+              '${codec == null ? '' : '|$codec'}',
           lease: lease,
         ),
         error: null,
