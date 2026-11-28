@@ -1973,6 +1973,7 @@
     "qr_type_address": "アドレスを入力",
     "qr_waiting_scan": "Bilibili アプリでスキャンしてログイン",
     "qrcode_login": "QR コードでログイン",
+    "quality_gateway": "ログイン不要",
     "quality_limited_to": "プラットフォームが {quality} を返しました。再生は実際の画質に合わせています",
     "quality_name_1080p": "1080p 高画質",
     "quality_name_2k": "2K 超高画質",

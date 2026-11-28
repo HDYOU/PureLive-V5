@@ -1973,6 +1973,7 @@
     "qr_type_address": "พิมพ์ที่อยู่",
     "qr_waiting_scan": "สแกนด้วยแอป Bilibili เพื่อเข้าสู่ระบบ",
     "qrcode_login": "เข้าสู่ระบบด้วยคิวอาร์โค้ด",
+    "quality_gateway": "ไม่ต้องเข้าสู่ระบบ",
     "quality_limited_to": "แพลตฟอร์มส่ง {quality} กลับมา การเล่นตอนนี้ตรงกับคุณภาพจริง",
     "quality_name_1080p": "1080p HD",
     "quality_name_2k": "2K Ultra HD",

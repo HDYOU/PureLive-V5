@@ -1973,6 +1973,7 @@
     "qr_type_address": "Digita indirizzo",
     "qr_waiting_scan": "Scansiona con l’app Bilibili per accedere",
     "qrcode_login": "Accesso con codice QR",
+    "quality_gateway": "senza accesso",
     "quality_limited_to": "La piattaforma ha restituito {quality}; la riproduzione ora corrisponde alla qualità reale",
     "quality_name_1080p": "1080p HD",
     "quality_name_2k": "2K Ultra HD",

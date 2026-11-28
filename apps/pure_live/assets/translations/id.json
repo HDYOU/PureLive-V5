@@ -1973,6 +1973,7 @@
     "qr_type_address": "Ketik alamat",
     "qr_waiting_scan": "Pindai dengan aplikasi Bilibili untuk masuk",
     "qrcode_login": "Masuk dengan Kode QR",
+    "quality_gateway": "tanpa login",
     "quality_limited_to": "Platform mengembalikan {quality}; pemutaran kini sesuai kualitas sebenarnya",
     "quality_name_1080p": "1080p HD",
     "quality_name_2k": "2K Ultra HD",

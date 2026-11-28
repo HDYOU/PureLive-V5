@@ -182,7 +182,7 @@ class _RoomStreamPanelState extends State<RoomStreamPanel> {
   /// Whether [index] is the quality that plays.
   bool _playingQuality(int? index) => !_replay && index == _room.qualityIndex;
 
-  String get _qualityName => _quality == null ? '' : platformQualityName(_room.qualities[_quality!].quality);
+  String get _qualityName => _quality == null ? '' : platformQualityLabel(_room.qualities[_quality!]);
 
   String _lineName(int index) {
     final metadata = _lineInfo;
@@ -270,7 +270,7 @@ class _RoomStreamPanelState extends State<RoomStreamPanel> {
             if (!_room.isArchive || index == _room.qualityIndex)
               DialogOptionRow(
                 key: ValueKey('stream-quality-$index'),
-                label: platformQualityName(quality.quality),
+                label: platformQualityLabel(quality),
                 description: _playingQuality(index) ? i18n('now_playing') : null,
                 selected: _playingQuality(index),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),

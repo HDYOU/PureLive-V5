@@ -133,7 +133,15 @@ final class LiveAnchorItem {
 @immutable
 final class LivePlayQuality {
   /// Creates a quality.
-  const new({required this.quality, this.data, this.id, this.sort = 0, this.isPlaybackUnconfirmed = false, this.codec});
+  const new({
+    required this.quality,
+    this.data,
+    this.id,
+    this.sort = 0,
+    this.isPlaybackUnconfirmed = false,
+    this.codec,
+    this.gateway = false,
+  });
 
   /// Label shown to the user.
   final String quality;
@@ -160,6 +168,25 @@ final class LivePlayQuality {
   /// quality when choosing where a room starts (G01.3).
   final String? codec;
 
+  /// The tier is served by the platform's signed-out gateway (Bilibili 蓝光
+  /// and above, which `getRoomPlayInfo` withholds from guests). A label
+  /// hint only: it is not part of the identity ([selectionId]) and does not
+  /// change which stream is requested.
+  final bool gateway;
+
+  /// A copy with [gateway] set.
+  LivePlayQuality withGateway({bool gateway = true}) => gateway == this.gateway
+      ? this
+      : LivePlayQuality(
+          quality: quality,
+          data: data,
+          id: id,
+          sort: sort,
+          isPlaybackUnconfirmed: isPlaybackUnconfirmed,
+          codec: codec,
+          gateway: gateway,
+        );
+
   /// A copy with [isPlaybackUnconfirmed] set to [unconfirmed].
   LivePlayQuality withPlaybackUnconfirmed({required bool unconfirmed}) => unconfirmed == isPlaybackUnconfirmed
       ? this
@@ -170,6 +197,7 @@ final class LivePlayQuality {
           sort: sort,
           isPlaybackUnconfirmed: unconfirmed,
           codec: codec,
+          gateway: gateway,
         );
 
   /// The identity of this option: [id], or the label for adapters without

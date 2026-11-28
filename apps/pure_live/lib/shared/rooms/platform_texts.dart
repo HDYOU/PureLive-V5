@@ -232,6 +232,14 @@ String platformAreaName(String platform, String name) {
   return key == null ? name : i18n(key);
 }
 
+/// The label of a quality entry in a menu: its name in the interface
+/// language, `免登录` when only the signed-out gateway can serve it, and `?`
+/// while the platform did not confirm it.
+String platformQualityLabel(LivePlayQuality quality) =>
+    '${platformQualityName(quality.quality)}'
+    '${quality.gateway ? ' · ${i18n('quality_gateway')}' : ''}'
+    '${quality.isPlaybackUnconfirmed ? '?' : ''}';
+
 /// The quality [name] in the interface language: a shared name or one an
 /// adapter gave, part by part (`原画 · FLV`); others as they are.
 String platformQualityName(String name) {

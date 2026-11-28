@@ -428,6 +428,8 @@ void main() {
       final room = LiveRoom(platform: 'bilibili', roomId: '42062');
       final qualities = await setup.site.getPlayQualities(detail: room);
       expect(qualities.map((quality) => quality.id), [10000, 400, 250]);
+      // 签出用户：蓝光及以上的档位只有网关给，菜单里标「免登录」。
+      expect([for (final quality in qualities) quality.gateway], [true, true, false]);
       final resolution = await setup.site.resolvePlayUrls(detail: room, quality: qualities.first);
       expect(resolution.appliedQualityData, 250);
       expect(resolution.lines.first.headers['referer'], 'https://live.bilibili.com/42062');

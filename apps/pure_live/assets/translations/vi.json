@@ -1973,6 +1973,7 @@
     "qr_type_address": "Nhập địa chỉ",
     "qr_waiting_scan": "Quét bằng ứng dụng Bilibili để đăng nhập",
     "qrcode_login": "Đăng nhập bằng mã QR",
+    "quality_gateway": "không cần đăng nhập",
     "quality_limited_to": "Nền tảng trả về {quality}; phát lại giờ khớp với chất lượng thực",
     "quality_name_1080p": "1080p HD",
     "quality_name_2k": "2K Ultra HD",

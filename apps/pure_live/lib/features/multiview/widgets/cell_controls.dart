@@ -17,7 +17,7 @@ import 'package:pure_live/shared/rooms/room_texts.dart';
 /// A quality's label; "?" marks one the platform has not confirmed (as the
 /// live room).
 String qualityLabel(LivePlayQuality quality) =>
-    '${platformQualityName(quality.quality)}${quality.isPlaybackUnconfirmed ? '?' : ''}';
+    '${platformQualityLabel(quality)}${quality.isPlaybackUnconfirmed ? '?' : ''}';
 
 /// The visible size of a control button (docs/A-界面设计/A13-网络电视和多画面界面/A13.2-多画面, `.sr2 .ib`).
 const double _buttonSize = 40;
@@ -288,7 +288,7 @@ class _StreamButtons extends StatelessWidget {
               entryKey: 'multiview-quality-item',
               tooltip: i18n('select_quality'),
               label: qualityLabel(qualities[current]),
-              entries: [for (final quality in qualities) platformQualityName(quality.quality)],
+              entries: [for (final quality in qualities) platformQualityLabel(quality)],
               current: current,
               busy: cell.switching,
               enabled: !cell.switching,

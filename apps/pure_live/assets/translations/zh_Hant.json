@@ -1972,6 +1972,7 @@
     "qr_type_address": "輸入地址",
     "qr_waiting_scan": "請使用嗶哩嗶哩手機客戶端掃碼登入",
     "qrcode_login": "二維碼登陸",
+    "quality_gateway": "免登入",
     "quality_limited_to": "平臺實際返回 {quality}，已按真實畫質播放",
     "quality_name_1080p": "1080P 高畫質",
     "quality_name_2k": "2K 超清",

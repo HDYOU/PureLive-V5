@@ -483,7 +483,15 @@ final class BilibiliSite extends LiveSite
   @override
   Future<List<LivePlayQuality>> getPlayQualities({required LiveRoom detail}) async {
     final data = (await _play(_longId(detail), 0)).data;
-    return data == null ? const [BilibiliApi.carouselQuality] : BilibiliApi.qualities(data);
+    if (data == null) return const [BilibiliApi.carouselQuality];
+    final qualities = BilibiliApi.qualities(data);
+    // 签出用户：蓝光及以上只有网关给（getRoomPlayInfo 会压回 250），标出来，
+    // 菜单里就能看出这些档位是免登录试看拿到的。登录用户直接拿得到，不标。
+    if (_uid(_current()) > 0) return qualities;
+    return [
+      for (final quality in qualities)
+        if (jsonInt(quality.data) case final qn? when qn >= BilibiliApi.bluRayQn) quality.withGateway() else quality,
+    ];
   }
 
   @override

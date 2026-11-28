@@ -1972,6 +1972,7 @@
     "qr_type_address": "输入地址",
     "qr_waiting_scan": "请使用哔哩哔哩手机客户端扫码登录",
     "qrcode_login": "二维码登陆",
+    "quality_gateway": "免登录",
     "quality_limited_to": "平台实际返回 {quality}，已按真实画质播放",
     "quality_name_1080p": "1080P 高清",
     "quality_name_2k": "2K 超清",

@@ -1973,6 +1973,7 @@
     "qr_type_address": "Digitar endereço",
     "qr_waiting_scan": "Escaneie com o app do Bilibili para entrar",
     "qrcode_login": "Login por QR code",
+    "quality_gateway": "sem login",
     "quality_limited_to": "A plataforma retornou {quality}; a reprodução agora corresponde à qualidade real",
     "quality_name_1080p": "1080p HD",
     "quality_name_2k": "2K Ultra HD",

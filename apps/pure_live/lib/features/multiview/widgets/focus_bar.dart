@@ -113,7 +113,7 @@ class FocusControlBar extends StatelessWidget {
                             entryKey: 'multiview-bar-quality-item',
                             tooltip: i18n('select_quality'),
                             label: qualityLabel(qualities[cell.qualityIndex.clamp(0, qualities.length - 1)]),
-                            entries: [for (final quality in qualities) platformQualityName(quality.quality)],
+                            entries: [for (final quality in qualities) platformQualityLabel(quality)],
                             current: cell.qualityIndex,
                             busy: cell.switching,
                             enabled: !cell.switching,
