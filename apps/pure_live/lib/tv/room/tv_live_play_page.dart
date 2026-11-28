@@ -761,7 +761,7 @@ class TvLivePlayPageState extends ConsumerState<TvLivePlayPage> {
       current: state.lineIndex,
       options: [
         for (var index = 0; index < state.lineCount; index++)
-          TvChoice(value: index, label: lines.name(index), description: lines.detailed ? lines.origins[index] : null),
+          TvChoice(value: index, label: lines.name(index), description: lines.detailed ? lines.details[index] : null),
       ],
     );
     if (picked != null && picked != state.lineIndex) unawaited(controller.selectLine(picked));

@@ -31,6 +31,33 @@ String playbackLineName(int index, {LivePlayLine? line, String? detectedCodec}) 
   return tags.isEmpty ? base : '$base（${tags.join(', ')}）';
 }
 
+/// The container a line delivers, as the upper-case tag the details show.
+/// Naming falls back to the path extension when the line does not declare
+/// one (a pasted link). `other` is one whole response whose container is
+/// only known after its first bytes (IPTV MPEG-TS, udpxy), so it is not
+/// named.
+String? playbackLineFormat(LivePlayLine? line) {
+  switch (line?.format) {
+    case StreamFormat.flv:
+      return 'FLV';
+    case StreamFormat.hls:
+      return 'HLS';
+    case StreamFormat.other:
+      return null;
+    case null:
+      break;
+  }
+  final path = Uri.tryParse(line?.url ?? '')?.path.toLowerCase() ?? '';
+  if (path.isEmpty) return null;
+  if (path.endsWith('.m3u8')) return 'HLS';
+  if (path.endsWith('.flv')) return 'FLV';
+  return null;
+}
+
+/// The details under a choice: the container, then the public CDN host.
+/// Empty when nothing safe can be said.
+String playbackLineDetail(LivePlayLine? line) => [?playbackLineFormat(line), playbackLineOrigin(line)].join(' · ');
+
 /// A choice can identify its CDN without exposing URL paths, signatures or headers.
 String playbackLineOrigin(LivePlayLine? line) {
   final url = line == null ? null : Uri.tryParse(line.url);
@@ -110,6 +137,15 @@ final class PlaybackLinePresentation extends ChangeNotifier {
   String name(int index) {
     final names = labels;
     return index >= 0 && index < names.length ? names[index] : playbackLineName(index);
+  }
+
+  /// Container and public CDN host per line; owned recipe inputs deliberately
+  /// have no exported origin.
+  List<String> get details {
+    final metadata = lines;
+    return [
+      for (var i = 0; i < session.state.lineCount; i++) playbackLineDetail(i < metadata.length ? metadata[i] : null),
+    ];
   }
 
   /// Public CDN hosts only; owned recipe inputs deliberately have no exported origin.
@@ -237,6 +273,9 @@ final class PlaybackLineChoices {
 
   /// Extra descriptions disappear together with detailed names.
   List<String> get origins => presentation?.origins ?? List.filled(session.state.lineCount, '');
+
+  /// Container and host descriptions, empty in concise mode.
+  List<String> get details => presentation?.details ?? List.filled(session.state.lineCount, '');
 
   /// Current selection or a safe fallback.
   String name(int index) => presentation?.name(index) ?? playbackLineName(index);

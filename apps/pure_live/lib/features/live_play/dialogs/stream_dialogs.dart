@@ -290,12 +290,12 @@ class _RoomStreamPanelState extends State<RoomStreamPanel> {
     // The line that plays, when this is the quality that plays.
     final playing = _playingQuality(_quality) ? _room.session.state.lineIndex : null;
     String? description(int index, String url) {
-      final origin = playbackLineOrigin(
+      final detail = playbackLineDetail(
         _lineInfo != null && index < _lineInfo!.length ? _lineInfo![index] : LivePlayLine(url),
       );
       final parts = [
         if (index == playing) i18n('now_playing'),
-        if ((_lineChoices?.detailed ?? false) && origin.isNotEmpty) origin,
+        if ((_lineChoices?.detailed ?? false) && detail.isNotEmpty) detail,
       ];
       return parts.isEmpty ? null : parts.join(' · ');
     }

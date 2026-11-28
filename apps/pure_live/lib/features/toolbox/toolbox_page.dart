@@ -124,7 +124,7 @@ class _ToolboxPageState extends ConsumerState<ToolboxPage> {
             title: i18n('toolbox_select_line'),
             items: urls,
             label: (line, index) => playbackLineName(index, line: details ? line : null),
-            subtitle: details ? playbackLineOrigin : null,
+            subtitle: details ? playbackLineDetail : null,
           );
         },
       ),

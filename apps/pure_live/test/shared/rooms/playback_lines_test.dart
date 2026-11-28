@@ -88,6 +88,25 @@ void main() {
     expect(playbackCodecName('avc1.640028'), 'H.264');
     expect(playbackCodecName('HEVC (Main 10) / H.265'), 'H.265');
     expect(playbackCodecName('av01'), 'AV1');
+  });
+
+  test('line details name the container, then the public host', () {
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/x.flv', format: StreamFormat.flv)), 'FLV');
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/x.m3u8', format: StreamFormat.hls)), 'HLS');
+    // A pasted link declares no format: the extension names it.
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/x.m3u8?token=1')), 'HLS');
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/x.flv?token=1')), 'FLV');
+    // `other` is a whole response whose container only its bytes tell.
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/live', format: StreamFormat.other)), isNull);
+    expect(playbackLineFormat(const LivePlayLine('https://a.test/live')), isNull);
+    expect(playbackLineFormat(null), isNull);
+    expect(
+      playbackLineDetail(const LivePlayLine('https://al.flv.huya.com/src/a.flv', format: StreamFormat.flv)),
+      'FLV · al.flv.huya.com',
+    );
+    expect(playbackLineDetail(const LivePlayLine('https://al.hls.huya.com/src/a.m3u8')), 'HLS · al.hls.huya.com');
+    expect(playbackLineDetail(null), '');
+    expect(playbackLineDetail(const LivePlayLine('not a url')), '');
     expect(playbackCodecName('vp09'), 'VP9');
     expect(playbackCodecName('private-token-or-unknown'), isNull);
   });
