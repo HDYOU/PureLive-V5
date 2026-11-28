@@ -931,7 +931,7 @@ abstract final class DouyuApi {
     final alternate = decodeHtmlEntities(jsonString(data['player_1']) ?? '');
     String? codec(String url) {
       final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';
-      return _hevcPath.hasMatch(path) ? 'hevc' : (_avcPath.hasMatch(path) ? 'avc' : null);
+      return _hevcPath.hasMatch(path) ? 'hevc' : (_avcPath.hasMatch(path) ? 'avc' : 'avc');
     }
 
     // The current official web player selects player_1 as H.265 explicitly;
