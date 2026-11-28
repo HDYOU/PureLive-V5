@@ -97,9 +97,9 @@ final class HuyaSite extends LiveSite
   /// [playConfigUrls] are raced for the player configuration (3.x read it
   /// from the GitHub mirrors of the upstream repository). [preferH264]
   /// reads "优先 H.264" (on by default): on, every line asks for H.264 as
-  /// 3.x did; off, FLV lines ask for HEVC (`codec=265`), which a room
-  /// without an HEVC transcode answers with H.264. [now] and [random] are
-  /// injectable for tests.
+  /// 3.x did; off, each FLV line is opened twice, `codec=265` (HEVC) then
+  /// `codec=264` (AVC), since FLV serves both, and HLS keeps `codec=264`.
+  /// [now] and [random] are injectable for tests.
   new(
     this.http, {
     this._cookies,
@@ -469,7 +469,9 @@ final class HuyaSite extends LiveSite
   }
 
   /// Signs only line [lineIndex] (recording asks for one line at a time);
-  /// an index past the last line gives no URLs. A replay has one line.
+  /// an index past the last line gives no URLs. With "优先 H.264" off each
+  /// FLV line counts twice (`265` then `264`), so the index follows the
+  /// lines `resolvePlayUrls` returns, not the raw `multiLine` entries.
   @override
   Future<LivePlayUrlResolution> resolvePlayUrlAtRaw({
     required LiveRoom detail,
@@ -478,15 +480,23 @@ final class HuyaSite extends LiveSite
   }) async {
     final data = await _roomData(detail);
     if (data.replay case final replay? when lineIndex == 0) return _replayLines(detail.roomId, replay, quality);
-    if (lineIndex < 0 || lineIndex >= data.lines.length) {
-      return LivePlayUrlResolution(urls: const [], appliedQualityData: quality.selectionId);
-    }
+    if (lineIndex < 0) return LivePlayUrlResolution(urls: const [], appliedQualityData: quality.selectionId);
     Future<int>? viewer;
-    final opened = await _open(data.lines[lineIndex], _bitRate(quality), detail.roomId, () => viewer ??= _viewerUid());
-    if (opened.line case final line?) {
-      return LivePlayUrlResolution.lines([line], appliedQualityData: quality.selectionId);
+    var index = lineIndex;
+    for (final line in data.lines) {
+      final count = line.format == StreamFormat.flv && !_preferH264() ? 2 : 1;
+      if (index >= count) {
+        index -= count;
+        continue;
+      }
+      final opened = await _open(line, _bitRate(quality), detail.roomId, () => viewer ??= _viewerUid());
+      final chosen = index < opened.length ? opened[index] : opened.first;
+      if (chosen.line case final line?) {
+        return LivePlayUrlResolution.lines([line], appliedQualityData: quality.selectionId);
+      }
+      throw chosen.error!;
     }
-    throw opened.error!;
+    return LivePlayUrlResolution(urls: const [], appliedQualityData: quality.selectionId);
   }
 
   @override
@@ -582,7 +592,8 @@ final class HuyaSite extends LiveSite
     Future<int>? viewer;
     Future<int> viewerUid() => viewer ??= _viewerUid();
     final bitRate = _bitRate(quality);
-    final results = await Future.wait([for (final line in data.lines) _open(line, bitRate, roomId, viewerUid)]);
+    final opened = await Future.wait([for (final line in data.lines) _open(line, bitRate, roomId, viewerUid)]);
+    final results = [for (final group in opened) ...group];
     // 按完整 URL 去重：同一个 CDN 的 AVC 和 HEVC 只差 query 里的 codec，
     // 不能按域名或 cdnType 合并，否则一种编码会被另一种顶掉。
     final seen = <String>{};
@@ -600,43 +611,60 @@ final class HuyaSite extends LiveSite
         StreamUnavailable(_site, 'no line could be signed (${errors.map((error) => error.kind).toSet().join(', ')})');
   }
 
-  /// One line signed, with its URL, headers and lease. Failures stay with
-  /// the line (REG-HUYA-011); only cancellation escapes.
-  Future<_Opened> _open(HuyaLine line, int bitRate, String roomId, Future<int> Function() viewer) async {
+  /// One line signed, then its URLs: an FLV line with "优先 H.264" off is
+  /// opened twice (`codec=265` and `codec=264`), since FLV serves both; HLS
+  /// and the default setting give one URL (`codec=264`). The signature is
+  /// asked once for all of them. Failures stay with the line
+  /// (REG-HUYA-011); only cancellation escapes.
+  Future<List<_Opened>> _open(HuyaLine line, int bitRate, String roomId, Future<int> Function() viewer) async {
     try {
       final signed = await _sign(line, viewer);
-      final url = HuyaApi.mediaUrl(line, antiCode: signed.antiCode, bitRate: bitRate, hevc: !_preferH264());
-      final lease = HuyaApi.lease(url, builtAt: _now(), token: signed.window);
-      final text = url.toString();
-      final codec = HuyaApi.codecOf(url, format: line.format);
-      _rememberLease(text, lease);
-      return (
-        line: LivePlayLine(
-          text,
-          headers: HuyaApi.mediaHeaders(roomId, userAgent: playUserAgent, cookie: _login()),
-          format: line.format,
-          codec: codec,
-          // 同一 CDN/格式下 AVC 与 HEVC 是两条线（fallback 和恢复都按 lineId
-          // 认线），所以 lineId 要带上编码，未知时退回不带。
-          lineId:
-              '${line.cdnType}|${line.format.name}|${HuyaApi.isNativeFlv(url) ? 'native' : 'web'}'
-              '${codec == null ? '' : '|$codec'}',
-          lease: lease,
-        ),
-        error: null,
-        expired: false,
-      );
+      final both = line.format == StreamFormat.flv && !_preferH264();
+      return [
+        for (final hevc in both ? const [true, false] : const [false])
+          _opened(line, signed, bitRate, roomId, hevc: hevc),
+      ];
     } on HuyaSignException catch (failure) {
       final expired = failure.kind == HuyaSignFailure.expired;
       final detail = '$line: ${failure.reason}';
-      return (
-        line: null,
-        error: expired ? StreamUnavailable(_site, detail) : ApiChanged(_site, detail),
-        expired: expired,
-      );
+      return [
+        (line: null, error: expired ? StreamUnavailable(_site, detail) : ApiChanged(_site, detail), expired: expired),
+      ];
     } on SiteError catch (error) {
-      return (line: null, error: error, expired: false);
+      return [(line: null, error: error, expired: false)];
     }
+  }
+
+  /// One URL of a signed [line] ([hevc] asks `codec=265` on FLV) with its
+  /// lease; the signature is shared with its sibling.
+  _Opened _opened(
+    HuyaLine line,
+    ({String antiCode, HuyaTokenWindow? window}) signed,
+    int bitRate,
+    String roomId, {
+    required bool hevc,
+  }) {
+    final url = HuyaApi.mediaUrl(line, antiCode: signed.antiCode, bitRate: bitRate, hevc: hevc);
+    final lease = HuyaApi.lease(url, builtAt: _now(), token: signed.window);
+    final text = url.toString();
+    final codec = HuyaApi.codecOf(url, format: line.format);
+    _rememberLease(text, lease);
+    return (
+      line: LivePlayLine(
+        text,
+        headers: HuyaApi.mediaHeaders(roomId, userAgent: playUserAgent, cookie: _login()),
+        format: line.format,
+        codec: codec,
+        // 同一 CDN/格式下 AVC 与 HEVC 是两条线（fallback 和恢复都按 lineId
+        // 认线），所以 lineId 要带上编码，未知时退回不带。
+        lineId:
+            '${line.cdnType}|${line.format.name}|${HuyaApi.isNativeFlv(url) ? 'native' : 'web'}'
+            '${codec == null ? '' : '|$codec'}',
+        lease: lease,
+      ),
+      error: null,
+      expired: false,
+    );
   }
 
   /// The signed query of [line] (3.x `getPlayUrl`):

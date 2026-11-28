@@ -633,7 +633,7 @@ void main() {
   });
 
   group('streams', () {
-    test('优先 H.264 off: FLV lines ask for HEVC (codec hevc), HLS stays on H.264; read on every open', () async {
+    test('优先 H.264 off: every FLV line opens twice (265 then 264), HLS stays on 264; read on every open', () async {
       var preferH264 = false;
       final http = _Http(
         [_patched('S05-multicdn', antiCode: _withTemplate)],
@@ -643,15 +643,31 @@ void main() {
       final site = _site(http, preferH264: () => preferH264);
       final room = await site.getRoomDetail(roomId: '660000');
       final quality = (await site.getPlayQualities(detail: room)).first;
-      final hevc = await site.resolvePlayUrls(detail: room, quality: quality);
-      for (final line in hevc.lines) {
-        final flv = line.format == StreamFormat.flv;
-        expect(Uri.parse(line.url).queryParameters['codec'], flv ? '265' : '264');
-        expect(line.codec, flv ? 'hevc' : 'avc', reason: 'codec 为空时按 URL 的 codec 判断');
+      final both = await site.resolvePlayUrls(detail: room, quality: quality);
+      final byCdn = <String, List<String>>{};
+      for (final line in both.lines) {
+        final url = Uri.parse(line.url);
+        final codec = url.queryParameters['codec'];
+        if (line.format == StreamFormat.flv) {
+          (byCdn[line.lineId!.substring(0, line.lineId!.lastIndexOf('|'))] ??= []).add(codec!);
+          expect(line.codec, codec == '265' ? 'hevc' : 'avc', reason: 'FLV 两种编码都按 URL 判断');
+        } else {
+          expect(codec, '264', reason: 'HLS 恒 AVC');
+          expect(line.codec, 'avc');
+        }
       }
+      expect(byCdn.values, hasLength(5), reason: 'each CDN keeps its own two lines');
+      for (final codes in byCdn.values) {
+        expect(codes, ['265', '264'], reason: 'HEVC first, then AVC; one signature serves both');
+      }
+      expect(both.lines, hasLength(15), reason: '5 FLV CDNs opened twice + 5 HLS');
+      final ids = both.lines.map((line) => line.lineId).toList();
+      expect(ids.toSet(), hasLength(15), reason: 'AVC and HEVC of one CDN are different lines');
+
       preferH264 = true;
       final avc = await site.resolvePlayUrls(detail: room, quality: quality);
       expect(avc.lines.map((line) => Uri.parse(line.url).queryParameters['codec']), everyElement('264'));
+      expect(avc.lines, hasLength(10), reason: 'the setting on asks FLV for AVC only');
     });
 
     test('S05-multicdn: native FLV on every CDN, then web-signed HLS, in server order', () async {
