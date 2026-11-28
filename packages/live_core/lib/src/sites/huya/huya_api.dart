@@ -833,11 +833,13 @@ abstract final class HuyaApi {
     return Uri.parse('$base/${line.streamName}.$extension?$query');
   }
 
-  /// The video codec a media URL is known to deliver: `codec=264` is AVC.
-  /// `codec=265` only asks for HEVC (a room without an HEVC transcode
-  /// answers H.264), so it is unknown (null).
+  /// The video codec a media URL asks for: `codec=264` is AVC, `codec=265`
+  /// is HEVC. A room without an HEVC transcode may still answer H.264 to a
+  /// `codec=265` URL (2026-10-01), so this is what the URL requests rather
+  /// than a promise of what arrives; the decoded picture wins.
   static String? codecOf(Uri url) => switch (_parseMap(url.query)['codec']) {
     '264' => 'avc',
+    '265' => 'hevc',
     _ => null,
   };
 

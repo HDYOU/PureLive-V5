@@ -808,9 +808,11 @@ void main() {
     test('a captured ratio is replaced, the source removes it, a codec is kept (REG-HUYA-012)', () {
       expect(HuyaApi.mediaQuery('a=1&codec=265&ratio=4000&ratio=9', bitRate: 2000), 'a=1&codec=265&ratio=2000');
       expect(HuyaApi.mediaQuery('a=1&ratio=500', bitRate: 0), 'a=1&codec=264');
-      // codec=265 only asks: a room without an HEVC transcode answers H.264.
-      expect(HuyaApi.codecOf(Uri.parse('https://x/y.flv?codec=265')), isNull);
+      // codec=265 asks for HEVC; a room without an HEVC transcode may still
+      // answer H.264, but the URL itself says HEVC.
+      expect(HuyaApi.codecOf(Uri.parse('https://x/y.flv?codec=265')), 'hevc');
       expect(HuyaApi.codecOf(Uri.parse('https://x/y.flv?codec=264')), 'avc');
+      expect(HuyaApi.codecOf(Uri.parse('https://x/y.flv?wsSecret=a')), isNull);
     });
 
     test('with hevc (优先 H.264 off) an FLV line asks for codec=265, HLS stays on 264, a captured codec is kept', () {

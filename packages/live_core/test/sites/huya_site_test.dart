@@ -633,7 +633,7 @@ void main() {
   });
 
   group('streams', () {
-    test('优先 H.264 off: FLV lines ask for HEVC (codec unknown), HLS stays on H.264; read on every open', () async {
+    test('优先 H.264 off: FLV lines ask for HEVC (codec hevc), HLS stays on H.264; read on every open', () async {
       var preferH264 = false;
       final http = _Http(
         [_patched('S05-multicdn', antiCode: _withTemplate)],
@@ -647,7 +647,7 @@ void main() {
       for (final line in hevc.lines) {
         final flv = line.format == StreamFormat.flv;
         expect(Uri.parse(line.url).queryParameters['codec'], flv ? '265' : '264');
-        expect(line.codec, flv ? isNull : 'avc');
+        expect(line.codec, flv ? 'hevc' : 'avc', reason: 'codec 为空时按 URL 的 codec 判断');
       }
       preferH264 = true;
       final avc = await site.resolvePlayUrls(detail: room, quality: quality);
